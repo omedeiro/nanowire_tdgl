@@ -66,12 +66,15 @@ class Solution:
     # -- slicing helpers for 2-D plots ----------------------------------------
 
     def _reshape_interior(self, arr: NDArray, slice_z: int = 0) -> NDArray:
-        """Reshape an interior-node array to (Nx-1, Ny-1) at a given z-slice."""
+        """Reshape an interior-node array to (Nx-1, Ny-1) at a given z-slice.
+
+        The interior vector is C-order ravelled from shape
+        ``(Nx-1, Ny-1, Nz-1)`` with k (z) varying **fastest**.
+        """
         Nx, Ny, Nz = self.params.Nx, self.params.Ny, self.params.Nz
-        n_xy = (Nx - 1) * (Ny - 1)
         if self.params.is_3d:
-            offset = n_xy * slice_z
-            return arr[offset : offset + n_xy].reshape(Nx - 1, Ny - 1)
+            cube = arr.reshape(Nx - 1, Ny - 1, max(Nz - 1, 1))
+            return cube[:, :, slice_z]
         return arr.reshape(Nx - 1, Ny - 1)
 
     def psi_squared_2d(self, step: int = -1, slice_z: int = 0) -> NDArray[np.float64]:
