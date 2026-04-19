@@ -45,24 +45,24 @@ LX_XI = LX_UM / UM_PER_XI         # 50 ξ
 LY_XI = LY_UM / UM_PER_XI         # 50 ξ
 
 # Grid
-HX = HY = HZ = 1.0                # grid spacing in ξ
-NX = int(LX_XI / HX)              # 50
-NY = int(LY_XI / HY)              # 50
+HX = HY = HZ = 0.75               # grid spacing in ξ (intermediate mesh)
+NX = int(LX_XI / HX)              # ~67
+NY = int(LY_XI / HY)              # ~67
 KAPPA = 2.0                        # GL parameter
 
-# Trilayer stack: 3 SC + 1 I + 3 SC  →  Nz = 7
-SC_THICKNESS = 3                   # z-cells per SC layer
-INS_THICKNESS = 1                  # z-cells for insulator
+# Trilayer stack: 8 SC + 8 I + 8 SC  →  Nz = 24
+SC_THICKNESS = 8                   # z-cells per SC layer
+INS_THICKNESS = 8                  # z-cells for insulator
 
 # Hole bounds in µm (centred at origin)
 HOLE_X_MIN_UM, HOLE_X_MAX_UM = -1.0, 1.0
 HOLE_Y_MIN_UM, HOLE_Y_MAX_UM = -0.2, 0.2
 
 # Time integration
-DT = 0.02
-T_STOP = 50.0
-BZ = 0.5
-SAVE_EVERY = 10
+DT = 0.01
+T_STOP = 15.0
+BZ = 1.5
+SAVE_EVERY = 50
 
 
 def um_to_grid_index(coord_um: float, L_um: float, N: int) -> int:
@@ -231,8 +231,8 @@ def _psi_3d(solution: Solution, step: int = -1) -> np.ndarray:
     return solution.psi(step).reshape(p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1))
 
 
-def _get_psi2_slice(solution: Solution, axis: str, index: int) -> np.ndarray:
-    psi3d = _psi_3d(solution)
+def _get_psi2_slice(solution: Solution, axis: str, index: int, step: int = -1) -> np.ndarray:
+    psi3d = _psi_3d(solution, step=step)
     if axis == "z":
         return np.abs(psi3d[:, :, index]) ** 2
     elif axis == "y":
@@ -242,8 +242,8 @@ def _get_psi2_slice(solution: Solution, axis: str, index: int) -> np.ndarray:
     raise ValueError(axis)
 
 
-def _get_phase_slice(solution: Solution, axis: str, index: int) -> np.ndarray:
-    psi3d = _psi_3d(solution)
+def _get_phase_slice(solution: Solution, axis: str, index: int, step: int = -1) -> np.ndarray:
+    psi3d = _psi_3d(solution, step=step)
     if axis == "z":
         return np.angle(psi3d[:, :, index])
     elif axis == "y":
@@ -347,7 +347,7 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
     cmap1 = cm.inferno
     norm1 = Normalize(vmin=0, vmax=1)
     _paint_surfaces(ax1, solution,
-                    lambda a, i: _get_psi2_slice(solution, a, i),
+                    lambda a, i: _get_psi2_slice(solution, a, i, step=-1),
                     cmap1, norm1, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
@@ -362,7 +362,7 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
     cmap2 = cm.twilight_shifted
     norm2 = Normalize(vmin=-np.pi, vmax=np.pi)
     _paint_surfaces(ax2, solution,
-                    lambda a, i: _get_phase_slice(solution, a, i),
+                    lambda a, i: _get_phase_slice(solution, a, i, step=-1),
                     cmap2, norm2, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax2, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
@@ -378,6 +378,58 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
                 facecolor=fig.get_facecolor())
     print(f"Saved {filename}")
     plt.close(fig)
+
+
+def animate_isometric(solution: Solution, device: tdgl3d.Device,
+                      filename: str = "sis_square_with_hole.gif",
+                      fps: int = 6, step_stride: int = 1) -> str:
+    """Create an animated GIF of the isometric |ψ|² view over time."""
+    from matplotlib.animation import FuncAnimation, PillowWriter
+
+    p = solution.params
+    nx_int, ny_int, nz_int = p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1)
+
+    x_lo = (1 * p.hx) * UM_PER_XI - LX_UM / 2.0
+    x_hi = (p.Nx * p.hx) * UM_PER_XI - LX_UM / 2.0
+    y_lo = (1 * p.hy) * UM_PER_XI - LY_UM / 2.0
+    y_hi = (p.Ny * p.hy) * UM_PER_XI - LY_UM / 2.0
+    z_lo, z_hi = 1 * p.hz, p.Nz * p.hz
+
+    xs = np.linspace(x_lo, x_hi, nx_int)
+    ys = np.linspace(y_lo, y_hi, ny_int)
+    zs = np.linspace(z_lo, z_hi, nz_int)
+
+    steps = list(range(0, solution.n_steps, step_stride))
+
+    fig = plt.figure(figsize=(10, 8))
+    fig.patch.set_facecolor("#1a1a2e")
+
+    def draw_frame(frame_idx):
+        fig.clf()
+        s = steps[frame_idx]
+        ax = fig.add_subplot(111, projection="3d")
+        cmap1 = cm.inferno
+        norm1 = Normalize(vmin=0, vmax=1)
+
+        _paint_surfaces(ax, solution,
+                        lambda a, i, _s=s: _get_psi2_slice(solution, a, i, step=_s),
+                        cmap1, norm1, xs, ys, zs,
+                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        _draw_wireframe(ax, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+
+        sm = cm.ScalarMappable(cmap=cmap1, norm=norm1); sm.set_array([])
+        cb = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.10, shrink=0.65)
+        _style_ax(ax, fig, cb, "|ψ|²")
+        ax.set_title(
+            f"|ψ|²  t = {solution.times[s]:.2f}   (B$_z$ ramp 0→{BZ})",
+            fontsize=12, color="white", pad=12,
+        )
+        return []
+
+    anim = FuncAnimation(fig, draw_frame, frames=len(steps), blit=False)
+    anim.save(filename, writer=PillowWriter(fps=fps))
+    plt.close(fig)
+    return filename
 
 
 def main() -> None:
@@ -445,18 +497,12 @@ def main() -> None:
     plot_xy_overview(solution, device)
     plot_isometric(solution, device)
 
-    # ── Animation ──────────────────────────────────────────────────────
-    z_ranges = device.trilayer.z_ranges()
-    k_bot = (z_ranges["bottom"][0] + z_ranges["bottom"][1]) // 2
-    sz_bot = max(k_bot - 1, 0)
-
-    from tdgl3d.visualization.plotting import animate
-    gif_path = animate(
-        solution,
+    # ── Animation (isometric |ψ|²) ───────────────────────────────────
+    gif_path = animate_isometric(
+        solution, device,
         filename="sis_square_with_hole.gif",
-        slice_z=sz_bot,
-        fps=8,
-        step_stride=1,
+        fps=6,
+        step_stride=2,
     )
     print(f"Saved animation → {gif_path}")
 
