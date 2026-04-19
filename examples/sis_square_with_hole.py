@@ -61,7 +61,7 @@ HOLE_Y_MIN_UM, HOLE_Y_MAX_UM = -0.2, 0.2
 # Time integration
 DT = 0.01
 T_STOP = 30.0
-BZ = 1.5
+BZ = 0.5
 SAVE_EVERY = 50
 
 
@@ -543,9 +543,15 @@ def _get_bz_full_slice(solution: Solution, device, axis: str, index: int, step: 
 
 
 def animate_isometric(solution: Solution, device: tdgl3d.Device,
-                      filename: str = "sis_square_with_hole.gif",
-                      fps: int = 6, step_stride: int = 1) -> str:
-    """Create an animated GIF with 4 isometric panels: |ψ|², phase, Bz, |J_s|."""
+                      prefix: str = "sis_square_with_hole",
+                      fps: int = 6, step_stride: int = 1) -> list[str]:
+    """Create 4 animated GIFs — one per quantity — each with a single isometric cube.
+    
+    Returns
+    -------
+    list[str]
+        List of generated GIF filenames: [psi2, phase, Bz, Js].
+    """
     from matplotlib.animation import FuncAnimation, PillowWriter
 
     p = solution.params
@@ -566,95 +572,146 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
 
     steps = list(range(0, solution.n_steps, step_stride))
 
-    # Determine Bz and Js ranges from the final step for consistent colorbars
+    # Pre-compute Bz and Js limits from the final step for consistent colorbars
+    print("  Pre-computing colorbar limits...")
     bz_final = _compute_bz_full_3d(solution, device, step=-1)
     bz_max = max(abs(bz_final.max()), abs(bz_final.min()), 0.1)
     js_final = _compute_supercurrent_3d(solution, device, step=-1)
     js_max = max(js_final.max(), 0.01)
 
-    fig = plt.figure(figsize=(28, 7))
-    fig.patch.set_facecolor("#1a1a2e")
+    # Panel definitions
+    panels = [
+        {
+            "name": "psi2",
+            "title": r"$|\psi|^2$",
+            "cmap": "inferno",
+            "vmin": 0.0,
+            "vmax": 1.0,
+            "data_fn": lambda a, i, _s: _get_psi2_slice(solution, a, i, step=_s, sc_mask_3d=sc_mask_3d),
+        },
+        {
+            "name": "phase",
+            "title": r"$\arg(\psi)$",
+            "cmap": "twilight_shifted",
+            "vmin": -np.pi,
+            "vmax": np.pi,
+            "data_fn": lambda a, i, _s: _get_phase_slice(solution, a, i, step=_s),
+        },
+        {
+            "name": "Bz",
+            "title": r"$B_z$ (total field)",
+            "cmap": "RdBu_r",
+            "vmin": -bz_max,
+            "vmax": bz_max,
+            "data_fn": lambda a, i, _s: _get_bz_full_slice(solution, device, a, i, step=_s),
+        },
+        {
+            "name": "Js",
+            "title": r"$|J_s|$ (supercurrent)",
+            "cmap": "hot",
+            "vmin": 0.0,
+            "vmax": js_max,
+            "data_fn": lambda a, i, _s: _get_js_slice(solution, device, a, i, step=_s),
+        },
+    ]
 
-    def draw_frame(frame_idx):
-        fig.clf()
-        s = steps[frame_idx]
+    output_files = []
 
-        # Clear caches for this step
-        _get_bz_full_slice.__defaults__[1].clear()
-        _get_js_slice.__defaults__[1].clear()
+    # Generate one GIF per panel
+    for panel in panels:
+        filename = f"{prefix}_{panel['name']}.gif"
+        print(f"  Generating {filename} ({len(steps)} frames)...")
 
-        # ── Panel 1: |ψ|² (3D isometric) ──────────────────────────────
-        ax1 = fig.add_subplot(141, projection="3d")
-        cmap1 = cm.inferno
-        norm1 = Normalize(vmin=0, vmax=1)
-        _paint_surfaces(ax1, solution,
-                        lambda a, i, _s=s: _get_psi2_slice(solution, a, i, step=_s, sc_mask_3d=sc_mask_3d),
-                        cmap1, norm1, xs, ys, zs,
-                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        _draw_wireframe(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        sm1 = cm.ScalarMappable(cmap=cmap1, norm=norm1); sm1.set_array([])
-        cb1 = fig.colorbar(sm1, ax=ax1, fraction=0.03, pad=0.08, shrink=0.6)
-        _style_ax(ax1, fig, cb1, "|ψ|²")
-        ax1.set_title("|ψ|²", fontsize=11, color="white", pad=10)
+        cmap_obj = plt.get_cmap(panel["cmap"]).copy()
+        cmap_obj.set_bad(color="0.25")
+        norm = Normalize(vmin=panel["vmin"], vmax=panel["vmax"])
 
-        # ── Panel 2: arg(ψ) (3D isometric) ────────────────────────────
-        ax2 = fig.add_subplot(142, projection="3d")
-        cmap2 = cm.twilight_shifted
-        norm2 = Normalize(vmin=-np.pi, vmax=np.pi)
-        _paint_surfaces(ax2, solution,
-                        lambda a, i, _s=s: _get_phase_slice(solution, a, i, step=_s),
-                        cmap2, norm2, xs, ys, zs,
-                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        _draw_wireframe(ax2, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        sm2 = cm.ScalarMappable(cmap=cmap2, norm=norm2); sm2.set_array([])
-        cb2 = fig.colorbar(sm2, ax=ax2, fraction=0.03, pad=0.08, shrink=0.6)
-        cb2.set_ticks([-np.pi, 0, np.pi])
-        cb2.set_ticklabels(["-π", "0", "π"])
-        _style_ax(ax2, fig, cb2, "arg(ψ)")
-        ax2.set_title("arg(ψ)", fontsize=11, color="white", pad=10)
+        fig = plt.figure(figsize=(10, 8))
+        fig.patch.set_facecolor("#1a1a2e")
+        ax = fig.add_subplot(111, projection="3d")
 
-        # ── Panel 3: Total Bz (3D isometric) ──────────────────────────
-        ax3 = fig.add_subplot(143, projection="3d")
-        cmap3 = cm.RdBu_r
-        norm3 = Normalize(vmin=-bz_max, vmax=bz_max)
-        _paint_surfaces(ax3, solution,
-                        lambda a, i, _s=s: _get_bz_full_slice(solution, device, a, i, step=_s),
-                        cmap3, norm3, xs, ys, zs,
-                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        _draw_wireframe(ax3, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        sm3 = cm.ScalarMappable(cmap=cmap3, norm=norm3); sm3.set_array([])
-        cb3 = fig.colorbar(sm3, ax=ax3, fraction=0.03, pad=0.08, shrink=0.6)
-        _style_ax(ax3, fig, cb3, "B$_z$")
-        ax3.set_title("B$_z$ (total)", fontsize=11, color="white", pad=10)
+        def draw_frame(frame_idx):
+            fig.clf()
+            ax = fig.add_subplot(111, projection="3d")
+            s = steps[frame_idx]
+            t = solution.times[s]
 
-        # ── Panel 4: |J_s| (3D isometric) ─────────────────────────────
-        ax4 = fig.add_subplot(144, projection="3d")
-        cmap4 = cm.hot
-        norm4 = Normalize(vmin=0, vmax=js_max)
-        _paint_surfaces(ax4, solution,
-                        lambda a, i, _s=s: _get_js_slice(solution, device, a, i, step=_s),
-                        cmap4, norm4, xs, ys, zs,
-                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        _draw_wireframe(ax4, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        sm4 = cm.ScalarMappable(cmap=cmap4, norm=norm4); sm4.set_array([])
-        cb4 = fig.colorbar(sm4, ax=ax4, fraction=0.03, pad=0.08, shrink=0.6)
-        _style_ax(ax4, fig, cb4, "|J$_s$|")
-        ax4.set_title("|J$_s$| (supercurrent)", fontsize=11, color="white", pad=10)
+            _paint_surfaces(ax, solution,
+                            lambda a, i: panel["data_fn"](a, i, s),
+                            cmap_obj, norm, xs, ys, zs,
+                            x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+            _draw_wireframe(ax, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+            
+            ax.set_xlabel("x (µm)", color="white", fontsize=11)
+            ax.set_ylabel("y (µm)", color="white", fontsize=11)
+            ax.set_zlabel("z (ξ)", color="white", fontsize=11)
+            ax.set_title(f"{panel['title']}   t = {t:.2f} / {solution.times[-1]:.2f}", 
+                        fontsize=14, color="white", pad=20)
+            ax.view_init(elev=25, azim=-60)
+            ax.set_facecolor("#1a1a2e")
+            ax.xaxis.pane.fill = False
+            ax.yaxis.pane.fill = False
+            ax.zaxis.pane.fill = False
+            ax.tick_params(colors="white", labelsize=9)
+            
+            # Add colorbar
+            sm = cm.ScalarMappable(cmap=cmap_obj, norm=norm)
+            sm.set_array([])
+            cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.1, shrink=0.6)
+            cbar.ax.tick_params(colors="white", labelsize=9)
+            if panel["name"] == "phase":
+                cbar.set_ticks([-np.pi, 0, np.pi])
+                cbar.set_ticklabels(["-π", "0", "π"])
+            
+            fig.patch.set_facecolor("#1a1a2e")
+            return []
 
-        fig.suptitle(
-            f"t = {solution.times[s]:.2f}   (B$_z$ = {BZ})",
-            fontsize=13, color="white", y=0.97,
-        )
-        return []
+        anim = FuncAnimation(fig, draw_frame, frames=len(steps), blit=False)
+        anim.save(filename, writer=PillowWriter(fps=fps))
+        plt.close(fig)
+        print(f"    → saved {filename}")
+        output_files.append(filename)
 
-    anim = FuncAnimation(fig, draw_frame, frames=len(steps), blit=False)
-    anim.save(filename, writer=PillowWriter(fps=fps))
-    plt.close(fig)
-    return filename
+    # Clear per-step caches
+    _get_bz_full_slice.__defaults__[1].clear()
+    _get_js_slice.__defaults__[1].clear()
+
+    return output_files
 
 
-def main() -> None:
-    # ── Build trilayer ──────────────────────────────────────────────────
+def check_superconductivity(solution: Solution, device: tdgl3d.Device, 
+                            threshold: float = 0.01) -> tuple[bool, float]:
+    """Check if SC regions maintain superconductivity (|ψ|² > threshold).
+    
+    Returns
+    -------
+    tuple[bool, float]
+        (is_superconducting_everywhere, min_psi2_in_sc)
+    """
+    # Get final state
+    psi_int = solution.psi(step=-1)
+    psi2 = np.abs(psi_int) ** 2
+    
+    # Get SC mask (interior nodes)
+    sc_mask_int = device.material.interior_sc_mask
+    
+    # Check minimum |ψ|² in SC regions
+    psi2_sc = psi2[sc_mask_int > 0]
+    min_psi2 = float(np.min(psi2_sc))
+    
+    is_sc = min_psi2 > threshold
+    return is_sc, min_psi2
+
+
+def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device]:
+    """Run a simulation with given field strength.
+    
+    Returns
+    -------
+    tuple[Solution, Device]
+        The solution and device objects.
+    """
+    # Build trilayer
     trilayer = tdgl3d.Trilayer(
         bottom=tdgl3d.Layer(thickness_z=SC_THICKNESS, kappa=KAPPA),
         insulator=tdgl3d.Layer(thickness_z=INS_THICKNESS, kappa=KAPPA, is_superconductor=False),
@@ -666,20 +723,20 @@ def main() -> None:
         hx=HX, hy=HY, hz=HZ,
         kappa=KAPPA,
     )
-    # Nz will be overridden by the trilayer
-    # Field profile: zero for 5% of t_stop, ramp from 5% to 20%, hold at full for rest
+    
+    # Field profile: zero for 30% of t_stop, ramp from 30% to 50%, hold at full for rest
     def _field_profile(t: float, t_stop: float) -> tuple[float, float, float]:
-        t_wait = 0.05 * t_stop   # zero-field settling period
-        t_ramp_end = 0.20 * t_stop  # ramp completes at 20% of simulation
-        if t <= t_wait:
+        t_settle = 0.30 * t_stop
+        t_ramp_end = 0.50 * t_stop
+        if t <= t_settle:
             return 0.0, 0.0, 0.0
         elif t < t_ramp_end:
-            scale = (t - t_wait) / (t_ramp_end - t_wait)
-            return 0.0, 0.0, BZ * scale
+            scale = (t - t_settle) / (t_ramp_end - t_settle)
+            return 0.0, 0.0, bz_field * scale
         else:
-            return 0.0, 0.0, BZ
+            return 0.0, 0.0, bz_field
 
-    field = tdgl3d.AppliedField(Bz=BZ, field_func=_field_profile)
+    field = tdgl3d.AppliedField(Bz=bz_field, field_func=_field_profile)
     device = tdgl3d.Device(params, applied_field=field, trilayer=trilayer)
 
     print(device)
@@ -687,49 +744,65 @@ def main() -> None:
     print(f"Interior nodes: {params.n_interior}")
     print(f"State vector length: {params.n_state}")
     print(f"Physical size: {LX_UM} × {LY_UM} µm  (ξ = {XI_NM} nm)")
-    print()
+    print(f"Applied Bz = {bz_field}\n")
 
-    # ── Carve the hole ─────────────────────────────────────────────────
+    # Carve the hole
     carve_hole(device)
 
-    # ── Initial state (ψ = 0 in insulator + hole) ─────────────────────
+    # Initial state (ψ = 0 in insulator + hole)
     x0 = device.initial_state()
-    # Add small random noise to break symmetry and help vortex nucleation
+    # Add small random noise to break symmetry
     rng = np.random.default_rng(42)
-    noise = 0.05 * (rng.standard_normal(params.n_interior)
+    noise = 0.02 * (rng.standard_normal(params.n_interior)
                      + 1j * rng.standard_normal(params.n_interior))
     x0.psi[:] += noise * device.material.interior_sc_mask
-    n_zero = int(np.sum(np.abs(x0.psi) < 1e-12))
-    print(f"Initial state: {n_zero} / {params.n_interior} interior ψ nodes zeroed")
-    print()
 
-    # ── Run simulation ─────────────────────────────────────────────────
-    print(f"Running Forward-Euler (dt={DT}, t_stop={T_STOP}, "
-          f"Bz={BZ}, κ={KAPPA}) …")
-    print(f"CFL limit: dt < h²/(4κ²) = {HX**2 / (4 * KAPPA**2):.4f}")
-    print()
+    interior_zeros = int(np.sum(device.material.interior_sc_mask == 0))
+    print(f"Interior nodes with sc_mask=0: {interior_zeros} / {params.n_interior}")
+    print(f"Initial state: {interior_zeros} / {params.n_interior} interior ψ nodes zeroed\n")
+
+    # Solve
+    print(f"Running Forward-Euler (dt={DT}, t_stop={T_STOP}, Bz={bz_field}, κ={KAPPA}) …")
+    cfl = params.hx**2 / (4 * params.kappa**2)
+    print(f"CFL limit: dt < h²/(4κ²) = {cfl:.4f}\n")
 
     solution = tdgl3d.solve(
         device,
-        t_start=0.0,
-        t_stop=T_STOP,
-        dt=DT,
-        method="euler",
         x0=x0,
+        dt=DT,
+        t_stop=T_STOP,
+        method="euler",
         save_every=SAVE_EVERY,
         progress=True,
     )
 
     print(f"\nSaved {solution.n_steps} snapshots.")
-    psi2 = solution.psi_squared(step=-1)
-    print(f"Final |ψ|²: mean={np.mean(psi2):.4f}  "
-          f"min={np.min(psi2):.4f}  max={np.max(psi2):.4f}")
+    return solution, device
 
+
+def main() -> None:
+    # Run simulation with Bz = 0.5
+    print(f"\n{'='*70}")
+    print(f"Running simulation with Bz = {BZ}")
+    print(f"{'='*70}\n")
+    
+    solution, device = run_simulation_with_field(BZ)
+    
+    # Check if SC is still superconducting
+    min_threshold = 0.01
+    is_sc, min_psi2 = check_superconductivity(solution, device, threshold=min_threshold)
+    
+    print(f"\nSuperconductivity check:")
+    print(f"  min |ψ|² in SC regions: {min_psi2:.6f}")
+    print(f"  Threshold: {min_threshold}")
+    print(f"  Status: {'✓ SUPERCONDUCTING' if is_sc else '✗ SUPPRESSED'}")
+    
     # ── Diagnostics: verify plot data correctness ─────────────────────
+    p = solution.params
     sc_mask_3d = device.material.interior_sc_mask.reshape(
-        params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1))
+        p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1))
     psi3d = _psi_3d(solution, step=-1)
-    nz_int = max(params.Nz - 1, 1)
+    nz_int = max(p.Nz - 1, 1)
 
     # Check phase in SC vs insulator
     z_ranges = device.trilayer.z_ranges()
@@ -760,7 +833,7 @@ def main() -> None:
     print(f"Total Bz (bottom SC midplane, with BCs):")
     print(f"  min={bz_bot.min():.4f}  max={bz_bot.max():.4f}  "
           f"mean={bz_bot.mean():.4f}  std={bz_bot.std():.4f}")
-    print(f"  Applied Bz={BZ} → expect Meissner: bulk Bz ≈ 0, hole region Bz ≈ {BZ}")
+    print(f"  Applied Bz={BZ:.3f} → expect Meissner: bulk Bz ≈ 0, hole region Bz ≈ {BZ:.3f}")
 
     # Check supercurrent
     js3d = _compute_supercurrent_3d(solution, device, step=-1)
@@ -784,14 +857,17 @@ def main() -> None:
     plot_xy_overview(solution, device)
     plot_isometric(solution, device)
 
-    # ── Animation (isometric |ψ|²) ───────────────────────────────────
-    gif_path = animate_isometric(
+    # ── Animations (4 separate GIFs) ──────────────────────────────────
+    print("\n=== Generating animated GIFs ===")
+    gif_files = animate_isometric(
         solution, device,
-        filename="sis_square_with_hole.gif",
+        prefix="sis_square_with_hole",
         fps=6,
         step_stride=2,
     )
-    print(f"Saved animation → {gif_path}")
+    print("\nGenerated GIF files:")
+    for gf in gif_files:
+        print(f"  • {gf}")
 
 
 if __name__ == "__main__":
