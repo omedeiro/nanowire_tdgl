@@ -61,7 +61,7 @@ HOLE_Y_MIN_UM, HOLE_Y_MAX_UM = -0.2, 0.2
 # Time integration
 DT = 0.01
 T_STOP = 15.0
-BZ = 1.5
+BZ = 0.5
 SAVE_EVERY = 50
 
 
@@ -183,7 +183,8 @@ def plot_xy_overview(solution: Solution, device: tdgl3d.Device) -> None:
     psi_slice = psi_cube[:, :, sz]
 
     psi2 = np.abs(psi_slice) ** 2
-    phase = np.angle(psi_slice)
+    phase = np.angle(psi_slice).astype(np.float64)
+    phase[psi2 < 0.02] = np.nan  # mask phase where condensate is absent
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
@@ -231,26 +232,42 @@ def _psi_3d(solution: Solution, step: int = -1) -> np.ndarray:
     return solution.psi(step).reshape(p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1))
 
 
-def _get_psi2_slice(solution: Solution, axis: str, index: int, step: int = -1) -> np.ndarray:
+def _get_psi2_slice(solution: Solution, axis: str, index: int, step: int = -1,
+                    sc_mask_3d: np.ndarray = None) -> np.ndarray:
     psi3d = _psi_3d(solution, step=step)
     if axis == "z":
-        return np.abs(psi3d[:, :, index]) ** 2
+        sl = np.abs(psi3d[:, :, index]) ** 2
+        if sc_mask_3d is not None:
+            sl[sc_mask_3d[:, :, index] == 0] = np.nan
     elif axis == "y":
-        return np.abs(psi3d[:, index, :]) ** 2
+        sl = np.abs(psi3d[:, index, :]) ** 2
+        if sc_mask_3d is not None:
+            sl[sc_mask_3d[:, index, :] == 0] = np.nan
     elif axis == "x":
-        return np.abs(psi3d[index, :, :]) ** 2
-    raise ValueError(axis)
+        sl = np.abs(psi3d[index, :, :]) ** 2
+        if sc_mask_3d is not None:
+            sl[sc_mask_3d[index, :, :] == 0] = np.nan
+    else:
+        raise ValueError(axis)
+    return sl
 
 
-def _get_phase_slice(solution: Solution, axis: str, index: int, step: int = -1) -> np.ndarray:
+def _get_phase_slice(solution: Solution, axis: str, index: int, step: int = -1,
+                     mask_threshold: float = 0.02) -> np.ndarray:
+    """Return phase of ψ. Insulator nodes (|ψ|² < threshold) get value 999 (sentinel)."""
     psi3d = _psi_3d(solution, step=step)
     if axis == "z":
-        return np.angle(psi3d[:, :, index])
+        sl = psi3d[:, :, index]
     elif axis == "y":
-        return np.angle(psi3d[:, index, :])
+        sl = psi3d[:, index, :]
     elif axis == "x":
-        return np.angle(psi3d[index, :, :])
-    raise ValueError(axis)
+        sl = psi3d[index, :, :]
+    else:
+        raise ValueError(axis)
+    phase = np.angle(sl).astype(np.float64)
+    # Mark insulator/hole nodes with sentinel (handled in _paint_surfaces)
+    phase[np.abs(sl) ** 2 < mask_threshold] = 999.0
+    return phase
 
 
 def _draw_wireframe(ax, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi):
@@ -268,32 +285,43 @@ def _draw_wireframe(ax, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi):
 
 def _paint_surfaces(ax, solution, data_fn, cmap_obj, norm_obj, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi):
-    """Paint visible faces of the film onto *ax*."""
+    """Paint visible faces of the film onto *ax*.  Sentinel 999 → dark gray."""
     p = solution.params
     nx_int, ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
     XX, YY = np.meshgrid(xs, ys, indexing="ij")
 
+    GRAY = np.array([0.15, 0.15, 0.15, 1.0])
+
+    def _colors(data):
+        """Map data through norm+cmap; sentinel 999 or NaN → dark gray."""
+        mask = (data > 900) | np.isnan(data)
+        clipped = np.where(mask, 0.0, data)
+        normed = norm_obj(clipped)
+        rgba = cmap_obj(normed)
+        rgba[mask] = GRAY
+        return rgba
+
     # Top face (z = z_hi)
-    d = np.clip(data_fn("z", nz_int - 1), norm_obj.vmin, norm_obj.vmax)
+    d = data_fn("z", nz_int - 1)
     ax.plot_surface(XX, YY, np.full_like(XX, z_hi),
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=_colors(d),
                     shade=False, alpha=0.95, rstride=1, cstride=1)
     # Bottom face (z = z_lo)
-    d = np.clip(data_fn("z", 0), norm_obj.vmin, norm_obj.vmax)
+    d = data_fn("z", 0)
     ax.plot_surface(XX, YY, np.full_like(XX, z_lo),
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=_colors(d),
                     shade=False, alpha=0.45, rstride=1, cstride=1)
     # Front face (y = y_lo)
     XF, ZF = np.meshgrid(xs, zs, indexing="ij")
-    d = np.clip(data_fn("y", 0), norm_obj.vmin, norm_obj.vmax)
+    d = data_fn("y", 0)
     ax.plot_surface(XF, np.full_like(XF, y_lo), ZF,
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=_colors(d),
                     shade=False, alpha=0.85, rstride=1, cstride=1)
     # Right face (x = x_hi)
     YR, ZR = np.meshgrid(ys, zs, indexing="ij")
-    d = np.clip(data_fn("x", nx_int - 1), norm_obj.vmin, norm_obj.vmax)
+    d = data_fn("x", nx_int - 1)
     ax.plot_surface(np.full_like(YR, x_hi), YR, ZR,
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=_colors(d),
                     shade=False, alpha=0.85, rstride=1, cstride=1)
 
 
@@ -331,6 +359,9 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
     ys = np.linspace(y_lo, y_hi, ny_int)
     zs = np.linspace(z_lo, z_hi, nz_int)
 
+    # Build 3D SC mask for insulator marking
+    sc_mask_3d = device.material.interior_sc_mask.reshape(nx_int, ny_int, nz_int)
+
     fig = plt.figure(figsize=(18, 8))
     fig.patch.set_facecolor("#1a1a2e")
 
@@ -347,7 +378,7 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
     cmap1 = cm.inferno
     norm1 = Normalize(vmin=0, vmax=1)
     _paint_surfaces(ax1, solution,
-                    lambda a, i: _get_psi2_slice(solution, a, i, step=-1),
+                    lambda a, i: _get_psi2_slice(solution, a, i, step=-1, sc_mask_3d=sc_mask_3d),
                     cmap1, norm1, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
@@ -380,10 +411,133 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
     plt.close(fig)
 
 
+def _compute_supercurrent_3d(solution: Solution, device, step: int = -1) -> np.ndarray:
+    """Compute supercurrent density magnitude |J_s| on the interior grid.
+
+    J_x[m] = Im(exp(-i*φ_x[m]) * conj(ψ[m]) * ψ[m+1]) / hx
+    J_y[m] = Im(exp(-i*φ_y[m]) * conj(ψ[m]) * ψ[m+mj]) / hy
+    J_z[m] = Im(exp(-i*φ_z[m]) * conj(ψ[m]) * ψ[m+mk]) / hz  (3D only)
+
+    Returns |J| reshaped to (Nx-1, Ny-1, Nz-1).
+    """
+    from tdgl3d.physics.rhs import _expand_interior_to_full
+
+    p = solution.params
+    idx = solution.idx
+    n = p.n_interior
+    state = solution.states[:, step]
+
+    psi_int = state[:n]
+    phi_x_int = state[n:2*n]
+    phi_y_int = state[2*n:3*n]
+
+    # Expand to full grid
+    x = _expand_interior_to_full(psi_int, p, idx)
+    y1 = _expand_interior_to_full(phi_x_int, p, idx)
+    y2 = _expand_interior_to_full(phi_y_int, p, idx)
+
+    m = idx.interior_to_full
+    mj = p.mj
+    mk = p.mk
+
+    Jx = np.imag(np.exp(-1j * y1[m]) * np.conj(x[m]) * x[m + 1]) / p.hx
+    Jy = np.imag(np.exp(-1j * y2[m]) * np.conj(x[m]) * x[m + mj]) / p.hy
+
+    if p.is_3d:
+        phi_z_int = state[3*n:4*n]
+        y3 = _expand_interior_to_full(phi_z_int, p, idx)
+        Jz = np.imag(np.exp(-1j * y3[m]) * np.conj(x[m]) * x[m + mk]) / p.hz
+        J_mag = np.sqrt(np.real(Jx)**2 + np.real(Jy)**2 + np.real(Jz)**2)
+    else:
+        J_mag = np.sqrt(np.real(Jx)**2 + np.real(Jy)**2)
+
+    nx_int, ny_int, nz_int = p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1)
+    return J_mag.reshape(nx_int, ny_int, nz_int)
+
+
+def _compute_bz_full_3d(solution: Solution, device, step: int = -1) -> np.ndarray:
+    """Compute total Bz on interior grid including applied field via BCs.
+
+    Expands state to full grid, applies BCs (which write the applied field
+    onto boundary link variables), then computes curl on interior nodes.
+    Returns Bz reshaped to (Nx-1, Ny-1, Nz-1).
+    """
+    from tdgl3d.physics.rhs import _expand_interior_to_full, _apply_boundary_conditions, BoundaryVectors
+    from tdgl3d.physics.applied_field import build_boundary_field_vectors
+
+    p = solution.params
+    idx = solution.idx
+    n = p.n_interior
+    state = solution.states[:, step]
+
+    psi_int = state[:n]
+    phi_x_int = state[n:2*n]
+    phi_y_int = state[2*n:3*n]
+    phi_z_int = state[3*n:4*n] if p.is_3d else np.zeros(n, dtype=np.complex128)
+
+    # Expand to full grid
+    x = _expand_interior_to_full(psi_int, p, idx)
+    y1 = _expand_interior_to_full(phi_x_int, p, idx)
+    y2 = _expand_interior_to_full(phi_y_int, p, idx)
+    y3 = _expand_interior_to_full(phi_z_int, p, idx)
+
+    # Build boundary vectors for the applied field at the final time
+    t = solution.times[step]
+    bx_app, by_app, bz_app = device.applied_field.evaluate(t, T_STOP)
+    Bx_vec, By_vec, Bz_vec = build_boundary_field_vectors(bx_app, by_app, bz_app, p, idx)
+    u = BoundaryVectors(Bx_vec, By_vec, Bz_vec)
+
+    # Apply BCs
+    x, y1, y2, y3 = _apply_boundary_conditions(x, y1, y2, y3, p, idx, u)
+
+    # Compute Bz = (1/(hx*hy)) * (φ_x[m] - φ_x[m+mj] - φ_y[m] + φ_y[m+1])
+    # on interior nodes
+    m = idx.interior_to_full
+    mj = p.mj
+    Bz = np.real((1.0 / (p.hx * p.hy)) * (y1[m] - y1[m + mj] - y2[m] + y2[m + 1]))
+
+    nx_int, ny_int, nz_int = p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1)
+    return Bz.reshape(nx_int, ny_int, nz_int)
+
+
+def _get_js_slice(solution: Solution, device, axis: str, index: int, step: int = -1,
+                  _cache: dict = {}) -> np.ndarray:
+    """Return |J_s| slice for isometric plotting. Caches per step."""
+    cache_key = (id(solution), step)
+    if cache_key not in _cache:
+        _cache[cache_key] = _compute_supercurrent_3d(solution, device, step=step)
+    js3d = _cache[cache_key]
+    nx_int, ny_int, nz_int = js3d.shape
+    if axis == "z":
+        return js3d[:, :, min(index, nz_int - 1)]
+    elif axis == "y":
+        return js3d[:, min(index, ny_int - 1), :]
+    elif axis == "x":
+        return js3d[min(index, nx_int - 1), :, :]
+    raise ValueError(axis)
+
+
+def _get_bz_full_slice(solution: Solution, device, axis: str, index: int, step: int = -1,
+                       _cache: dict = {}) -> np.ndarray:
+    """Return total Bz slice for isometric plotting. Caches per step."""
+    cache_key = (id(solution), step)
+    if cache_key not in _cache:
+        _cache[cache_key] = _compute_bz_full_3d(solution, device, step=step)
+    bz3d = _cache[cache_key]
+    nx_int, ny_int, nz_int = bz3d.shape
+    if axis == "z":
+        return bz3d[:, :, min(index, nz_int - 1)]
+    elif axis == "y":
+        return bz3d[:, min(index, ny_int - 1), :]
+    elif axis == "x":
+        return bz3d[min(index, nx_int - 1), :, :]
+    raise ValueError(axis)
+
+
 def animate_isometric(solution: Solution, device: tdgl3d.Device,
                       filename: str = "sis_square_with_hole.gif",
                       fps: int = 6, step_stride: int = 1) -> str:
-    """Create an animated GIF of the isometric |ψ|² view over time."""
+    """Create an animated GIF with 4 isometric panels: |ψ|², phase, Bz, |J_s|."""
     from matplotlib.animation import FuncAnimation, PillowWriter
 
     p = solution.params
@@ -399,30 +553,89 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
     ys = np.linspace(y_lo, y_hi, ny_int)
     zs = np.linspace(z_lo, z_hi, nz_int)
 
+    # Build 3D SC mask for insulator marking
+    sc_mask_3d = device.material.interior_sc_mask.reshape(nx_int, ny_int, nz_int)
+
     steps = list(range(0, solution.n_steps, step_stride))
 
-    fig = plt.figure(figsize=(10, 8))
+    # Determine Bz and Js ranges from the final step for consistent colorbars
+    bz_final = _compute_bz_full_3d(solution, device, step=-1)
+    bz_max = max(abs(bz_final.max()), abs(bz_final.min()), 0.1)
+    js_final = _compute_supercurrent_3d(solution, device, step=-1)
+    js_max = max(js_final.max(), 0.01)
+
+    fig = plt.figure(figsize=(28, 7))
     fig.patch.set_facecolor("#1a1a2e")
 
     def draw_frame(frame_idx):
         fig.clf()
         s = steps[frame_idx]
-        ax = fig.add_subplot(111, projection="3d")
+
+        # Clear caches for this step
+        _get_bz_full_slice.__defaults__[0].clear()
+        _get_js_slice.__defaults__[0].clear()
+
+        # ── Panel 1: |ψ|² (3D isometric) ──────────────────────────────
+        ax1 = fig.add_subplot(141, projection="3d")
         cmap1 = cm.inferno
         norm1 = Normalize(vmin=0, vmax=1)
-
-        _paint_surfaces(ax, solution,
-                        lambda a, i, _s=s: _get_psi2_slice(solution, a, i, step=_s),
+        _paint_surfaces(ax1, solution,
+                        lambda a, i, _s=s: _get_psi2_slice(solution, a, i, step=_s, sc_mask_3d=sc_mask_3d),
                         cmap1, norm1, xs, ys, zs,
                         x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-        _draw_wireframe(ax, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        _draw_wireframe(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        sm1 = cm.ScalarMappable(cmap=cmap1, norm=norm1); sm1.set_array([])
+        cb1 = fig.colorbar(sm1, ax=ax1, fraction=0.03, pad=0.08, shrink=0.6)
+        _style_ax(ax1, fig, cb1, "|ψ|²")
+        ax1.set_title("|ψ|²", fontsize=11, color="white", pad=10)
 
-        sm = cm.ScalarMappable(cmap=cmap1, norm=norm1); sm.set_array([])
-        cb = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.10, shrink=0.65)
-        _style_ax(ax, fig, cb, "|ψ|²")
-        ax.set_title(
-            f"|ψ|²  t = {solution.times[s]:.2f}   (B$_z$ ramp 0→{BZ})",
-            fontsize=12, color="white", pad=12,
+        # ── Panel 2: arg(ψ) (3D isometric) ────────────────────────────
+        ax2 = fig.add_subplot(142, projection="3d")
+        cmap2 = cm.twilight_shifted
+        norm2 = Normalize(vmin=-np.pi, vmax=np.pi)
+        _paint_surfaces(ax2, solution,
+                        lambda a, i, _s=s: _get_phase_slice(solution, a, i, step=_s),
+                        cmap2, norm2, xs, ys, zs,
+                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        _draw_wireframe(ax2, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        sm2 = cm.ScalarMappable(cmap=cmap2, norm=norm2); sm2.set_array([])
+        cb2 = fig.colorbar(sm2, ax=ax2, fraction=0.03, pad=0.08, shrink=0.6)
+        cb2.set_ticks([-np.pi, 0, np.pi])
+        cb2.set_ticklabels(["-π", "0", "π"])
+        _style_ax(ax2, fig, cb2, "arg(ψ)")
+        ax2.set_title("arg(ψ)", fontsize=11, color="white", pad=10)
+
+        # ── Panel 3: Total Bz (3D isometric) ──────────────────────────
+        ax3 = fig.add_subplot(143, projection="3d")
+        cmap3 = cm.RdBu_r
+        norm3 = Normalize(vmin=-bz_max, vmax=bz_max)
+        _paint_surfaces(ax3, solution,
+                        lambda a, i, _s=s: _get_bz_full_slice(solution, device, a, i, step=_s),
+                        cmap3, norm3, xs, ys, zs,
+                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        _draw_wireframe(ax3, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        sm3 = cm.ScalarMappable(cmap=cmap3, norm=norm3); sm3.set_array([])
+        cb3 = fig.colorbar(sm3, ax=ax3, fraction=0.03, pad=0.08, shrink=0.6)
+        _style_ax(ax3, fig, cb3, "B$_z$")
+        ax3.set_title("B$_z$ (total)", fontsize=11, color="white", pad=10)
+
+        # ── Panel 4: |J_s| (3D isometric) ─────────────────────────────
+        ax4 = fig.add_subplot(144, projection="3d")
+        cmap4 = cm.hot
+        norm4 = Normalize(vmin=0, vmax=js_max)
+        _paint_surfaces(ax4, solution,
+                        lambda a, i, _s=s: _get_js_slice(solution, device, a, i, step=_s),
+                        cmap4, norm4, xs, ys, zs,
+                        x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        _draw_wireframe(ax4, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
+        sm4 = cm.ScalarMappable(cmap=cmap4, norm=norm4); sm4.set_array([])
+        cb4 = fig.colorbar(sm4, ax=ax4, fraction=0.03, pad=0.08, shrink=0.6)
+        _style_ax(ax4, fig, cb4, "|J$_s$|")
+        ax4.set_title("|J$_s$| (supercurrent)", fontsize=11, color="white", pad=10)
+
+        fig.suptitle(
+            f"t = {solution.times[s]:.2f}   (B$_z$ = {BZ})",
+            fontsize=13, color="white", y=0.97,
         )
         return []
 
@@ -491,6 +704,60 @@ def main() -> None:
     psi2 = solution.psi_squared(step=-1)
     print(f"Final |ψ|²: mean={np.mean(psi2):.4f}  "
           f"min={np.min(psi2):.4f}  max={np.max(psi2):.4f}")
+
+    # ── Diagnostics: verify plot data correctness ─────────────────────
+    sc_mask_3d = device.material.interior_sc_mask.reshape(
+        params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1))
+    psi3d = _psi_3d(solution, step=-1)
+    nz_int = max(params.Nz - 1, 1)
+
+    # Check phase in SC vs insulator
+    z_ranges = device.trilayer.z_ranges()
+    k_bot_mid = (z_ranges["bottom"][0] + z_ranges["bottom"][1]) // 2
+    k_ins_mid = (z_ranges["insulator"][0] + z_ranges["insulator"][1]) // 2
+    sz_bot = max(k_bot_mid - 1, 0)
+    sz_ins = max(k_ins_mid - 1, 0)
+
+    psi_bot = psi3d[:, :, sz_bot]
+    psi_ins = psi3d[:, :, sz_ins]
+    print(f"\n── Diagnostic checks ──")
+    print(f"Bottom SC midplane (z={sz_bot}):")
+    print(f"  |ψ|² : mean={np.mean(np.abs(psi_bot)**2):.4f}  "
+          f"max={np.max(np.abs(psi_bot)**2):.4f}")
+    print(f"  phase: min={np.angle(psi_bot).min():.3f}  "
+          f"max={np.angle(psi_bot).max():.3f}  "
+          f"std={np.angle(psi_bot).std():.4f}")
+    print(f"  SC nodes: {int(np.sum(sc_mask_3d[:, :, sz_bot]))}")
+
+    print(f"Insulator midplane (z={sz_ins}):")
+    print(f"  |ψ|² : mean={np.mean(np.abs(psi_ins)**2):.6f}  "
+          f"max={np.max(np.abs(psi_ins)**2):.6f}")
+    print(f"  SC nodes: {int(np.sum(sc_mask_3d[:, :, sz_ins]))}")
+
+    # Check Bz (total, with BCs applied)
+    bz3d_full = _compute_bz_full_3d(solution, device, step=-1)
+    bz_bot = bz3d_full[:, :, sz_bot]
+    print(f"Total Bz (bottom SC midplane, with BCs):")
+    print(f"  min={bz_bot.min():.4f}  max={bz_bot.max():.4f}  "
+          f"mean={bz_bot.mean():.4f}  std={bz_bot.std():.4f}")
+    print(f"  Applied Bz={BZ} → expect Meissner: bulk Bz ≈ 0, hole region Bz ≈ {BZ}")
+
+    # Check supercurrent
+    js3d = _compute_supercurrent_3d(solution, device, step=-1)
+    js_bot = js3d[:, :, sz_bot]
+    print(f"|J_s| (bottom SC midplane):")
+    print(f"  min={js_bot.min():.4f}  max={js_bot.max():.4f}  "
+          f"mean={js_bot.mean():.4f}  std={js_bot.std():.4f}")
+    print(f"  Expect high |J_s| around hole border (persistent current)")
+    # Check if NaN masking is correct
+    psi2_slice = _get_psi2_slice(solution, "z", sz_ins, step=-1, sc_mask_3d=sc_mask_3d)
+    n_nan = int(np.sum(np.isnan(psi2_slice)))
+    n_total = psi2_slice.size
+    print(f"|ψ|² NaN mask at insulator z={sz_ins}: {n_nan}/{n_total} nodes are NaN")
+    phase_slice = _get_phase_slice(solution, "z", sz_ins, step=-1)
+    n_sentinel = int(np.sum(phase_slice > 900))
+    print(f"Phase sentinel at insulator z={sz_ins}: {n_sentinel}/{n_total} nodes masked")
+    print(f"── End diagnostics ──\n")
 
     # ── Visualise ──────────────────────────────────────────────────────
     plot_slices(solution, device)
