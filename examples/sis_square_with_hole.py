@@ -60,8 +60,8 @@ HOLE_Y_MIN_UM, HOLE_Y_MAX_UM = -0.2, 0.2
 
 # Time integration
 DT = 0.01
-T_STOP = 15.0
-BZ = 0.5
+T_STOP = 30.0
+BZ = 1.5
 SAVE_EVERY = 50
 
 
@@ -79,9 +79,9 @@ def carve_hole(device: tdgl3d.Device) -> None:
     """Modify the device's MaterialMap in-place to create a rectangular hole.
 
     Nodes inside the hole rectangle (in x–y) within the superconducting
-    z-layers are marked as insulator (sc_mask = 0, kappa = 0).
-    The solver's FPSI operator will then drive ψ → 0 at those nodes via
-    the fast relaxation term.
+    z-layers are marked as insulator (sc_mask = 0) so FPSI drives ψ → 0.
+    kappa is left non-zero so link variables can evolve and B-field
+    penetrates the hole.
     """
     params = device.params
     material = device.material
@@ -108,7 +108,9 @@ def carve_hole(device: tdgl3d.Device) -> None:
     # Also include the last node of the top layer
     sc_z_planes = sorted(set(sc_z_planes))
 
-    # Zero out sc_mask and kappa inside the hole for SC z-planes
+    # Zero out sc_mask inside the hole for SC z-planes.
+    # Keep kappa non-zero so the link variables (gauge field) can still
+    # evolve — this allows magnetic flux to penetrate the hole.
     count = 0
     for k in sc_z_planes:
         for j in range(j_lo, j_hi + 1):
@@ -116,7 +118,7 @@ def carve_hole(device: tdgl3d.Device) -> None:
                 m = i + mj * j + mk * k
                 if m < len(material.sc_mask):
                     material.sc_mask[m] = 0.0
-                    material.kappa[m] = 0.0
+                    # Leave kappa unchanged (inherits from SC layer)
                     count += 1
 
     # Rebuild interior_sc_mask from the updated full-grid sc_mask
@@ -497,7 +499,13 @@ def _compute_bz_full_3d(solution: Solution, device, step: int = -1) -> np.ndarra
     Bz = np.real((1.0 / (p.hx * p.hy)) * (y1[m] - y1[m + mj] - y2[m] + y2[m + 1]))
 
     nx_int, ny_int, nz_int = p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1)
-    return Bz.reshape(nx_int, ny_int, nz_int)
+    Bz_3d = Bz.reshape(nx_int, ny_int, nz_int)
+    # The last x-row and last y-row of interior nodes see boundary link
+    # variables that carry the applied field directly (staggered-grid artifact).
+    # Replace them with their interior neighbours to remove the edge spike.
+    Bz_3d[-1, :, :] = Bz_3d[-2, :, :]
+    Bz_3d[:, -1, :] = Bz_3d[:, -2, :]
+    return Bz_3d
 
 
 def _get_js_slice(solution: Solution, device, axis: str, index: int, step: int = -1,
@@ -572,8 +580,8 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
         s = steps[frame_idx]
 
         # Clear caches for this step
-        _get_bz_full_slice.__defaults__[0].clear()
-        _get_js_slice.__defaults__[0].clear()
+        _get_bz_full_slice.__defaults__[1].clear()
+        _get_js_slice.__defaults__[1].clear()
 
         # ── Panel 1: |ψ|² (3D isometric) ──────────────────────────────
         ax1 = fig.add_subplot(141, projection="3d")
@@ -649,7 +657,7 @@ def main() -> None:
     # ── Build trilayer ──────────────────────────────────────────────────
     trilayer = tdgl3d.Trilayer(
         bottom=tdgl3d.Layer(thickness_z=SC_THICKNESS, kappa=KAPPA),
-        insulator=tdgl3d.Layer(thickness_z=INS_THICKNESS, kappa=0.0, is_superconductor=False),
+        insulator=tdgl3d.Layer(thickness_z=INS_THICKNESS, kappa=KAPPA, is_superconductor=False),
         top=tdgl3d.Layer(thickness_z=SC_THICKNESS, kappa=KAPPA),
     )
 
@@ -659,7 +667,19 @@ def main() -> None:
         kappa=KAPPA,
     )
     # Nz will be overridden by the trilayer
-    field = tdgl3d.AppliedField(Bz=BZ, t_on_fraction=1.0, ramp=True, ramp_fraction=0.5)
+    # Field profile: zero for 5% of t_stop, ramp from 5% to 20%, hold at full for rest
+    def _field_profile(t: float, t_stop: float) -> tuple[float, float, float]:
+        t_wait = 0.05 * t_stop   # zero-field settling period
+        t_ramp_end = 0.20 * t_stop  # ramp completes at 20% of simulation
+        if t <= t_wait:
+            return 0.0, 0.0, 0.0
+        elif t < t_ramp_end:
+            scale = (t - t_wait) / (t_ramp_end - t_wait)
+            return 0.0, 0.0, BZ * scale
+        else:
+            return 0.0, 0.0, BZ
+
+    field = tdgl3d.AppliedField(Bz=BZ, field_func=_field_profile)
     device = tdgl3d.Device(params, applied_field=field, trilayer=trilayer)
 
     print(device)
@@ -676,7 +696,7 @@ def main() -> None:
     x0 = device.initial_state()
     # Add small random noise to break symmetry and help vortex nucleation
     rng = np.random.default_rng(42)
-    noise = 0.01 * (rng.standard_normal(params.n_interior)
+    noise = 0.05 * (rng.standard_normal(params.n_interior)
                      + 1j * rng.standard_normal(params.n_interior))
     x0.psi[:] += noise * device.material.interior_sc_mask
     n_zero = int(np.sum(np.abs(x0.psi) < 1e-12))
