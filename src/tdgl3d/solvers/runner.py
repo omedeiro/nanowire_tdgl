@@ -124,4 +124,4 @@ def solve(
     else:
         raise ValueError(f"Unknown method {method!r}. Use 'euler' or 'trapezoidal'.")
 
-    return Solution(times=times, states=X_hist, params=params, idx=idx)
+    return Solution(times=times, states=X_hist, params=params, idx=idx, device=device)
