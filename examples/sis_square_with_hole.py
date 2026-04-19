@@ -60,7 +60,7 @@ HOLE_Y_MIN_UM, HOLE_Y_MAX_UM = -0.2, 0.2
 
 # Time integration
 DT = 0.01
-T_STOP = 30.0
+T_STOP = 60.0  # Extended to 2x original (was 30.0)
 BZ = 0.5
 SAVE_EVERY = 50
 
@@ -724,17 +724,17 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device]
         kappa=KAPPA,
     )
     
-    # Field profile: zero for 30% of t_stop, ramp from 30% to 50%, hold at full for rest
+    # Field profile: zero for 10% of t_stop, ramp from 10% to 20%, hold at full for remaining 80%
     def _field_profile(t: float, t_stop: float) -> tuple[float, float, float]:
-        t_settle = 0.30 * t_stop
-        t_ramp_end = 0.50 * t_stop
+        t_settle = 0.10 * t_stop      # 0-6 s: zero field (10%)
+        t_ramp_end = 0.20 * t_stop    # 6-12 s: ramp up (10%)
         if t <= t_settle:
             return 0.0, 0.0, 0.0
         elif t < t_ramp_end:
             scale = (t - t_settle) / (t_ramp_end - t_settle)
             return 0.0, 0.0, bz_field * scale
         else:
-            return 0.0, 0.0, bz_field
+            return 0.0, 0.0, bz_field  # 12-60 s: constant field (80%)
 
     field = tdgl3d.AppliedField(Bz=bz_field, field_func=_field_profile)
     device = tdgl3d.Device(params, applied_field=field, trilayer=trilayer)
@@ -856,6 +856,24 @@ def main() -> None:
     plot_slices(solution, device)
     plot_xy_overview(solution, device)
     plot_isometric(solution, device)
+    
+    # ── Current density visualization ──────────────────────────────────
+    from tdgl3d.visualization.plotting import plot_current_density
+    fig_current, _ = plot_current_density(
+        solution,
+        step=-1,
+        slice_z=sz_bot,  # Use bottom SC midplane
+        streamplot=True,
+        stream_density=1.5,
+    )
+    fig_current.suptitle(
+        f"Current density — bottom SC midplane (z={sz_bot}), t = {solution.times[-1]:.2f}",
+        fontsize=13,
+    )
+    fig_current.savefig("sis_square_with_hole_current.png", dpi=150, bbox_inches="tight")
+    print("Saved sis_square_with_hole_current.png")
+    import matplotlib.pyplot as plt
+    plt.close(fig_current)
 
     # ── Animations (4 separate GIFs) ──────────────────────────────────
     print("\n=== Generating animated GIFs ===")

@@ -19,6 +19,142 @@ parameter ψ and the gauge-invariant vector potential **A** (link variables
 The spatial discretisation uses **link variables** (Peierls phases) on a
 uniform Cartesian grid, exactly as described in the MATLAB predecessor.
 
+## Theoretical Background
+
+### The TDGL Model
+
+The time-dependent Ginzburg-Landau equations describe the relaxation dynamics of a superconductor toward its equilibrium state. They capture the interplay between the superconducting order parameter **ψ** (representing Cooper pair density and phase) and the electromagnetic vector potential **A** (representing the magnetic field).
+
+#### Order Parameter Equation
+
+```
+∂ψ/∂t = (∇ − iA)² ψ + (1 − |ψ|²) ψ
+```
+
+- **Left side**: Rate of change of the order parameter
+- **First term** `(∇ − iA)² ψ`: Gauge-covariant Laplacian representing kinetic energy and screening currents. The `−iA` coupling ensures gauge invariance and encodes the Meissner effect.
+- **Second term** `(1 − |ψ|²) ψ`: Nonlinear "potential" term that drives |ψ| → 1 in superconducting regions (equilibrium condensate density) and |ψ| → 0 in normal regions.
+
+#### Gauge Field Equation
+
+```
+∂A/∂t = κ² ∇×(∇×A) − Im[ψ* (∇ − iA) ψ]
+```
+
+- **Left side**: Rate of change of the vector potential (related to electric field via Faraday's law)
+- **First term** `κ² ∇×(∇×A)`: Magnetic diffusion with diffusion constant κ² (proportional to normal conductivity). For Type-II superconductors, κ > 1/√2.
+- **Second term** `−Im[ψ* (∇ − iA) ψ]`: Supercurrent density **J_s**. This is the dissipationless current carried by Cooper pairs, which screens applied magnetic fields.
+
+**Physical interpretation**: The gauge field evolves to balance magnetic diffusion against supercurrent screening. In equilibrium (∂A/∂t = 0), the supercurrent exactly cancels the curl of the vector potential, resulting in zero total current.
+
+### Key Physical Phenomena
+
+#### Meissner Effect
+
+In bulk superconductors with |ψ| ≈ 1, supercurrents spontaneously arrange to expel applied magnetic fields:
+
+```
+J_s = −∇×B  ⟹  B → 0  in bulk SC
+```
+
+The screening occurs over the **penetration depth** λ ∝ κ. In our dimensionless units (length in units of coherence length ξ), λ/ξ = κ.
+
+#### Vortex Formation (Type-II)
+
+When the applied field exceeds the lower critical field **H_c1**, magnetic flux penetrates the superconductor in quantized vortices. Each vortex:
+
+- Carries exactly one flux quantum Φ₀ = h/2e
+- Has a normal core where |ψ| → 0 with radius ~ ξ (coherence length)
+- Generates circulating supercurrents in an annulus of radius ~ λ (penetration depth)
+- Exhibits phase winding: arg(ψ) increases by 2π around the vortex core
+
+For Type-II superconductors (κ > 1/√2), vortices repel and form a triangular Abrikosov lattice at high fields.
+
+#### Supercurrent Density
+
+The supercurrent is computed from the gauge-covariant gradient:
+
+```
+J_s = Im[ψ* (∇ − iA) ψ]
+```
+
+In discrete form (link variables):
+```
+J_s,x[m] = Im[ ψ*[m] · exp(−iφ_x[m]) · ψ[m+1] ] / hx
+```
+
+where `φ_x[m]` is the Peierls phase (line integral of **A**) on the link from node `m` to `m+1`. This formulation guarantees gauge invariance and current conservation on the discrete lattice.
+
+#### Insulator Regions & Holes
+
+Non-superconducting regions (insulators, holes) are modeled by:
+
+1. **Suppressing ψ**: Adding a relaxation term `−ψ/τ_relax` (τ = 0.1) drives ψ → 0
+2. **Preserving gauge dynamics**: Keeping κ non-zero so the vector potential **A** still evolves
+
+This allows **magnetic flux penetration** into holes without screening:
+```
+In holes:  |ψ| ≈ 0  ⟹  J_s ≈ 0  ⟹  B ≈ B_applied
+```
+
+Holes act as "windows" through which the applied field can pass unimpeded, creating strong field gradients at the hole/superconductor interface and persistent screening currents circulating around the hole perimeter.
+
+### Dimensionless Units
+
+All quantities are dimensionless, scaled to characteristic superconductor scales:
+
+| Quantity | Physical | Dimensionless | Typical |
+|----------|----------|---------------|---------|
+| Length | x̃ | x = x̃/ξ | ξ ~ 10–100 nm |
+| Time | t̃ | t = t̃/(ξ²/D) | D ~ diffusivity |
+| Field | B̃ | B = B̃/B_c2 | B_c2 ~ upper critical field |
+| Order param | ψ̃ | ψ = ψ̃/ψ₀ | ψ₀ ~ equilibrium value |
+
+In these units:
+- **κ** is the Ginzburg-Landau parameter (ratio of penetration depth to coherence length)
+- Grid spacing **h** is in units of ξ (typically h ~ 0.5–1 ξ for numerical accuracy)
+- Applied field **B** is in units of B_c2 (typically B ~ 0.1–1 for vortex studies)
+
+### Numerical Discretization
+
+#### Link Variables (Peierls Phases)
+
+Instead of storing **A** directly, we use **link variables** φ defined on edges:
+
+```
+φ_x[m] = ∫_{m}^{m+1} A_x dx  ≈  A_x[m] · hx
+```
+
+This ensures:
+- **Gauge invariance**: Physical observables (|ψ|, B, J) are independent of gauge choice
+- **Flux conservation**: ∮ φ · dl = ∫∫ B · dS (discrete Stokes' theorem)
+- **Stability**: No spurious modes or checkerboard instabilities
+
+The curl and divergence operators are implemented as sparse CSR matrices acting on the compact interior-node representation.
+
+#### Boundary Conditions
+
+**Zero-current BCs** (natural for isolated films):
+```
+n̂ · J_s = 0  on boundary
+```
+
+Implemented by setting normal link variables to zero and using ghost-node reflections for tangential components.
+
+**Applied magnetic field**: Encoded via Peierls phases on boundary links:
+```
+φ_boundary = ± B_applied · (hx·hy)  (sign depends on face orientation)
+```
+
+This writes the external field into the link variables, allowing it to diffuse into the interior and interact with supercurrents.
+
+### Further Reading
+
+- **Original theory**: Ginzburg & Landau, *Zh. Eksp. Teor. Fiz.* **20**, 1064 (1950)
+- **TDGL formulation**: Gorkov & Eliashberg, *Sov. Phys. JETP* **27**, 328 (1968)  
+- **Link-variable discretization**: Machida & Koyama, *Phys. Rev. Lett.* **90**, 077003 (2003)
+- **Implementation reference**: See `docs/6336__Final_Report_Type_II_Superconductor_Vortices.pdf` for detailed derivation and validation
+
 ## Features
 
 | Feature | Description |
