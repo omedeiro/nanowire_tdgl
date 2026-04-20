@@ -99,12 +99,9 @@ def solve(
 
     # Initial state
     if x0 is None:
-        x0_arr = StateVector.uniform_superconducting(params).data
-        # If device has a trilayer, suppress ψ in the insulator
-        if material is not None:
-            sv = StateVector(x0_arr, params)
-            sv.psi[:] *= material.interior_sc_mask
-        x0_arr = x0_arr if material is None else sv.data
+        # Use device.initial_state() which properly initializes φ fields
+        # based on applied magnetic field (essential for flux trapping)
+        x0_arr = device.initial_state().data
     elif isinstance(x0, StateVector):
         x0_arr = x0.data
     else:

@@ -257,6 +257,221 @@ def identify_boundary_links(
     return np.array(boundary_links, dtype=np.int64)
 
 
+def identify_normal_boundary_links(
+    hole_mask: NDArray[np.bool_],
+    direction: Literal['x', 'y', 'z'],
+    is_3d: bool = True,
+) -> NDArray[np.int64]:
+    """Find links PERPENDICULAR to hole boundary (for zero-current BC enforcement).
+    
+    A link is "normal" to the boundary if it crosses the boundary in a direction
+    perpendicular to the local boundary orientation. Normal links should have
+    φ = 0 enforced (zero normal current). Tangential links can evolve freely,
+    allowing persistent currents to circulate around the hole.
+    
+    **Physics Motivation:**
+    Zero-current boundary condition should only constrain the NORMAL component
+    of current into the hole, not the TANGENTIAL component. This allows:
+    - Persistent currents to circulate around hole (flux trapping)
+    - Phase winding: ∮ ∇φ · dl = 2πn (quantized fluxoid)
+    - Correct superconducting loop physics
+    
+    **Classification Strategy (Revised):**
+    For a square hole with straight edges, examine the boundary topology:
+    - x-links on VERTICAL edges (left/right) are NORMAL (perpendicular to edge)
+    - y-links on HORIZONTAL edges (top/bottom) are NORMAL (perpendicular to edge)  
+    - x-links on HORIZONTAL edges are TANGENTIAL (parallel to edge)
+    - y-links on VERTICAL edges are TANGENTIAL (parallel to edge)
+    
+    Detection method:
+    For each boundary link, check if moving perpendicular crosses MORE boundaries.
+    - If yes → link is tangential (runs along edge)
+    - If no → link is normal (crosses into/out of hole)
+    
+    Example (x-direction links on a square hole):
+    ```
+        SC  SC  SC  SC  SC
+        SC  ──  ──  ──  SC   ← tangential x-links (top edge)
+        SC  |  hole  |  SC   
+        SC  ──  ──  ──  SC   ← tangential x-links (bottom edge)
+        SC  SC  SC  SC  SC
+            ↑           ↑
+         normal       normal
+        x-links      x-links
+       (left edge)  (right edge)
+    ```
+    
+    Parameters
+    ----------
+    hole_mask : ndarray, shape (Nx+1, Ny+1, Nz+1)
+        Boolean mask of hole interior (True = inside hole)
+    direction : {'x', 'y', 'z'}
+        Link direction to classify
+    is_3d : bool, default True
+        If False, use 2D indexing (ignore z-dimension)
+    
+    Returns
+    -------
+    normal_links : ndarray of int64
+        Linear indices (full-grid) of links PERPENDICULAR to hole boundary.
+        These are the links that should have φ = 0 enforced.
+    
+    Notes
+    -----
+    - Only returns NORMAL links (subset of all boundary links)
+    - Tangential links are implicitly allowed to evolve (not returned)
+    - Corner links are classified based on local topology
+    - For flux trapping: tangential circulation around hole requires this separation
+    
+    See Also
+    --------
+    identify_boundary_links : Returns ALL boundary links (normal + tangential)
+    
+    Examples
+    --------
+    >>> # Square hole: separate normal from tangential
+    >>> mask = np.zeros((21, 21, 2), dtype=bool)
+    >>> mask[7:13, 7:13, :] = True  # 6×6 hole
+    >>> x_normal = identify_normal_boundary_links(mask, 'x')
+    >>> # Returns only x-links on left/right edges (perpendicular to boundary)
+    >>> # Does NOT return x-links on top/bottom edges (parallel to boundary)
+    """
+    Nx, Ny, Nz = hole_mask.shape
+    Nx -= 1  # Convert to number of cells
+    Ny -= 1
+    Nz -= 1
+    
+    normal_links = []
+    
+    if direction == 'x':
+        # x-links connect (i, j, k) → (i+1, j, k)
+        # Link is TANGENTIAL if it's part of a boundary chain in x-direction
+        # Link is NORMAL if it's an isolated crossing (not connected to boundary chain in x)
+        
+        for k in range(Nz + 1 if is_3d else 1):
+            for j in range(Ny + 1):
+                for i in range(Nx):  # x-links from i to i+1
+                    inside_left = hole_mask[i, j, k]
+                    inside_right = hole_mask[i + 1, j, k]
+                    
+                    # Only consider boundary-crossing links
+                    if inside_left == inside_right:
+                        continue  # Not a boundary link
+                    
+                    # Check if neighboring x-links (same j, k; different i) are ALSO boundaries
+                    # If this link is part of a chain in x-direction → TANGENTIAL
+                    # If this link is isolated in x-direction → NORMAL
+                    
+                    has_boundary_neighbor_x = False
+                    
+                    # Check x-link at (i-1, j, k) [link from i-1 to i]
+                    if i > 0:
+                        inside_left_prev = hole_mask[i - 1, j, k]
+                        inside_right_prev = hole_mask[i, j, k]
+                        if inside_left_prev != inside_right_prev:
+                            has_boundary_neighbor_x = True
+                    
+                    # Check x-link at (i+1, j, k) [link from i+1 to i+2]
+                    if i < Nx - 1:
+                        inside_left_next = hole_mask[i + 1, j, k]
+                        inside_right_next = hole_mask[i + 2, j, k]
+                        if inside_left_next != inside_right_next:
+                            has_boundary_neighbor_x = True
+                    
+                    # If NO boundary neighbors in x → this x-link is NORMAL to boundary
+                    # If YES boundary neighbors in x → this x-link is TANGENTIAL (part of chain)
+                    if not has_boundary_neighbor_x:
+                        if is_3d:
+                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
+                        else:
+                            m = j * (Nx + 1) + i
+                        normal_links.append(m)
+    
+    elif direction == 'y':
+        # y-links connect (i, j, k) → (i, j+1, k)
+        # Link is TANGENTIAL if it's part of a boundary chain in y-direction
+        # Link is NORMAL if it's an isolated crossing (not connected to boundary chain in y)
+        
+        for k in range(Nz + 1 if is_3d else 1):
+            for i in range(Nx + 1):
+                for j in range(Ny):  # y-links from j to j+1
+                    inside_bottom = hole_mask[i, j, k]
+                    inside_top = hole_mask[i, j + 1, k]
+                    
+                    # Only consider boundary-crossing links
+                    if inside_bottom == inside_top:
+                        continue
+                    
+                    # Check if neighboring y-links (same i, k; different j) are ALSO boundaries
+                    has_boundary_neighbor_y = False
+                    
+                    # Check y-link at (i, j-1, k) [link from j-1 to j]
+                    if j > 0:
+                        inside_bottom_prev = hole_mask[i, j - 1, k]
+                        inside_top_prev = hole_mask[i, j, k]
+                        if inside_bottom_prev != inside_top_prev:
+                            has_boundary_neighbor_y = True
+                    
+                    # Check y-link at (i, j+1, k) [link from j+1 to j+2]
+                    if j < Ny - 1:
+                        inside_bottom_next = hole_mask[i, j + 1, k]
+                        inside_top_next = hole_mask[i, j + 2, k]
+                        if inside_bottom_next != inside_top_next:
+                            has_boundary_neighbor_y = True
+                    
+                    # If NO boundary neighbors in y → this y-link is NORMAL
+                    # If YES boundary neighbors in y → this y-link is TANGENTIAL (part of chain)
+                    if not has_boundary_neighbor_y:
+                        if is_3d:
+                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
+                        else:
+                            m = j * (Nx + 1) + i
+                        normal_links.append(m)
+    
+    elif direction == 'z':
+        # z-links connect (i, j, k) → (i, j, k+1)
+        # Link is TANGENTIAL if it's part of a boundary chain in z-direction
+        # Link is NORMAL if it's an isolated crossing (not connected to boundary chain in z)
+        
+        for i in range(Nx + 1):
+            for j in range(Ny + 1):
+                for k in range(Nz):  # z-links from k to k+1
+                    inside_below = hole_mask[i, j, k]
+                    inside_above = hole_mask[i, j, k + 1]
+                    
+                    # Only consider boundary-crossing links
+                    if inside_below == inside_above:
+                        continue
+                    
+                    # Check if neighboring z-links (same i, j; different k) are ALSO boundaries
+                    has_boundary_neighbor_z = False
+                    
+                    # Check z-link at (i, j, k-1) [link from k-1 to k]
+                    if k > 0:
+                        inside_below_prev = hole_mask[i, j, k - 1]
+                        inside_above_prev = hole_mask[i, j, k]
+                        if inside_below_prev != inside_above_prev:
+                            has_boundary_neighbor_z = True
+                    
+                    # Check z-link at (i, j, k+1) [link from k+1 to k+2]
+                    if k < Nz - 1:
+                        inside_below_next = hole_mask[i, j, k + 1]
+                        inside_above_next = hole_mask[i, j, k + 2]
+                        if inside_below_next != inside_above_next:
+                            has_boundary_neighbor_z = True
+                    
+                    # If NO boundary neighbors in z → this z-link is NORMAL to boundary
+                    # If YES boundary neighbors in z → this z-link is TANGENTIAL (part of chain)
+                    if not has_boundary_neighbor_z:
+                        m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
+                        normal_links.append(m)
+    
+    else:
+        raise ValueError(f"Invalid direction '{direction}'. Use 'x', 'y', or 'z'.")
+    
+    return np.array(normal_links, dtype=np.int64)
+
+
 def identify_circular_hole_nodes(
     center: tuple[float, float],
     radius: float,

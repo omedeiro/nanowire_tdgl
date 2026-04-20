@@ -9,6 +9,7 @@ from tdgl3d.mesh.holes import (
     point_in_polygon,
     identify_hole_nodes,
     identify_boundary_links,
+    identify_normal_boundary_links,
     identify_circular_hole_nodes,
 )
 
@@ -268,3 +269,139 @@ def test_boundary_links_full_hole():
     assert len(x_links) == 0
     assert len(y_links) == 0
     assert len(z_links) == 0
+
+
+# ============================================================================
+# Tests for Normal/Tangential Link Classification (Flux Trapping Physics)
+# ============================================================================
+
+def test_identify_normal_links_square_hole_2d():
+    """Test normal link classification for a square hole in 2D.
+    
+    For a square hole with straight edges:
+    - x-links on LEFT/RIGHT edges are NORMAL (perpendicular to vertical boundary)
+    - y-links on TOP/BOTTOM edges are NORMAL (perpendicular to horizontal boundary)
+    - x-links on TOP/BOTTOM edges are TANGENTIAL (parallel to horizontal boundary)
+    - y-links on LEFT/RIGHT edges are TANGENTIAL (parallel to vertical boundary)
+    
+    This separation is critical for flux trapping: tangential links must be
+    allowed to evolve freely for persistent currents to circulate around hole.
+    """
+    # Create 20×20 grid with 6×6 centered square hole (Nz=1 for 2D)
+    hole_mask = np.zeros((21, 21, 2), dtype=bool)
+    hole_mask[7:13, 7:13, :] = True  # Hole from i=7..12, j=7..12
+    
+    # Get ALL boundary links (normal + tangential)
+    x_all = identify_boundary_links(hole_mask, 'x', is_3d=False)
+    y_all = identify_boundary_links(hole_mask, 'y', is_3d=False)
+    
+    # Get NORMAL boundary links only
+    x_normal = identify_normal_boundary_links(hole_mask, 'x', is_3d=False)
+    y_normal = identify_normal_boundary_links(hole_mask, 'y', is_3d=False)
+    
+    # Normal links should be a SUBSET of all links
+    assert len(x_normal) <= len(x_all), "Normal x-links should be subset of all x-links"
+    assert len(y_normal) <= len(y_all), "Normal y-links should be subset of all y-links"
+    
+    # For a 6×6 square hole, expect:
+    # - x-links: 2 vertical edges × 6 links each = 12 normal links (left + right)
+    # - y-links: 2 horizontal edges × 6 links each = 12 normal links (top + bottom)
+    # Note: In 2D with Nz=1, we have 1 z-plane, so multiply by 1
+    expected_x_normal = 12  # Left edge (i=6) + Right edge (i=12)
+    expected_y_normal = 12  # Bottom edge (j=6) + Top edge (j=12)
+    
+    # Allow some tolerance for boundary effects
+    assert abs(len(x_normal) - expected_x_normal) <= 2, \
+        f"Expected ~{expected_x_normal} normal x-links, got {len(x_normal)}"
+    assert abs(len(y_normal) - expected_y_normal) <= 2, \
+        f"Expected ~{expected_y_normal} normal y-links, got {len(y_normal)}"
+    
+    # Tangential links = ALL - NORMAL
+    x_tangential_count = len(x_all) - len(x_normal)
+    y_tangential_count = len(y_all) - len(y_normal)
+    
+    # Should have some tangential links (on horizontal/vertical edges)
+    assert x_tangential_count > 0, "Should have tangential x-links (on horizontal edges)"
+    assert y_tangential_count > 0, "Should have tangential y-links (on vertical edges)"
+    
+    print(f"  Square hole boundary links:")
+    print(f"    x-links: {len(x_all)} total, {len(x_normal)} normal, {x_tangential_count} tangential")
+    print(f"    y-links: {len(y_all)} total, {len(y_normal)} normal, {y_tangential_count} tangential")
+
+
+def test_identify_normal_links_small_hole():
+    """Test normal link classification for a minimal 2×2 hole."""
+    # Create 10×10 grid with tiny 2×2 hole
+    hole_mask = np.zeros((11, 11, 2), dtype=bool)
+    hole_mask[4:6, 4:6, :] = True  # 2×2 hole at center
+    
+    x_normal = identify_normal_boundary_links(hole_mask, 'x', is_3d=False)
+    y_normal = identify_normal_boundary_links(hole_mask, 'y', is_3d=False)
+    
+    # For 2×2 hole, expect:
+    # - 2 vertical edges × 2 links = 4 normal x-links
+    # - 2 horizontal edges × 2 links = 4 normal y-links
+    assert 2 <= len(x_normal) <= 6, f"Expected 2-6 normal x-links for small hole, got {len(x_normal)}"
+    assert 2 <= len(y_normal) <= 6, f"Expected 2-6 normal y-links for small hole, got {len(y_normal)}"
+
+
+def test_identify_normal_links_3d():
+    """Test normal link classification in 3D geometry."""
+    # Create 10×10×5 grid with hole extending through z-layers 1-3
+    hole_mask = np.zeros((11, 11, 6), dtype=bool)
+    hole_mask[4:7, 4:7, 1:4] = True  # 3×3 hole in z-layers 1,2,3
+    
+    x_normal = identify_normal_boundary_links(hole_mask, 'x', is_3d=True)
+    y_normal = identify_normal_boundary_links(hole_mask, 'y', is_3d=True)
+    z_normal = identify_normal_boundary_links(hole_mask, 'z', is_3d=True)
+    
+    # Should find some normal links in all directions
+    assert len(x_normal) > 0, "Should find normal x-links in 3D"
+    assert len(y_normal) > 0, "Should find normal y-links in 3D"
+    assert len(z_normal) > 0, "Should find normal z-links in 3D (top/bottom faces)"
+    
+    print(f"  3D hole normal links: x={len(x_normal)}, y={len(y_normal)}, z={len(z_normal)}")
+
+
+def test_normal_links_are_subset():
+    """Verify normal links are always a subset of all boundary links."""
+    # Test with various hole shapes
+    test_cases = [
+        # (hole_mask shape, hole region)
+        ((21, 21, 2), (slice(5, 10), slice(5, 10), slice(None))),  # Square
+        ((21, 21, 2), (slice(8, 15), slice(5, 8), slice(None))),   # Rectangle
+        ((15, 15, 4), (slice(5, 10), slice(5, 10), slice(1, 3))),  # 3D square
+    ]
+    
+    for shape, hole_region in test_cases:
+        mask = np.zeros(shape, dtype=bool)
+        mask[hole_region] = True
+        is_3d = (shape[2] > 2)
+        
+        for direction in ['x', 'y', 'z']:
+            all_links = identify_boundary_links(mask, direction, is_3d=is_3d)
+            normal_links = identify_normal_boundary_links(mask, direction, is_3d=is_3d)
+            
+            # Normal must be subset of all
+            assert len(normal_links) <= len(all_links), \
+                f"{direction}-links: normal ({len(normal_links)}) should be ≤ all ({len(all_links)})"
+            
+            # Check that normal links are actually in all links
+            all_set = set(all_links)
+            for link in normal_links:
+                assert link in all_set, \
+                    f"Normal {direction}-link {link} not found in all boundary links"
+
+
+def test_normal_links_no_hole():
+    """Test that no normal links are identified when there's no hole."""
+    # Empty grid (no hole)
+    mask = np.zeros((11, 11, 2), dtype=bool)
+    
+    x_normal = identify_normal_boundary_links(mask, 'x', is_3d=False)
+    y_normal = identify_normal_boundary_links(mask, 'y', is_3d=False)
+    z_normal = identify_normal_boundary_links(mask, 'z', is_3d=False)
+    
+    assert len(x_normal) == 0, "No hole → no normal boundary links"
+    assert len(y_normal) == 0
+    assert len(z_normal) == 0
