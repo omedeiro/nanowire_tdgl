@@ -53,12 +53,14 @@ H = 1.0            # Grid spacing
 # Applied field to trap ~3-4 flux quanta
 # Φ = Bz × Area, want Φ ≈ 3×2π ≈ 19
 # Area = 20×20 = 400 → Bz ≈ 19/400 ≈ 0.05
-BZ_APPLIED = 0.05
+# But need Bz > Hc1 to nucleate vortices
+# For κ=0.5, try Bz = 0.2 (should give ~12 Φ₀)
+BZ_APPLIED = 0.2
 
 # Time stepping
 DT = 0.01
-T_STOP = 20.0
-SAVE_EVERY = 20
+T_STOP = 100.0  # Longer simulation to allow φ to reach steady state
+SAVE_EVERY = 100  # Save less frequently
 
 # =============================================================================
 # SETUP
@@ -74,7 +76,7 @@ params = SimulationParameters(
     kappa=KAPPA
 )
 
-device = Device(params, applied_field=AppliedField(Bz=BZ_APPLIED))
+device = Device(params, applied_field=AppliedField(Bz=BZ_APPLIED, t_on_fraction=0.8))
 
 # Center hole in domain
 hole_center = GRID_SIZE // 2
