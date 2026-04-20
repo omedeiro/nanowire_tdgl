@@ -123,6 +123,114 @@ class GridIndices:
     y_normal_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
     z_normal_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
 
+    # -- Hole boundary masks (links crossing hole boundaries) ---------------
+    hole_x_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    hole_y_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    hole_z_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    
+    # -- Hole boundary masks in interior numbering (for masking dφ/dt) ------
+    hole_x_bc_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    hole_y_bc_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    hole_z_bc_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+
+    def define_hole_polygon(
+        self,
+        vertices: list[tuple[float, float]],
+        z_range: tuple[int, int],
+        params: SimulationParameters,
+    ) -> None:
+        """Define a polygon-shaped hole with zero-current boundary conditions.
+
+        This method identifies all links crossing the hole boundary and stores
+        them in the hole_*_bc_mask arrays. These masks are later used by
+        _apply_boundary_conditions() to enforce zero normal current at hole edges.
+
+        Parameters
+        ----------
+        vertices : list of (x, y) tuples
+            Polygon vertices in physical coordinates (ξ units)
+        z_range : (k_min, k_max)
+            Z-layer extent (grid indices, inclusive)
+        params : SimulationParameters
+            Grid parameters (Nx, Ny, Nz, hx, hy, hz)
+
+        Notes
+        -----
+        - Can be called multiple times to define multiple holes
+        - New hole masks are **appended** to existing ones (not replaced)
+        - Holes should be defined before running the simulation
+        - Currently supports a single polygon per call; for multiple holes,
+          call this method multiple times
+
+        Examples
+        --------
+        >>> square = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
+        >>> indices.define_hole_polygon(square, (0, 5), params)
+        """
+        from ..mesh.holes import identify_hole_nodes, identify_boundary_links
+
+        # Get hole mask (boolean array on full grid)
+        hole_mask = identify_hole_nodes(
+            vertices=vertices,
+            z_range=z_range,
+            grid_spacing_x=params.hx,
+            grid_spacing_y=params.hy,
+            Nx=params.Nx,
+            Ny=params.Ny,
+            Nz=params.Nz,
+        )
+
+        # Identify boundary links for each direction
+        new_x_links = identify_boundary_links(hole_mask, 'x', is_3d=params.is_3d)
+        new_y_links = identify_boundary_links(hole_mask, 'y', is_3d=params.is_3d)
+        new_z_links = identify_boundary_links(hole_mask, 'z', is_3d=params.is_3d)
+
+        # Append to existing masks (support multiple holes)
+        self.hole_x_bc_mask = np.concatenate([self.hole_x_bc_mask, new_x_links])
+        self.hole_y_bc_mask = np.concatenate([self.hole_y_bc_mask, new_y_links])
+        self.hole_z_bc_mask = np.concatenate([self.hole_z_bc_mask, new_z_links])
+        
+        # Convert to interior numbering for masking dφ/dt
+        # Create a mapping from full-grid indices to interior indices
+        full_to_interior = np.full(params.dim_x, -1, dtype=np.intp)
+        full_to_interior[self.interior_to_full] = np.arange(params.n_interior, dtype=np.intp)
+        
+        # Find which hole boundary links are also interior nodes
+        new_x_interior = []
+        for link_idx in new_x_links:
+            interior_idx = full_to_interior[link_idx]
+            if interior_idx >= 0:  # This link is an interior node
+                new_x_interior.append(interior_idx)
+        
+        new_y_interior = []
+        for link_idx in new_y_links:
+            interior_idx = full_to_interior[link_idx]
+            if interior_idx >= 0:
+                new_y_interior.append(interior_idx)
+        
+        new_z_interior = []
+        for link_idx in new_z_links:
+            interior_idx = full_to_interior[link_idx]
+            if interior_idx >= 0:
+                new_z_interior.append(interior_idx)
+        
+        # Append to interior masks
+        if len(new_x_interior) > 0:
+            self.hole_x_bc_interior = np.concatenate([
+                self.hole_x_bc_interior, 
+                np.array(new_x_interior, dtype=np.intp)
+            ])
+        if len(new_y_interior) > 0:
+            self.hole_y_bc_interior = np.concatenate([
+                self.hole_y_bc_interior,
+                np.array(new_y_interior, dtype=np.intp)
+            ])
+        if len(new_z_interior) > 0:
+            self.hole_z_bc_interior = np.concatenate([
+                self.hole_z_bc_interior,
+                np.array(new_z_interior, dtype=np.intp)
+            ])
+
 
 # ---------------------------------------------------------------------------
 # Vectorised constructor

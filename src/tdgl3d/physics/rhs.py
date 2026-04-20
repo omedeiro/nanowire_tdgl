@@ -126,6 +126,16 @@ def _apply_boundary_conditions(
             y2[idx.z_face_lo_inner] += u.Bx[idx.z_face_lo_inner] * hy * hz + y200[idx.z_first_inner]
             y2[idx.z_face_hi_inner] += -u.Bx[idx.z_face_hi_inner] * hy * hz + y200[idx.z_last_inner]
 
+    # Zero out normal-component link variables at hole boundaries.
+    # This must happen AFTER the outer boundary conditions so that hole BCs
+    # take precedence and are not overwritten.
+    if idx.hole_x_bc_mask.size > 0:
+        y1[idx.hole_x_bc_mask] = 0.0
+    if idx.hole_y_bc_mask.size > 0:
+        y2[idx.hole_y_bc_mask] = 0.0
+    if params.is_3d and idx.hole_z_bc_mask.size > 0:
+        y3[idx.hole_z_bc_mask] = 0.0
+
     return x, y1, y2, y3
 
 
@@ -213,6 +223,15 @@ def eval_f(
     dPhidtX = (LPHIY_int + LPHIZ_int) @ y1 + FPHIX
     dPhidtY = (LPHIX_int + LPHIZ_int) @ y2 + FPHIY
     dPhidtZ = (LPHIX_int + LPHIY_int) @ y3 + FPHIZ
+    
+    # Enforce zero time derivative at hole boundaries (keeps φ = 0 there)
+    # This ensures link variables remain at zero throughout the simulation
+    if idx.hole_x_bc_interior.size > 0:
+        dPhidtX[idx.hole_x_bc_interior] = 0.0
+    if idx.hole_y_bc_interior.size > 0:
+        dPhidtY[idx.hole_y_bc_interior] = 0.0
+    if params.is_3d and idx.hole_z_bc_interior.size > 0:
+        dPhidtZ[idx.hole_z_bc_interior] = 0.0
 
     if params.is_3d:
         return np.concatenate([dPsidt, dPhidtX, dPhidtY, dPhidtZ])

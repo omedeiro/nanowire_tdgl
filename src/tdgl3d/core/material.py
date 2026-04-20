@@ -40,6 +40,77 @@ class MaterialMap:
     sc_mask: NDArray[np.float64]
     interior_sc_mask: NDArray[np.float64]
 
+    def carve_hole_polygon(
+        self,
+        vertices: list[tuple[float, float]],
+        z_range: tuple[int, int],
+        params: SimulationParameters,
+        idx,  # GridIndices — avoid circular import
+    ) -> None:
+        """Carve a polygon-shaped hole by marking nodes as non-superconducting.
+
+        This modifies the material map to treat hole interior as insulator
+        (sc_mask = 0.0).  The hole region is defined by a polygon in the
+        x-y plane, extruded through the specified z-range.
+
+        Parameters
+        ----------
+        vertices : list of (x, y) tuples
+            Polygon vertices in physical coordinates (ξ units)
+        z_range : (k_min, k_max)
+            Z-layer extent (grid indices, inclusive)
+        params : SimulationParameters
+            Grid parameters (Nx, Ny, Nz, hx, hy, hz)
+        idx : GridIndices
+            Grid index mapping (for interior_to_full)
+
+        Notes
+        -----
+        - Hole nodes have sc_mask set to 0.0 (non-superconducting)
+        - This method is called automatically by Device.add_hole()
+        - Can be called multiple times to create multiple holes
+
+        Examples
+        --------
+        >>> square = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
+        >>> material_map.carve_hole_polygon(square, (0, 5), params, idx)
+        """
+        from ..mesh.holes import identify_hole_nodes
+
+        # Get hole mask (boolean array on full grid)
+        hole_mask_3d = identify_hole_nodes(
+            vertices=vertices,
+            z_range=z_range,
+            grid_spacing_x=params.hx,
+            grid_spacing_y=params.hy,
+            Nx=params.Nx,
+            Ny=params.Ny,
+            Nz=params.Nz,
+        )
+
+        # Convert 3D mask to linear indices
+        # The full grid uses linear index m = i + mj*j + mk*k
+        # But for 2D (Nz=1), we only use m = i + mj*j (no z component)
+        Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
+        mj = Nx + 1
+        
+        # Find all (i, j, k) where hole_mask_3d[i, j, k] == True
+        ii, jj, kk = np.where(hole_mask_3d)
+        
+        # Compute linear indices based on dimensionality
+        if params.is_3d:
+            mk = (Nx + 1) * (Ny + 1)
+            hole_linear_indices = ii + mj * jj + mk * kk
+        else:
+            # For 2D, ignore k (all nodes are at k=0)
+            hole_linear_indices = ii + mj * jj
+
+        # Mark hole nodes as non-superconducting
+        self.sc_mask[hole_linear_indices] = 0.0
+
+        # Update interior mask
+        self.interior_sc_mask = self.sc_mask[idx.interior_to_full]
+
 
 # ---------------------------------------------------------------------------
 # Layer / Trilayer descriptors

@@ -28,7 +28,13 @@ htmlcov/
 coverage.xml
 
 # Output artifacts
-*.gif
+# *.gif
 *.mat
 *.h5
 *.hdf5
+
+# Run logs and metadata
+*.log
+logs/
+run_metadata/
+*.json

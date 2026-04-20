@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Literal, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,6 +14,7 @@ from ..core.device import Device
 from ..core.parameters import SimulationParameters
 from ..core.solution import Solution
 from ..core.state import StateVector
+from ..io.logging import TimingContext, create_run_metadata
 from ..mesh.indices import GridIndices
 from ..physics.applied_field import AppliedField, build_boundary_field_vectors
 from ..physics.rhs import BoundaryVectors
@@ -51,6 +55,9 @@ def solve(
     tol_gcr: float = 1e-4,
     eps_mf: float = 1e-4,
     adaptive: bool = True,
+    # Logging options
+    log_metadata: bool = True,
+    log_dir: str | Path = "logs",
 ) -> Solution:
     """Run a TDGL simulation.
 
@@ -76,11 +83,15 @@ def solve(
     tol_gcr, eps_mf : GCR params.
     adaptive : bool
         Allow adaptive dt reduction on Newton failure.
+    log_metadata : bool
+        If True, create run metadata and auto-save to JSON.
+    log_dir : str or Path
+        Directory for log files (default: "logs").
 
     Returns
     -------
     Solution
-        Contains time array, state history, and post-processing methods.
+        Contains time array, state history, post-processing methods, and metadata.
     """
     params = device.params
     idx = device.idx
@@ -101,27 +112,52 @@ def solve(
 
     eval_u = _make_eval_u(device.applied_field, params, idx, t_stop)
 
-    if method == "euler":
-        times, X_hist = forward_euler(
-            x0_arr, params, idx, eval_u, t_start, t_stop, dt,
-            save_every=save_every, progress=progress,
-            material=material,
+    # Wrap integration with timing
+    with TimingContext() as timer:
+        if method == "euler":
+            times, X_hist = forward_euler(
+                x0_arr, params, idx, eval_u, t_start, t_stop, dt,
+                save_every=save_every, progress=progress,
+                material=material,
+            )
+        elif method == "trapezoidal":
+            times, X_hist = trapezoidal(
+                x0_arr, params, idx, eval_u, t_start, t_stop, dt,
+                newton_tol_f=newton_tol_f,
+                newton_tol_dx=newton_tol_dx,
+                newton_max_iter=newton_max_iter,
+                tol_gcr=tol_gcr,
+                eps_mf=eps_mf,
+                save_every=save_every,
+                adaptive=adaptive,
+                progress=progress,
+                verbose=verbose,
+                material=material,
+            )
+        else:
+            raise ValueError(f"Unknown method {method!r}. Use 'euler' or 'trapezoidal'.")
+    
+    # Create metadata
+    metadata_dict = None
+    if log_metadata:
+        metadata = create_run_metadata(
+            params=params,
+            device=device,
+            method=method,
+            dt=dt,
+            t_final=t_stop,
+            wall_time=timer.elapsed,
+            atol=newton_tol_f if method == "trapezoidal" else None,
+            rtol=newton_tol_dx if method == "trapezoidal" else None,
+            total_steps=len(times),
         )
-    elif method == "trapezoidal":
-        times, X_hist = trapezoidal(
-            x0_arr, params, idx, eval_u, t_start, t_stop, dt,
-            newton_tol_f=newton_tol_f,
-            newton_tol_dx=newton_tol_dx,
-            newton_max_iter=newton_max_iter,
-            tol_gcr=tol_gcr,
-            eps_mf=eps_mf,
-            save_every=save_every,
-            adaptive=adaptive,
-            progress=progress,
-            verbose=verbose,
-            material=material,
-        )
-    else:
-        raise ValueError(f"Unknown method {method!r}. Use 'euler' or 'trapezoidal'.")
+        metadata_dict = metadata.to_dict()
+        
+        # Auto-save metadata to JSON
+        log_path = Path(log_dir)
+        log_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        json_file = log_path / f"run_{timestamp}.json"
+        metadata.save_json(json_file)
 
-    return Solution(times=times, states=X_hist, params=params, idx=idx, device=device)
+    return Solution(times=times, states=X_hist, params=params, idx=idx, device=device, metadata=metadata_dict)

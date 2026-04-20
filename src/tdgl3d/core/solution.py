@@ -28,6 +28,8 @@ class Solution:
     idx : GridIndices
     device : Device, optional
         Reference to the Device used for simulation (needed for applied field info)
+    metadata : dict, optional
+        Run metadata including timing, configuration, and diagnostics
     """
 
     times: NDArray[np.float64]
@@ -35,6 +37,7 @@ class Solution:
     params: SimulationParameters
     idx: GridIndices
     device: Optional['Device'] = None  # Forward reference, will be resolved at runtime
+    metadata: Optional[dict] = None
 
     # -- convenience accessors -----------------------------------------------
 
@@ -293,3 +296,101 @@ class Solution:
             Jx, Jy, Jz = self.current_density(step)
         
         return eval_current_magnitude(Jx, Jy, Jz)
+    
+    # -- Vortex counting and convergence analysis ------------------------------
+    
+    def count_vortices(
+        self,
+        device: 'Device',
+        slice_z: int = 0,
+        step: int = -1,
+        method: str = "plaquette",
+        **kwargs,
+    ):
+        """Count vortices in a 2D slice.
+        
+        Parameters
+        ----------
+        device : Device
+            The device (needed for material mask and field info)
+        slice_z : int, default 0
+            Which z-slice to analyze (interior index 0 to Nz-2)
+        step : int, default -1
+            Which saved time step to analyze
+        method : str, default "plaquette"
+            Vortex counting method:
+            - "plaquette": Phase winding around elementary squares
+            - "polygon": Fluxoid through specified polygon (requires polygon_points kwarg)
+            - "cores": Local minima of |ψ|² (less accurate)
+        **kwargs
+            Additional arguments passed to vortex counting function
+            
+        Returns
+        -------
+        Depends on method:
+        - "plaquette": (n_vortices, positions, winding_numbers)
+        - "polygon": n_vortices (float)
+        - "cores": core_positions array
+        
+        See Also
+        --------
+        tdgl3d.analysis.vortex_counting
+        """
+        from ..analysis.vortex_counting import (
+            count_vortices_plaquette,
+            count_vortices_polygon,
+            find_vortex_cores,
+        )
+        
+        if method == "plaquette":
+            return count_vortices_plaquette(self, device, slice_z, step, **kwargs)
+        elif method == "polygon":
+            if 'polygon_points' not in kwargs:
+                raise ValueError("polygon method requires polygon_points argument")
+            return count_vortices_polygon(self, device, kwargs['polygon_points'], slice_z, step)
+        elif method == "cores":
+            return find_vortex_cores(self, device, slice_z, step, **kwargs)
+        else:
+            raise ValueError(f"Unknown method: {method}")
+    
+    def check_steady_state(
+        self,
+        device: Optional['Device'] = None,
+        window_size: int = 10,
+        psi_threshold: float = 1e-4,
+        current_threshold: float = 1e-4,
+        start_step: int = 20,
+    ):
+        """Check if simulation has reached steady state.
+        
+        Parameters
+        ----------
+        device : Device, optional
+            The device (enables supercurrent-based convergence check)
+        window_size : int, default 10
+            Number of saved steps to compare over
+        psi_threshold : float, default 1e-4
+            Convergence threshold for |ψ|²
+        current_threshold : float, default 1e-4
+            Convergence threshold for supercurrent (if device provided)
+        start_step : int, default 20
+            Don't check before this step (allow initial transient)
+            
+        Returns
+        -------
+        is_steady : bool
+            True if steady state reached
+        steady_step : int
+            First step where steady state achieved (-1 if never)
+        metrics : dict
+            Convergence diagnostics
+            
+        See Also
+        --------
+        tdgl3d.analysis.convergence.check_steady_state
+        """
+        from ..analysis.convergence import check_steady_state
+        return check_steady_state(
+            self, device, window_size, psi_threshold, 
+            current_threshold, start_step
+        )
