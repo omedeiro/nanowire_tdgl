@@ -44,7 +44,7 @@ class AppliedField:
         if self.field_func is not None:
             return self.field_func(t, t_stop)
 
-        if t <= 0 or t > t_stop * self.t_on_fraction:
+        if t < 0 or t > t_stop * self.t_on_fraction:
             return 0.0, 0.0, 0.0
 
         if self.ramp:
