@@ -394,3 +394,156 @@ class Solution:
             self, device, window_size, psi_threshold, 
             current_threshold, start_step
         )
+    
+    # -- I/O methods ---------------------------------------------------------
+    
+    def save(self, filename: str) -> None:
+        """Save solution to HDF5 file.
+        
+        Saves all simulation data including times, states, parameters, grid indices,
+        and metadata to an HDF5 file for later loading and visualization.
+        
+        Parameters
+        ----------
+        filename : str
+            Output filename (should end with .h5 or .hdf5)
+            
+        Examples
+        --------
+        >>> solution = solve(device, ...)
+        >>> solution.save("my_simulation.h5")
+        >>> # Later...
+        >>> loaded = Solution.load("my_simulation.h5")
+        
+        Notes
+        -----
+        The Device object is not saved (would require serializing Trilayer, AppliedField, etc.).
+        If you need the Device for post-processing, save it separately or reconstruct it.
+        """
+        import h5py
+        
+        with h5py.File(filename, 'w') as f:
+            # Core data
+            f.create_dataset('times', data=self.times)
+            f.create_dataset('states', data=self.states)
+            
+            # Parameters (all scalar attributes)
+            grp_params = f.create_group('params')
+            for key in ['Nx', 'Ny', 'Nz', 'hx', 'hy', 'hz', 'kappa']:
+                grp_params.attrs[key] = getattr(self.params, key)
+            
+            # GridIndices (store all arrays and scalars)
+            grp_idx = f.create_group('idx')
+            for key in dir(self.idx):
+                if key.startswith('_'):
+                    continue
+                val = getattr(self.idx, key)
+                if isinstance(val, np.ndarray):
+                    grp_idx.create_dataset(key, data=val)
+                elif isinstance(val, (int, float, bool)):
+                    grp_idx.attrs[key] = val
+            
+            # Metadata (optional)
+            if self.metadata is not None:
+                grp_meta = f.create_group('metadata')
+                for key, val in self.metadata.items():
+                    if isinstance(val, (str, int, float, bool)):
+                        grp_meta.attrs[key] = val
+                    elif isinstance(val, np.ndarray):
+                        grp_meta.create_dataset(key, data=val)
+                    elif isinstance(val, dict):
+                        # Nested dict - store as subgroup
+                        sub_grp = grp_meta.create_group(key)
+                        for sub_key, sub_val in val.items():
+                            if isinstance(sub_val, (str, int, float, bool)):
+                                sub_grp.attrs[sub_key] = sub_val
+                            elif isinstance(sub_val, np.ndarray):
+                                sub_grp.create_dataset(sub_key, data=sub_val)
+    
+    @staticmethod
+    def load(filename: str) -> 'Solution':
+        """Load solution from HDF5 file.
+        
+        Loads a previously saved Solution from an HDF5 file.
+        
+        Parameters
+        ----------
+        filename : str
+            Input filename (*.h5 or *.hdf5)
+            
+        Returns
+        -------
+        Solution
+            Loaded solution object (device will be None)
+            
+        Examples
+        --------
+        >>> solution = Solution.load("my_simulation.h5")
+        >>> psi_final = solution.psi(step=-1)
+        >>> 
+        >>> # Reconstruct device if needed for analysis
+        >>> device = Device(solution.params, ...)
+        >>> solution.device = device
+        
+        Notes
+        -----
+        The Device is not saved/loaded. If you need it for analysis functions
+        (e.g., vortex counting), reconstruct it manually and assign to solution.device.
+        """
+        import h5py
+        
+        with h5py.File(filename, 'r') as f:
+            # Core data
+            times = f['times'][:]
+            states = f['states'][:]
+            
+            # Parameters
+            grp_params = f['params']
+            params = SimulationParameters(
+                Nx=grp_params.attrs['Nx'],
+                Ny=grp_params.attrs['Ny'],
+                Nz=grp_params.attrs['Nz'],
+                hx=grp_params.attrs['hx'],
+                hy=grp_params.attrs['hy'],
+                hz=grp_params.attrs['hz'],
+                kappa=grp_params.attrs['kappa'],
+            )
+            
+            # GridIndices - load all arrays
+            from ..mesh.indices import GridIndices
+            grp_idx = f['idx']
+            idx_dict = {}
+            for key in grp_idx.keys():
+                idx_dict[key] = grp_idx[key][:]
+            
+            # GridIndices is a dataclass, construct it with all saved arrays
+            idx = GridIndices(**idx_dict)
+            
+            # Metadata (optional)
+            metadata = None
+            if 'metadata' in f:
+                metadata = {}
+                grp_meta = f['metadata']
+                for key in grp_meta.attrs:
+                    metadata[key] = grp_meta.attrs[key]
+                for key in grp_meta.keys():
+                    if isinstance(grp_meta[key], h5py.Dataset):
+                        metadata[key] = grp_meta[key][:]
+                    elif isinstance(grp_meta[key], h5py.Group):
+                        # Nested group
+                        sub_dict = {}
+                        sub_grp = grp_meta[key]
+                        for sub_key in sub_grp.attrs:
+                            sub_dict[sub_key] = sub_grp.attrs[sub_key]
+                        for sub_key in sub_grp.keys():
+                            sub_dict[sub_key] = sub_grp[sub_key][:]
+                        metadata[key] = sub_dict
+            
+            return Solution(
+                times=times,
+                states=states,
+                params=params,
+                idx=idx,
+                device=None,  # Device not saved
+                metadata=metadata,
+            )

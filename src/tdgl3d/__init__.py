@@ -9,6 +9,7 @@ and gauge-invariant link variables on a 3D structured Cartesian grid.
 from .core.parameters import SimulationParameters
 from .core.device import Device
 from .core.state import StateVector
+from .core.solution import Solution
 from .core.material import Layer, Trilayer, MaterialMap
 from .physics.applied_field import AppliedField
 from .solvers.runner import solve
@@ -29,6 +30,7 @@ __all__ = [
     "SimulationParameters",
     "Device",
     "StateVector",
+    "Solution",
     "Layer",
     "Trilayer",
     "MaterialMap",

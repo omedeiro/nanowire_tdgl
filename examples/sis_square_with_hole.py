@@ -655,13 +655,13 @@ def check_superconductivity(solution: Solution, device: tdgl3d.Device,
     return is_sc, min_psi2
 
 
-def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device]:
+def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device, list[tuple[float, float]]]:
     """Run a simulation with given field strength.
     
     Returns
     -------
-    tuple[Solution, Device]
-        The solution and device objects.
+    tuple[Solution, Device, list of (x,y)]
+        The solution, device objects, and hole polygon vertices.
     """
     # Build trilayer
     trilayer = tdgl3d.Trilayer(
@@ -766,7 +766,14 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device]
     )
 
     print(f"\nSaved {solution.n_steps} snapshots.")
-    return solution, device
+    
+    # Save solution to HDF5 for instant re-visualization
+    output_file = f"sis_square_Bz{bz_field:.2f}_t{T_STOP:.0f}.h5"
+    print(f"Saving solution to {output_file} ...")
+    solution.save(output_file)
+    print(f"  → Saved! Load anytime with: Solution.load('{output_file}')")
+    
+    return solution, device, hole_polygon
 
 
 def analyze_vortices_timeseries(
@@ -846,7 +853,7 @@ def analyze_vortices_timeseries(
         n_film_vortices_list.append(n_film_vortices)
         
         if step % (10 * stride) == 0:
-            print(f"  t={t:6.2f}: plaquette={n_vort:2d}, hole_flux={n_hole_flux:5.2f} Φ₀, "
+            print(f"  t={t:6.2f}: plaquette={n_vort:2d}, Φ_magnetic={n_hole_flux:5.2f} Φ₀, "
                   f"film≈{n_film_vortices:2d}")
     
     print(f"{'='*70}\n")
@@ -873,8 +880,8 @@ def plot_vortex_timeseries(
     ax1.grid(True, alpha=0.3)
     ax1.legend(fontsize=11)
     
-    # Bottom panel: Hole flux and film vortices
-    ax2.plot(times, n_hole_flux, 's-', label='Hole flux (Φ₀)', 
+    # Bottom panel: Magnetic flux through hole and film vortices
+    ax2.plot(times, n_hole_flux, 's-', label='Φ_magnetic (not quantized)', 
              color='C1', markersize=4)
     ax2.plot(times, n_film_vortices, '^-', label='Film vortices', 
              color='C2', markersize=4)
@@ -895,7 +902,7 @@ def main() -> None:
     print(f"Running simulation with Bz = {BZ}")
     print(f"{'='*70}\n")
     
-    solution, device = run_simulation_with_field(BZ)
+    solution, device, hole_polygon = run_simulation_with_field(BZ)
     
     # Check if SC is still superconducting
     min_threshold = 0.01
@@ -945,7 +952,11 @@ def main() -> None:
     plot_vortex_timeseries(times, n_plaq, n_hole, n_film)
     
     # ── Final vortex count (detailed) ─────────────────────────────────
-    from tdgl3d.analysis.vortex_counting import count_vortices_plaquette, count_hole_flux_quanta
+    from tdgl3d.analysis.vortex_counting import (
+        count_vortices_plaquette, 
+        count_hole_flux_quanta,
+        count_vortices_polygon,
+    )
     
     print(f"\n{'='*70}")
     print(f"Final Vortex Count (t = {solution.times[-1]:.2f})")
@@ -959,7 +970,19 @@ def main() -> None:
     hole_bounds = (i_lo, i_hi, j_lo, j_hi)
     
     n_vort, vort_pos, winding = count_vortices_plaquette(solution, device, slice_z=sz_bot, step=-1)
+    
+    # Magnetic flux through hole (NOT quantized - includes screening)
     n_hole_flux = count_hole_flux_quanta(solution, device, hole_bounds, slice_z=sz_bot, step=-1)
+    
+    # Fluxoid around hole (IS quantized - includes supercurrent)
+    margin = 2.0  # Grid cells outside hole boundary
+    polygon_around_hole = np.array([
+        [i_lo - margin, j_lo - margin],
+        [i_hi + margin, j_lo - margin],
+        [i_hi + margin, j_hi + margin],
+        [i_lo - margin, j_hi + margin],
+    ])
+    fluxoid_around_hole = count_vortices_polygon(solution, device, polygon_around_hole, slice_z=sz_bot, step=-1)
     
     print(f"\nPlaquette method (bottom SC, z={sz_bot}):")
     print(f"  Total vortices detected: {n_vort}")
@@ -968,9 +991,13 @@ def main() -> None:
         for idx, (pos, w) in enumerate(zip(vort_pos, winding)):
             print(f"    {idx+1}. ({pos[0]:.1f}, {pos[1]:.1f})  winding = {w:+.2f}")
     
-    print(f"\nFlux through hole:")
-    print(f"  Φ_hole = {n_hole_flux:.3f} Φ₀")
-    print(f"  (Expected ≈ {BZ * (HOLE_X_MAX_UM - HOLE_X_MIN_UM) * (HOLE_Y_MAX_UM - HOLE_Y_MIN_UM) / (2*np.pi):.2f} Φ₀ for uniform field)")
+    print(f"\nMagnetic flux through hole (NOT quantized):")
+    print(f"  Φ_magnetic = {n_hole_flux:.3f} Φ₀")
+    print(f"  (Small value due to Meissner screening at hole boundary)")
+    
+    print(f"\nFluxoid around hole (quantized):")
+    print(f"  Φ_fluxoid = {fluxoid_around_hole:.3f} Φ₀")
+    print(f"  (Should be ≈ integer Φ₀)")
     
     print(f"\nFilm vortices (approximate):")
     print(f"  n_film ≈ n_total - n_hole ≈ {n_vort} vortices")
