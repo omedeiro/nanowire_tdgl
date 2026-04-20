@@ -282,8 +282,15 @@ def count_hole_flux_quanta(
 ) -> float:
     """Compute total magnetic flux through a hole region.
     
-    Integrates B_z over the hole area to determine how many flux quanta
-    (Φ₀ = h/2e) penetrate the hole.
+    Integrates B_z over the hole area to determine how much magnetic flux
+    penetrates the hole.
+    
+    **IMPORTANT**: This computes MAGNETIC FLUX (∫∫B·dA), which is NOT quantized.
+    For a hole surrounded by superconductor, screening currents at the boundary
+    will expel flux, so the penetrating flux can be much less than 1 Φ₀.
+    
+    To measure the quantized fluxoid (which includes supercurrent contribution),
+    use `count_vortices_polygon()` with a contour around the hole.
     
     Parameters
     ----------
@@ -301,15 +308,33 @@ def count_hole_flux_quanta(
     Returns
     -------
     n_flux_quanta : float
-        Number of flux quanta Φ₀ penetrating the hole
+        Magnetic flux penetrating the hole, in units of Φ₀
+        **NOT QUANTIZED** - can be any value (typically << 1 due to Meissner screening)
         
     Notes
     -----
-    Flux through area A:
-        Φ = ∬_A B_z dA
+    Magnetic flux through area A:
+        Φ_B = ∬_A B_z dA
         
-    In dimensionless units, Φ₀ = 2π, so:
-        n = Φ / (2π)
+    Fluxoid (quantized) through contour C enclosing the hole:
+        Φ_f = ∮_C (A + λ²J_s) · dl = n·Φ₀  (integer n)
+        
+    Relationship:
+        Φ_f = Φ_B + ∮_C λ²J_s · dl
+        
+    For a hole surrounded by SC, screening currents contribute negatively,
+    so Φ_B < Φ_f. In dimensionless units, Φ₀ = 2π.
+    
+    Examples
+    --------
+    >>> # Magnetic flux through hole (not quantized)
+    >>> flux_magnetic = count_hole_flux_quanta(sol, dev, (10, 20, 10, 20))
+    >>> # Typical result: 0.05 Φ₀ (small due to screening)
+    >>> 
+    >>> # Fluxoid around hole (quantized)
+    >>> polygon = np.array([[9, 9], [21, 9], [21, 21], [9, 21]])
+    >>> fluxoid = count_vortices_polygon(sol, dev, polygon)
+    >>> # Typical result: 1.0 Φ₀ (quantized integer)
     """
     params = solution.params
     
