@@ -126,15 +126,17 @@ def _apply_boundary_conditions(
             y2[idx.z_face_lo_inner] += u.Bx[idx.z_face_lo_inner] * hy * hz + y200[idx.z_first_inner]
             y2[idx.z_face_hi_inner] += -u.Bx[idx.z_face_hi_inner] * hy * hz + y200[idx.z_last_inner]
 
-    # Zero out normal-component link variables at hole boundaries.
-    # This must happen AFTER the outer boundary conditions so that hole BCs
-    # take precedence and are not overwritten.
-    if idx.hole_x_bc_mask.size > 0:
-        y1[idx.hole_x_bc_mask] = 0.0
-    if idx.hole_y_bc_mask.size > 0:
-        y2[idx.hole_y_bc_mask] = 0.0
-    if params.is_3d and idx.hole_z_bc_mask.size > 0:
-        y3[idx.hole_z_bc_mask] = 0.0
+    # NOTE: We do NOT enforce φ=0 on hole boundaries (unlike external boundaries).
+    # Physical reasoning:
+    # - Holes represent vacuum/insulator regions where ψ=0 (enforced by material mask)
+    # - The TDGL equations naturally prevent current flow into regions where ψ=0
+    # - Enforcing φ=0 at hole boundaries artificially prevents flux trapping by
+    #   forcing ∮∇φ·dl = 0 (no phase winding around hole)
+    # - For flux quantization, we need φ free to vary around hole boundary
+    # - The zero-current BC (J_n = 0) emerges naturally from ψ=0, not from φ=0
+    # 
+    # This is fundamentally different from external simulation boundaries, where
+    # φ=0 is needed to prevent numerical artifacts at infinity.
 
     return x, y1, y2, y3
 
@@ -224,15 +226,12 @@ def eval_f(
     dPhidtY = (LPHIX_int + LPHIZ_int) @ y2 + FPHIY
     dPhidtZ = (LPHIX_int + LPHIY_int) @ y3 + FPHIZ
     
-    # Enforce zero time derivative at hole boundaries (keeps φ = 0 there)
-    # This ensures link variables remain at zero throughout the simulation
-    if idx.hole_x_bc_interior.size > 0:
-        dPhidtX[idx.hole_x_bc_interior] = 0.0
-    if idx.hole_y_bc_interior.size > 0:
-        dPhidtY[idx.hole_y_bc_interior] = 0.0
-    if params.is_3d and idx.hole_z_bc_interior.size > 0:
-        dPhidtZ[idx.hole_z_bc_interior] = 0.0
-
+    # NOTE: We do NOT enforce dφ/dt=0 on hole boundaries.
+    # Physical reasoning (same as in _apply_boundary_conditions):
+    # - The ψ=0 material mask inside holes naturally prevents current flow
+    # - The TDGL equation dφ/dt ∝ J·∇ψ* automatically gives dφ/dt→0 where ψ=0
+    # - Explicit freezing of dφ/dt would prevent flux trapping by blocking phase winding
+    # - We need φ free to evolve around hole boundaries for ∮∇φ·dl = n·2π (flux quantization)
     if params.is_3d:
         return np.concatenate([dPsidt, dPhidtX, dPhidtY, dPhidtZ])
     else:
