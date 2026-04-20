@@ -77,6 +77,81 @@ class Device:
                 self.params, self.trilayer, self._idx
             )
 
+    def add_hole(
+        self,
+        vertices: list[tuple[float, float]],
+        z_range: Optional[tuple[int, int]] = None,
+    ) -> None:
+        """Add a polygon-shaped hole with zero-current boundary conditions.
+
+        This method:
+        1. Registers the hole boundary in GridIndices (for BC enforcement)
+        2. Carves the hole in MaterialMap (marks interior as non-SC)
+
+        Parameters
+        ----------
+        vertices : list of (x, y) tuples
+            Polygon vertices in physical coordinates (ξ units).
+            The polygon is automatically closed.
+        z_range : (k_min, k_max), optional
+            Z-layer extent (grid indices, inclusive).
+            If None, hole extends through all z-layers (0, Nz).
+
+        Notes
+        -----
+        **Physics: Holes vs Insulators**
+        
+        - **Holes** are geometric voids completely removed from the simulation.
+          Zero-current boundary condition φ = 0 is enforced at all hole edges.
+          Vortices CANNOT form inside holes (no superconductor = no phase winding).
+          
+        - **Insulators** (e.g., S/I/S layers) are part of the simulation domain
+          with suppressed order parameter but no special BCs on φ.
+          Use `Trilayer` for insulator layers, not this method.
+        
+        **Implementation details:**
+        
+        - Can be called multiple times to add multiple holes
+        - Holes must be added **before** calling solve()
+        - Zero-current BCs are enforced at hole boundaries automatically during
+          time integration (dφ/dt = 0 at hole boundaries)
+        - Hole interior is treated as non-superconducting material (ψ = 0)
+
+        Examples
+        --------
+        >>> # Square hole from z=0 to z=5
+        >>> square = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
+        >>> device.add_hole(square, z_range=(0, 5))
+        >>>
+        >>> # Triangle hole through all z-layers
+        >>> triangle = [(10.0, 10.0), (20.0, 10.0), (15.0, 20.0)]
+        >>> device.add_hole(triangle)
+        """
+        # Default: hole extends through all z-layers
+        if z_range is None:
+            z_range = (0, self.params.Nz)
+
+        # Register hole boundary in GridIndices
+        self.idx.define_hole_polygon(vertices, z_range, self.params)
+
+        # Carve hole in MaterialMap (if material map exists)
+        if self._material is not None:
+            self._material.carve_hole_polygon(
+                vertices, z_range, self.params, self.idx
+            )
+        else:
+            # Create a uniform material map if one doesn't exist
+            # (needed for hole carving to work on uniform devices)
+            from ..mesh.indices import GridIndices
+            self._material = MaterialMap(
+                kappa=np.full(self.params.dim_x, self.params.kappa, dtype=np.float64),
+                sc_mask=np.ones(self.params.dim_x, dtype=np.float64),
+                interior_sc_mask=np.ones(self.params.n_interior, dtype=np.float64),
+            )
+            self._material.carve_hole_polygon(
+                vertices, z_range, self.params, self.idx
+            )
+
     def __repr__(self) -> str:
         p = self.params
         tri = ""
