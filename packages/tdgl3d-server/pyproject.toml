@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tdgl3d-server"
+version = "0.1.0"
+description = "FastAPI job service for the tdgl3d solver"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Owen Medeiros"}]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2.5",
+    "tdgl3d",
+    "tdgl3d-schema",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.27",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
