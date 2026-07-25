@@ -35,6 +35,12 @@ jobs:
           pip install -e "packages/tdgl3d-server[dev]"
       - name: Run tests
         run: |
-          python3 -m pytest packages/tdgl3d/tests -q --cov=tdgl3d
-          python3 -m pytest packages/schema/tests -q
-          python3 -m pytest packages/tdgl3d-server/tests -q
+          python3 -m pytest packages/tdgl3d/tests -q --cov=tdgl3d --cov-report=xml:coverage-tdgl3d.xml
+          python3 -m pytest packages/schema/tests -q --cov=tdgl3d_schema --cov-report=xml:coverage-schema.xml
+          python3 -m pytest packages/tdgl3d-server/tests -q --cov=tdgl3d_server --cov-report=xml:coverage-server.xml
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage-tdgl3d.xml,coverage-schema.xml,coverage-server.xml
+          fail_ci_if_error: false
