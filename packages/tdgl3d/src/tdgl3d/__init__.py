@@ -23,7 +23,7 @@ from .core.state import StateVector
 from .physics.applied_field import AppliedField
 from .solvers.runner import solve
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "SimulationParameters",
