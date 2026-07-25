@@ -1,4 +1,7 @@
-# Copilot Agent Instructions — tdgl3d
+# Agent Instructions — packages/tdgl3d (solver core)
+
+> Part of the tdgl3d platform monorepo. Root workflow rules: `../../AGENTS.md`.
+> Run tests from repo root: `python3 -m pytest packages/tdgl3d/tests -q`.
 
 ## What this project is
 

@@ -1,96 +1,65 @@
-# Agent Instructions — tdgl3d
+# Agent Instructions — tdgl3d platform (monorepo root)
 
-## Project type
+AI-native scientific computing platform centered on a 3D TDGL superconductor
+solver. **Read `docs/ROADMAP.md` for the full vision, architecture, and phase
+plan.**
 
-Python package: 3D Time-Dependent Ginzburg-Landau superconductor simulator.
-Ported from MATLAB (MIT 6.336). Physics-heavy numerical code.
+## Repository map
+
+| Path | What it is | Details |
+|---|---|---|
+| `packages/tdgl3d/` | Python TDGL solver (physics core) | `packages/tdgl3d/AGENTS.md` |
+| `packages/schema/` | POM (Project Object Model) Pydantic schemas | shared contract for UI/server/AI tools |
+| `packages/tdgl3d-server/` | FastAPI job service wrapping the solver | `packages/tdgl3d-server/README.md` |
+| `apps/` | Frontend apps (Next.js studio — Phase 2, not yet created) | — |
+| `agents/` | AI agent tool definitions and prompts (Phase 3/4) | — |
+| `docs/` | Roadmap, design notes | `docs/ROADMAP.md`, `docs/notes/` |
+
+## Development workflow (applies to humans AND AI agents)
+
+1. Never commit directly to `main`. Create a feature branch.
+2. Use **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`,
+   `ci:`, `chore:`; scope by package, e.g. `feat(server): ...`). Breaking
+   changes: `!` suffix. release-please derives versions/changelogs from these.
+3. Every change ships with tests and doc updates where relevant.
+4. Open a PR; CI (ruff + pytest on 3.10/3.12) must pass before merge.
+5. Versioning/CHANGELOGs are automated by release-please — never hand-edit
+   version numbers or CHANGELOG files.
+6. Keep binary artifacts (GIF/PNG/HDF5/logs) out of git; `.gitignore` covers
+   them. Git history was rewritten 2026-07 to purge old artifacts.
 
 ## Essential commands
 
 ```bash
-# Install (from repo root)
-pip install -e ".[dev]"
+# Install everything (from repo root)
+pip install -e "packages/tdgl3d[dev]" -e "packages/schema[dev]" -e "packages/tdgl3d-server[dev]"
 
-# Test
-python3 -m pytest tests/ -x -q        # all 101 tests, stop on first fail
-python3 -m pytest -k trilayer         # subset
-python3 -m pytest --cov=tdgl3d        # with coverage
+# Test all packages
+python3 -m pytest packages/tdgl3d/tests packages/schema/tests packages/tdgl3d-server/tests -q
 
-# Quick smoke test
-python3 -c "from tdgl3d import Device, solve, Trilayer; print('OK')"
+# Lint (config in root ruff.toml)
+ruff check packages/
 
-# Run example
-python3 examples/vortex_entry_2d.py
+# Run the solver API locally
+python3 -m uvicorn tdgl3d_server.app:app --port 8787
 ```
 
 **Critical:** Always use `python3`, never bare `python` (machine has no alias).
 
-## Architecture
+## Architecture invariants
 
-### State vector layout
-`[ψ, φ_x, φ_y, φ_z]` each of length `n_interior` (complex). For 2D (`Nz=1`), `φ_z` is omitted.
+- **POM is the contract.** UI, server, and AI tools all operate on
+  `tdgl3d_schema.Project`. New solver features must be reflected in the POM
+  (`packages/schema/src/tdgl3d_schema/pom.py`) and in the server's
+  `build.py` translation layer.
+- The solver stays framework-free (NumPy/SciPy only); FastAPI/HTTP concerns
+  live only in `tdgl3d-server`.
+- The frontend (future) deploys to Cloudflare Workers; the solver server is
+  self-hosted behind a Cloudflare Tunnel — never assume solver code can run in
+  a Worker.
 
-### Interior/full-grid duality
-- Operators are sparse CSR matrices on the **full grid**: `(Nx+1) × (Ny+1) × (Nz+1)`
-- Time derivative is computed only at **interior** nodes: `1 ≤ i ≤ Nx-1`, etc.
-- `idx.interior_to_full` maps compact interior numbering → full-grid linear index
-- `eval_f()` in `physics/rhs.py` expands interior → full, applies BCs, computes operators, then strips back to interior rows
+## Known WIP
 
-### Boundary conditions
-- Zero-current on all faces (only mode implemented)
-- Applied B enters as Peierls phases written onto boundary link variables in `_apply_boundary_conditions()`
-- Periodic BCs are **defined** in `SimulationParameters` but **not yet wired** into operator construction
-
-### Material threading (S/I/S trilayer)
-`MaterialMap` flows: `Device` → `solve()` → `integrators` → `eval_f()` → individual operators.
-When `material is None`, all operators fall back to uniform `params.kappa`.
-
-### Insulator suppression
-`construct_FPSI` adds `−ψ/τ_relax` (τ=0.1) at insulator nodes to drive ψ → 0 smoothly.
-`Device.initial_state()` zeroes ψ in the insulator via `interior_sc_mask`.
-
-## CFL constraint (Forward Euler)
-
-`dt < h² / (4κ²)`. With `h=1`, `κ=2`: `dt < 0.0625`.
-
-## Code conventions
-
-- All source files: `from __future__ import annotations`
-- Dataclasses for all containers (`SimulationParameters`, `StateVector`, `MaterialMap`, `Solution`)
-- Type hints everywhere; use `Optional[X]` from `typing` (not `X | None`) for Python 3.10 compat
-- Operators return `scipy.sparse.csr_matrix`
-- Tests: `pytest`, `np.testing.assert_allclose` for floats
-- Imports: absolute (`from tdgl3d.*`) in tests and examples
-
-## Public API (exported from `tdgl3d.__init__`)
-
-| Symbol | Module | Purpose |
-|--------|--------|---------|
-| `SimulationParameters` | `core.parameters` | Grid size, spacing, κ, periodic (not yet used) |
-| `Device` | `core.device` | Bundles params + field + trilayer; builds `GridIndices` + `MaterialMap` |
-| `StateVector` | `core.state` | Wraps flat array with named views (`.psi`, `.phi_x`, …) |
-| `AppliedField` | `physics.applied_field` | Constant/ramped `(Bx, By, Bz)` or callable |
-| `Layer`, `Trilayer` | `core.material` | S/I/S stack definition |
-| `MaterialMap` | `core.material` | Per-node `kappa[]`, `sc_mask[]` |
-| `solve()` | `solvers.runner` | Main entry: runs Euler or Trapezoidal integration |
-
-`Solution` is returned by `solve()` but not in `__all__`.
-
-## Validation status
-
-- All 26 index arrays in `GridIndices` match MATLAB output (square grids 4×4×2, 6×6×3, 10×10×4)
-- Non-square grids revealed bugs in the **MATLAB** code (Nx/Ny swap), not Python
-- C4 symmetry verified to < 1e-15
-- Applied Bz uniform across boundary nodes, no double-counting
-- 101 tests passing as of trilayer implementation
-
-## Known gaps
-
-- Periodic BCs defined but **not implemented** in operators
-- No adaptive mesh refinement (uniform grid only)
-- Trilayer supports different κ per layer but only extensively tested with identical SC materials
-- Visualization is z-slice based; no 3D volume rendering
-
-## Related files
-
-Existing instructions: `.github/copilot-instructions.md` (more detailed architecture notes, data flow diagrams).
+- 3 tests in `packages/tdgl3d/tests` are marked `xfail` (hole-BC / flux
+  trapping work; see `docs/notes/HOLE_BC_STATUS.md`).
+- Periodic BCs are defined in `SimulationParameters` but not implemented.
