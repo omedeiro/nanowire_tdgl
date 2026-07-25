@@ -1,7 +1,7 @@
 # tdgl3d — 3D Time-Dependent Ginzburg-Landau Simulator
 
 [![CI](https://github.com/omedeiro/nanowire_tdgl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/omedeiro/nanowire_tdgl/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/omedeiro/nanowire_tdgl/branch/main/graph/badge.svg)](https://codecov.io/gh/omedeiro/nanowire_tdgl)
+[![coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fomedeiro%2Fnanowire_tdgl%2Fbadges%2Fcoverage.json)](https://github.com/omedeiro/nanowire_tdgl/actions/workflows/ci.yml)
 
 A Python package for simulating vortex and phase dynamics in three-dimensional
 Type-II superconductors using the time-dependent Ginzburg-Landau (TDGL) model

@@ -35,12 +35,24 @@ jobs:
           pip install -e "packages/tdgl3d-server[dev]"
       - name: Run tests
         run: |
-          python3 -m pytest packages/tdgl3d/tests -q --cov=tdgl3d --cov-report=xml:coverage-tdgl3d.xml
-          python3 -m pytest packages/schema/tests -q --cov=tdgl3d_schema --cov-report=xml:coverage-schema.xml
-          python3 -m pytest packages/tdgl3d-server/tests -q --cov=tdgl3d_server --cov-report=xml:coverage-server.xml
-      - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage-tdgl3d.xml,coverage-schema.xml,coverage-server.xml
-          fail_ci_if_error: false
+          python3 -m pytest packages/tdgl3d/tests -q --cov=tdgl3d
+          python3 -m pytest packages/schema/tests -q --cov=tdgl3d_schema --cov-append
+          python3 -m pytest packages/tdgl3d-server/tests -q --cov=tdgl3d_server --cov-append
+          python3 -m coverage json -o coverage.json
+      - name: Publish coverage badge
+        if: matrix.python-version == '3.12' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PCT=$(python3 -c "import json; print(round(json.load(open('coverage.json'))['totals']['percent_covered'], 1))")
+          COLOR=$(python3 -c "p=$PCT; print('brightgreen' if p>=90 else 'green' if p>=80 else 'yellowgreen' if p>=70 else 'yellow' if p>=60 else 'red')")
+          printf '{"schemaVersion": 1, "label": "coverage", "message": "%s%%", "color": "%s"}\n' "$PCT" "$COLOR" > /tmp/coverage-badge.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin badges || true
+          git checkout badges 2>/dev/null || git checkout --orphan badges
+          git rm -rf --quiet . 2>/dev/null || true
+          cp /tmp/coverage-badge.json coverage.json
+          git add coverage.json
+          git commit -m "chore: update coverage badge [skip ci]" || exit 0
+          git push origin badges
