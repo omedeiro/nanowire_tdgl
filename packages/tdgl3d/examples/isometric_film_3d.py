@@ -170,7 +170,7 @@ def _paint_surfaces(ax, solution, data_fn, cmap_obj, norm_obj, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi):
     """Paint four visible faces of the film onto *ax*."""
     p = solution.params
-    nx_int, ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
+    nx_int, _ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
     XX, YY = np.meshgrid(xs, ys, indexing="ij")
 
     # Top
@@ -228,7 +228,8 @@ def plot_isometric(solution: Solution,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _set_equal_aspect(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-    sm1 = cm.ScalarMappable(cmap=cmap1, norm=norm1); sm1.set_array([])
+    sm1 = cm.ScalarMappable(cmap=cmap1, norm=norm1)
+    sm1.set_array([])
     cb1 = fig.colorbar(sm1, ax=ax1, fraction=0.03, pad=0.10, shrink=0.65)
     _style_ax(ax1, fig, cb1, "|ψ|²")
     ax1.set_title("|ψ|²  (superfluid density)", fontsize=12,
@@ -244,7 +245,8 @@ def plot_isometric(solution: Solution,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax2, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _set_equal_aspect(ax2, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-    sm2 = cm.ScalarMappable(cmap=cmap2, norm=norm2); sm2.set_array([])
+    sm2 = cm.ScalarMappable(cmap=cmap2, norm=norm2)
+    sm2.set_array([])
     cb2 = fig.colorbar(sm2, ax=ax2, fraction=0.03, pad=0.10, shrink=0.65)
     cb2.set_ticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
     cb2.set_ticklabels(["-π", "-π/2", "0", "π/2", "π"])

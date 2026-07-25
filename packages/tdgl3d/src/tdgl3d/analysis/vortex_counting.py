@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
@@ -219,8 +219,6 @@ def count_vortices_polygon(
         
         # Extract 2D slice (already 2D, just use it)
         psi_slice = psi_grid
-        phi_x_slice = phi_x_grid
-        phi_y_slice = phi_y_grid
     else:
         # 3D case: full grid is (Nx+1) × (Ny+1) × (Nz+1)
         nz = params.Nz + 1
@@ -230,8 +228,8 @@ def count_vortices_polygon(
         
         # Extract 2D slice (use interior+boundary nodes)
         psi_slice = psi_grid[:, :, slice_z + 1]  # +1 because slice_z is interior index
-        phi_x_slice = phi_x_grid[:, :, slice_z + 1]
-        phi_y_slice = phi_y_grid[:, :, slice_z + 1]
+        phi_x_grid[:, :, slice_z + 1]
+        phi_y_grid[:, :, slice_z + 1]
     
     # Ensure polygon is closed
     polygon = np.array(polygon_points)

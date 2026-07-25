@@ -98,7 +98,7 @@ def main():
     if len(device.idx.hole_x_bc_mask) > 0:
         phi_x_hole = phi_x_full[device.idx.hole_x_bc_mask]
         max_phi_x = np.max(np.abs(phi_x_hole))
-        print(f"\n✓ CHECK 1: φ_x at hole x-boundaries")
+        print("\n✓ CHECK 1: φ_x at hole x-boundaries")
         print(f"  Links checked: {len(phi_x_hole)}")
         print(f"  Max |φ_x|: {max_phi_x:.2e}")
         print(f"  Status: {'PASS ✓' if max_phi_x < 1e-12 else 'FAIL ✗ (should be ~0)'}")
@@ -106,7 +106,7 @@ def main():
     if len(device.idx.hole_y_bc_mask) > 0:
         phi_y_hole = phi_y_full[device.idx.hole_y_bc_mask]
         max_phi_y = np.max(np.abs(phi_y_hole))
-        print(f"\n✓ CHECK 2: φ_y at hole y-boundaries")
+        print("\n✓ CHECK 2: φ_y at hole y-boundaries")
         print(f"  Links checked: {len(phi_y_hole)}")
         print(f"  Max |φ_y|: {max_phi_y:.2e}")
         print(f"  Status: {'PASS ✓' if max_phi_y < 1e-12 else 'FAIL ✗ (should be ~0)'}")
@@ -117,7 +117,7 @@ def main():
     if np.sum(hole_mask_int) > 0:
         psi_hole = psi_int[hole_mask_int]
         max_psi_hole = np.max(np.abs(psi_hole))
-        print(f"\n✓ CHECK 3: ψ inside hole")
+        print("\n✓ CHECK 3: ψ inside hole")
         print(f"  Nodes checked: {len(psi_hole)}")
         print(f"  Max |ψ|: {max_psi_hole:.2e}")
         print(f"  Status: {'PASS ✓' if max_psi_hole < 0.1 else 'FAIL ✗ (should be ~0)'}")
@@ -127,7 +127,7 @@ def main():
     if np.sum(sc_mask_int) > 0:
         psi_sc = psi_int[sc_mask_int]
         mean_psi2_sc = np.mean(np.abs(psi_sc)**2)
-        print(f"\n✓ CHECK 4: ψ in superconductor")
+        print("\n✓ CHECK 4: ψ in superconductor")
         print(f"  Nodes checked: {len(psi_sc)}")
         print(f"  Mean |ψ|²: {mean_psi2_sc:.4f}")
         print(f"  Status: {'PASS ✓' if mean_psi2_sc > 0.5 else 'FAIL ✗ (should be ~1)'}")
@@ -179,39 +179,39 @@ def main():
     flux_around_hole = np.array(flux_around_hole)
     
     print(f"\nTime range: t ∈ [{times[0]:.2f}, {times[-1]:.2f}]")
-    print(f"\n✓ Flux quanta through hole:")
+    print("\n✓ Flux quanta through hole:")
     print(f"  Initial: {flux_in_hole[0]:.3f} Φ₀")
     print(f"  Final:   {flux_in_hole[-1]:.3f} Φ₀")
     print(f"  Max:     {np.max(flux_in_hole):.3f} Φ₀")
     
-    print(f"\n✓ Vortices in SC region (plaquette method):")
+    print("\n✓ Vortices in SC region (plaquette method):")
     print(f"  Initial: {vortices_in_sc[0]}")
     print(f"  Final:   {vortices_in_sc[-1]}")
     print(f"  Max:     {np.max(vortices_in_sc)}")
     
-    print(f"\n✓ Flux enclosed by polygon around hole:")
+    print("\n✓ Flux enclosed by polygon around hole:")
     print(f"  Initial: {flux_around_hole[0]:.3f} Φ₀")
     print(f"  Final:   {flux_around_hole[-1]:.3f} Φ₀")
     print(f"  Max:     {np.max(flux_around_hole):.3f} Φ₀")
     
     # Check if flux is non-zero (indicates field is penetrating)
     if np.max(np.abs(flux_in_hole)) < 0.01:
-        print(f"\n⚠️  WARNING: Flux through hole is near zero for all time!")
-        print(f"    This may indicate:")
-        print(f"    - Applied B-field is too weak")
-        print(f"    - Simulation time is too short for flux penetration")
-        print(f"    - Meissner screening is preventing flux entry")
+        print("\n⚠️  WARNING: Flux through hole is near zero for all time!")
+        print("    This may indicate:")
+        print("    - Applied B-field is too weak")
+        print("    - Simulation time is too short for flux penetration")
+        print("    - Meissner screening is preventing flux entry")
     else:
         print(f"\n✓ Flux is penetrating the hole (max {np.max(flux_in_hole):.3f} Φ₀)")
     
     # Check if vortices are being detected
     if np.max(vortices_in_sc) == 0:
-        print(f"\n⚠️  WARNING: No vortices detected in SC region for all time!")
-        print(f"    This may indicate:")
-        print(f"    - Vortex detection is not working properly")
-        print(f"    - Applied B-field is below H_c1 (no vortex entry)")
-        print(f"    - Simulation time is too short for vortex nucleation")
-        print(f"    - Winding threshold is too strict")
+        print("\n⚠️  WARNING: No vortices detected in SC region for all time!")
+        print("    This may indicate:")
+        print("    - Vortex detection is not working properly")
+        print("    - Applied B-field is below H_c1 (no vortex entry)")
+        print("    - Simulation time is too short for vortex nucleation")
+        print("    - Winding threshold is too strict")
     else:
         print(f"\n✓ Vortices detected in SC (max {np.max(vortices_in_sc)} vortices)")
     
@@ -314,7 +314,7 @@ def main():
     axes[0].fill_between([15, 25], 0, 1, color='red', alpha=0.1, label="Hole region")
     axes[0].set_xlabel("x (ξ)")
     axes[0].set_ylabel("|ψ|²")
-    axes[0].set_title(f"Horizontal cross-section at y=20")
+    axes[0].set_title("Horizontal cross-section at y=20")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
     axes[0].set_ylim(-0.05, 1.05)
@@ -330,7 +330,7 @@ def main():
     axes[1].fill_between([15, 25], 0, 1, color='red', alpha=0.1, label="Hole region")
     axes[1].set_xlabel("y (ξ)")
     axes[1].set_ylabel("|ψ|²")
-    axes[1].set_title(f"Vertical cross-section at x=20")
+    axes[1].set_title("Vertical cross-section at x=20")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
     axes[1].set_ylim(-0.05, 1.05)

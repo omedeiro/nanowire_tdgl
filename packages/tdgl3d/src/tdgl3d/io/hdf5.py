@@ -8,7 +8,7 @@ import numpy as np
 
 from ..core.parameters import SimulationParameters
 from ..core.solution import Solution
-from ..mesh.indices import GridIndices, construct_indices
+from ..mesh.indices import construct_indices
 
 
 def save_solution(solution: Solution, filepath: str | Path) -> Path:

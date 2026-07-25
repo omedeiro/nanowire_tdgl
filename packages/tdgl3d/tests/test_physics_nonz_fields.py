@@ -10,7 +10,6 @@ These tests verify:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from tdgl3d import Device, SimulationParameters, AppliedField, solve
 
@@ -123,7 +122,7 @@ def test_tilted_field_bx_bz():
     psi2_initial = np.mean(np.abs(solution.psi(step=1)) ** 2)
     psi2_final = np.mean(np.abs(solution.psi(step=-1)) ** 2)
     
-    assert psi2_final < psi2_initial, f"Tilted field should suppress |ψ|²"
+    assert psi2_final < psi2_initial, "Tilted field should suppress |ψ|²"
 
 
 def test_field_comparison_weak_vs_strong():

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ..core.parameters import SimulationParameters
 from ..core.solution import Solution
-from ..mesh.indices import GridIndices
 
 
 def _grid_coords_2d(params: SimulationParameters) -> tuple[NDArray, NDArray]:
@@ -258,7 +257,7 @@ def plot_bfield_streamlines(
                 linewidth=stream_linewidth,
                 arrowsize=stream_arrowsize,
             )
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError):
             # Streamplot can fail if field is too uniform or has NaNs
             # Just skip streamlines in this case
             pass
@@ -525,7 +524,6 @@ def plot_current_density(
     
     # Draw hole outline on all panels if provided
     if hole_polygon is not None:
-        import matplotlib.patches as mpatches
         # Close the polygon
         poly_closed = list(hole_polygon) + [hole_polygon[0]]
         xs = [p[0] for p in poly_closed]

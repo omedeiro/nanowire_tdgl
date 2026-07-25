@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import numpy as np
 import tdgl3d
-from tdgl3d.analysis import check_steady_state, count_vortices_plaquette, count_hole_flux_quanta
+from tdgl3d.analysis import count_vortices_plaquette, count_hole_flux_quanta
 
 # Quick test parameters
 params = tdgl3d.SimulationParameters(
@@ -83,7 +82,7 @@ n_vort, vort_pos, winding = count_vortices_plaquette(
 print(f"\nVortices at t = {solution.times[-1]:.2f}:")
 print(f"  Count: {n_vort}")
 if n_vort > 0:
-    print(f"  Positions:")
+    print("  Positions:")
     for i, (pos, w) in enumerate(zip(vort_pos, winding)):
         print(f"    {i+1}. ({pos[0]:.1f}, {pos[1]:.1f})  winding={w:+.2f}")
 

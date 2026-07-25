@@ -11,7 +11,6 @@ from typing import List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-
 from tdgl3d_schema import Project
 
 from tdgl3d_server.jobs import JobRunner

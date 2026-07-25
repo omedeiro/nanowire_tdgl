@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "python",
+  "packages": {
+    "packages/tdgl3d": { "package-name": "tdgl3d", "component": "tdgl3d" },
+    "packages/schema": { "package-name": "tdgl3d-schema", "component": "tdgl3d-schema" },
+    "packages/tdgl3d-server": { "package-name": "tdgl3d-server", "component": "tdgl3d-server" }
+  }
+}

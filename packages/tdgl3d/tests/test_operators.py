@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-import scipy.sparse as sp
 from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.mesh.indices import construct_indices
 from tdgl3d.operators.sparse_operators import (

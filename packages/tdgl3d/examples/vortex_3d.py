@@ -3,7 +3,6 @@
 Demonstrates a small 3-D simulation and slice-based visualization.
 """
 
-import numpy as np
 import matplotlib
 
 matplotlib.use("Agg")

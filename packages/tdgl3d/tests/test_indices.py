@@ -1,9 +1,8 @@
 """Tests for grid index construction."""
 
 import numpy as np
-import pytest
 from tdgl3d.core.parameters import SimulationParameters
-from tdgl3d.mesh.indices import GridIndices, construct_indices
+from tdgl3d.mesh.indices import construct_indices
 
 
 class TestConstructIndices:

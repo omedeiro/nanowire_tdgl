@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check packages/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install packages
+        run: |
+          pip install -e "packages/tdgl3d[dev]"
+          pip install -e "packages/schema[dev]"
+          pip install -e "packages/tdgl3d-server[dev]"
+      - name: Run tests
+        run: |
+          python3 -m pytest packages/tdgl3d/tests -q --cov=tdgl3d
+          python3 -m pytest packages/schema/tests -q
+          python3 -m pytest packages/tdgl3d-server/tests -q

@@ -89,7 +89,6 @@ def plot_slices(solution: Solution, device: tdgl3d.Device) -> None:
     """Plot |ψ|² slices for the bottom SC, insulator, and top SC layers."""
     from tdgl3d.visualization.plotting import plot_order_parameter
 
-    params = solution.params
     z_ranges = device.trilayer.z_ranges()
 
     # Pick representative z-slices (interior index = k - 1 for k >= 1)
@@ -245,7 +244,7 @@ def _paint_surfaces(ax, solution, data_fn, cmap_obj, norm_obj, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi):
     """Paint visible faces of the film onto *ax*.  Sentinel 999 → dark gray."""
     p = solution.params
-    nx_int, ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
+    nx_int, _ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
     XX, YY = np.meshgrid(xs, ys, indexing="ij")
 
     GRAY = np.array([0.15, 0.15, 0.15, 1.0])
@@ -323,7 +322,7 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
     fig = plt.figure(figsize=(18, 8))
     fig.patch.set_facecolor("#1a1a2e")
 
-    z_ranges = device.trilayer.z_ranges()
+    device.trilayer.z_ranges()
     fig.suptitle(
         f"S/I/S 5×5 µm square with hole — |ψ|² and phase\n"
         f"SC({SC_THICKNESS}) / I({INS_THICKNESS}) / SC({SC_THICKNESS}),  "
@@ -340,7 +339,8 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
                     cmap1, norm1, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax1, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-    sm1 = cm.ScalarMappable(cmap=cmap1, norm=norm1); sm1.set_array([])
+    sm1 = cm.ScalarMappable(cmap=cmap1, norm=norm1)
+    sm1.set_array([])
     cb1 = fig.colorbar(sm1, ax=ax1, fraction=0.03, pad=0.10, shrink=0.65)
     _style_ax(ax1, fig, cb1, "|ψ|²")
     ax1.set_title("|ψ|²  (superfluid density)", fontsize=12,
@@ -355,7 +355,8 @@ def plot_isometric(solution: Solution, device: tdgl3d.Device,
                     cmap2, norm2, xs, ys, zs,
                     x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
     _draw_wireframe(ax2, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-    sm2 = cm.ScalarMappable(cmap=cmap2, norm=norm2); sm2.set_array([])
+    sm2 = cm.ScalarMappable(cmap=cmap2, norm=norm2)
+    sm2.set_array([])
     cb2 = fig.colorbar(sm2, ax=ax2, fraction=0.03, pad=0.10, shrink=0.65)
     cb2.set_ticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
     cb2.set_ticklabels(["-π", "-π/2", "0", "π/2", "π"])
@@ -584,7 +585,7 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
 
         fig = plt.figure(figsize=(10, 8))
         fig.patch.set_facecolor("#1a1a2e")
-        ax = fig.add_subplot(111, projection="3d")
+        fig.add_subplot(111, projection="3d")
 
         def draw_frame(frame_idx):
             fig.clf()
@@ -733,7 +734,7 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
     # Add hole through top SC layer
     device.add_hole(hole_polygon, z_range=z_top)
     
-    print(f"Added rectangular hole:")
+    print("Added rectangular hole:")
     print(f"  Physical bounds (µm): x ∈ [{HOLE_X_MIN_UM}, {HOLE_X_MAX_UM}], "
           f"y ∈ [{HOLE_Y_MIN_UM}, {HOLE_Y_MAX_UM}]")
     print(f"  ξ units (offset): x ∈ [{hole_polygon[0][0]:.2f}, {hole_polygon[1][0]:.2f}], "
@@ -752,7 +753,7 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
                      + 1j * rng.standard_normal(params.n_interior))
     x0.psi[:] += noise * device.material.interior_sc_mask
 
-    print(f"Initial state: ψ zeroed in insulator + hole regions\n")
+    print("Initial state: ψ zeroed in insulator + hole regions\n")
 
     # Solve
     print(f"Running Forward-Euler (dt={DT}, t_stop={T_STOP}, Bz={bz_field}, κ={KAPPA}) …")
@@ -817,7 +818,7 @@ def analyze_vortices_timeseries(
     
     # Define polygon around entire boundary (for total flux)
     margin = 2  # Stay away from boundary
-    boundary_polygon = np.array([
+    np.array([
         [margin, margin],
         [nx_int - margin, margin],
         [nx_int - margin, ny_int - margin],
@@ -912,7 +913,7 @@ def main() -> None:
     min_threshold = 0.01
     is_sc, min_psi2 = check_superconductivity(solution, device, threshold=min_threshold)
     
-    print(f"\nSuperconductivity check:")
+    print("\nSuperconductivity check:")
     print(f"  min |ψ|² in SC regions: {min_psi2:.6f}")
     print(f"  Threshold: {min_threshold}")
     print(f"  Status: {'✓ SUPERCONDUCTING' if is_sc else '✗ SUPPRESSED'}")
@@ -930,7 +931,7 @@ def main() -> None:
         start_step=20,
     )
     
-    print(f"\nSteady State Analysis:")
+    print("\nSteady State Analysis:")
     print(f"  Reached: {'YES ✓' if is_steady else 'NO ✗'}")
     if is_steady:
         print(f"  Time: t = {metrics['steady_time']:.2f} (step {metrics['steady_step']})")
@@ -991,21 +992,21 @@ def main() -> None:
     print(f"\nPlaquette method (bottom SC, z={sz_bot}):")
     print(f"  Total vortices detected: {n_vort}")
     if n_vort > 0:
-        print(f"  Vortex positions (grid coords):")
+        print("  Vortex positions (grid coords):")
         for idx, (pos, w) in enumerate(zip(vort_pos, winding)):
             print(f"    {idx+1}. ({pos[0]:.1f}, {pos[1]:.1f})  winding = {w:+.2f}")
     
-    print(f"\nMagnetic flux through hole (NOT quantized):")
+    print("\nMagnetic flux through hole (NOT quantized):")
     print(f"  Φ_magnetic = {n_hole_flux:.3f} Φ₀")
-    print(f"  (Small value due to Meissner screening at hole boundary)")
+    print("  (Small value due to Meissner screening at hole boundary)")
     
-    print(f"\nFluxoid around hole (quantized):")
+    print("\nFluxoid around hole (quantized):")
     print(f"  Φ_fluxoid = {fluxoid_around_hole:.3f} Φ₀")
-    print(f"  (Should be ≈ integer Φ₀)")
+    print("  (Should be ≈ integer Φ₀)")
     
-    print(f"\nFilm vortices (approximate):")
+    print("\nFilm vortices (approximate):")
     print(f"  n_film ≈ n_total - n_hole ≈ {n_vort} vortices")
-    print(f"  (Boundary vortices counted in film)")
+    print("  (Boundary vortices counted in film)")
     print(f"{'='*70}\n")
     
     # ── Diagnostics: verify plot data correctness ─────────────────────
@@ -1013,7 +1014,7 @@ def main() -> None:
     sc_mask_3d = device.material.interior_sc_mask.reshape(
         p.Nx - 1, p.Ny - 1, max(p.Nz - 1, 1))
     psi3d = _psi_3d(solution, step=-1)
-    nz_int = max(p.Nz - 1, 1)
+    max(p.Nz - 1, 1)
 
     # Check phase in SC vs insulator
     z_ranges = device.trilayer.z_ranges()
@@ -1024,7 +1025,7 @@ def main() -> None:
 
     psi_bot = psi3d[:, :, sz_bot]
     psi_ins = psi3d[:, :, sz_ins]
-    print(f"\n── Diagnostic checks ──")
+    print("\n── Diagnostic checks ──")
     print(f"Bottom SC midplane (z={sz_bot}):")
     print(f"  |ψ|² : mean={np.mean(np.abs(psi_bot)**2):.4f}  "
           f"max={np.max(np.abs(psi_bot)**2):.4f}")
@@ -1041,7 +1042,7 @@ def main() -> None:
     # Check Bz (total, with BCs applied)
     bz3d_full = _compute_bz_full_3d(solution, device, step=-1)
     bz_bot = bz3d_full[:, :, sz_bot]
-    print(f"Total Bz (bottom SC midplane, with BCs):")
+    print("Total Bz (bottom SC midplane, with BCs):")
     print(f"  min={bz_bot.min():.4f}  max={bz_bot.max():.4f}  "
           f"mean={bz_bot.mean():.4f}  std={bz_bot.std():.4f}")
     print(f"  Applied Bz={BZ:.3f} → expect Meissner: bulk Bz ≈ 0, hole region Bz ≈ {BZ:.3f}")
@@ -1049,10 +1050,10 @@ def main() -> None:
     # Check supercurrent
     js3d = _compute_supercurrent_3d(solution, device, step=-1)
     js_bot = js3d[:, :, sz_bot]
-    print(f"|J_s| (bottom SC midplane):")
+    print("|J_s| (bottom SC midplane):")
     print(f"  min={js_bot.min():.4f}  max={js_bot.max():.4f}  "
           f"mean={js_bot.mean():.4f}  std={js_bot.std():.4f}")
-    print(f"  Expect high |J_s| around hole border (persistent current)")
+    print("  Expect high |J_s| around hole border (persistent current)")
     # Check if NaN masking is correct
     psi2_slice = _get_psi2_slice(solution, "z", sz_ins, step=-1, sc_mask_3d=sc_mask_3d)
     n_nan = int(np.sum(np.isnan(psi2_slice)))
@@ -1061,7 +1062,7 @@ def main() -> None:
     phase_slice = _get_phase_slice(solution, "z", sz_ins, step=-1)
     n_sentinel = int(np.sum(phase_slice > 900))
     print(f"Phase sentinel at insulator z={sz_ins}: {n_sentinel}/{n_total} nodes masked")
-    print(f"── End diagnostics ──\n")
+    print("── End diagnostics ──\n")
 
     # ── Visualise ──────────────────────────────────────────────────────
     plot_slices(solution, device)

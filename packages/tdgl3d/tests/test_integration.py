@@ -1,10 +1,8 @@
 """Integration tests — run short simulations end-to-end."""
 
 import numpy as np
-import pytest
 from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.core.device import Device
-from tdgl3d.core.state import StateVector
 from tdgl3d.physics.applied_field import AppliedField
 from tdgl3d.solvers.runner import solve
 
@@ -27,7 +25,7 @@ class TestForwardEulerIntegration:
         device = Device(params, applied_field=AppliedField(Bz=2.0))
         sol = solve(device, t_start=0.0, t_stop=1.0, dt=0.01, method="euler", progress=False)
 
-        psi_final = sol.psi_squared(step=-1)
+        sol.psi_squared(step=-1)
         # Applied field should suppress superconductivity somewhat
         assert sol.n_steps > 1
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tdgl3d import Device, SimulationParameters, AppliedField
+from tdgl3d import Device, SimulationParameters
 from tdgl3d.core.material import MaterialMap
 from tdgl3d.mesh.indices import construct_indices
 from tdgl3d.physics.rhs import _apply_boundary_conditions, BoundaryVectors

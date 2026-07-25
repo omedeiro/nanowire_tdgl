@@ -1,7 +1,6 @@
 """Tests for the linear solvers (TGCR, Newton)."""
 
 import numpy as np
-import pytest
 from tdgl3d.solvers.tgcr import tgcr_matrix_free, tgcr_matrix_free_trap
 from tdgl3d.solvers.newton import newton_gcr, newton_gcr_trap
 

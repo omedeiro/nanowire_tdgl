@@ -8,14 +8,12 @@ This script checks that:
 """
 
 import numpy as np
-import sys
 
 from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.mesh.indices import construct_indices
 from tdgl3d.operators.sparse_operators import (
     construct_FPSI,
     construct_LPSI_x,
-    construct_LPSI_y,
 )
 from tdgl3d.physics.bfield import eval_bfield
 from tdgl3d.physics.rhs import BoundaryVectors, eval_f
@@ -36,7 +34,7 @@ def test_laplacian_zero_gauge():
 
     # Off-diagonal should be +1 (exp(0)=1)
     off = np.array(Lx[m, m - 1].todense()).flatten()
-    assert np.allclose(off, 1.0), f"Off-diagonal mismatch"
+    assert np.allclose(off, 1.0), "Off-diagonal mismatch"
     print("✓ Zero-gauge Laplacian test passed.")
 
 

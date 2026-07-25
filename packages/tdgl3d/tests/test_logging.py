@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-import pytest
-import numpy as np
 
 import tdgl3d
 from tdgl3d.io.logging import RunMetadata, TimingContext, create_run_metadata
@@ -171,7 +168,7 @@ def test_solve_auto_saves_json(tmp_path):
     
     log_dir = tmp_path / "test_logs"
     
-    solution = tdgl3d.solve(
+    tdgl3d.solve(
         device,
         t_start=0.0,
         t_stop=0.5,

@@ -142,7 +142,6 @@ def construct_LPHI_y(params: SimulationParameters, idx: GridIndices,
     Corresponds to ``construct_LPHIYm.m``.
     """
     N = params.dim_x
-    mj = params.mj
     mk = params.mk
     m = idx.interior_to_full
     hx, hz = params.hx, params.hz
@@ -173,7 +172,6 @@ def construct_LPHI_z(params: SimulationParameters, idx: GridIndices,
     """
     N = params.dim_x
     mj = params.mj
-    mk = params.mk
     m = idx.interior_to_full
     hx, hy = params.hx, params.hy
 

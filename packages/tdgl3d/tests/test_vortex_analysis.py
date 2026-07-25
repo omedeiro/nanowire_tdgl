@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 import tdgl3d
 from tdgl3d.analysis.vortex_counting import (

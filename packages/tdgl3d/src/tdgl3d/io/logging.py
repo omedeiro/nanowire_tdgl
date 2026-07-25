@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import platform
 import time
 from dataclasses import asdict, dataclass, field
@@ -180,7 +179,6 @@ def create_run_metadata(
     
     # Applied field info
     if device.applied_field is not None:
-        from tdgl3d.physics.applied_field import AppliedField
         field = device.applied_field
         if callable(field):
             device_config['applied_field'] = {

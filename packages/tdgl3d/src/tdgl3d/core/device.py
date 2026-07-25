@@ -208,7 +208,6 @@ class Device:
         else:
             # Create a uniform material map if one doesn't exist
             # (needed for hole carving to work on uniform devices)
-            from ..mesh.indices import GridIndices
             self._material = MaterialMap(
                 kappa=np.full(self.params.dim_x, self.params.kappa, dtype=np.float64),
                 sc_mask=np.ones(self.params.dim_x, dtype=np.float64),

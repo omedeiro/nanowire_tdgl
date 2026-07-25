@@ -125,7 +125,7 @@ def run_pytdgl_simulation():
         applied_vector_potential=BZ_MT,  # Uniform field shorthand
     )
     
-    print(f"✓ pyTDGL simulation complete")
+    print("✓ pyTDGL simulation complete")
     print(f"  Final time: {solution.times[-1]:.2f} τ₀")
     print(f"  Time steps: {len(solution.times)}")
     
@@ -144,7 +144,7 @@ def run_tdgl3d_simulation():
     
     # Convert to dimensionless grid
     film_size_xi = FILM_SIZE_UM / XI_UM  # 100 ξ
-    hole_size_xi = HOLE_SIZE_UM / XI_UM  # 20 ξ
+    HOLE_SIZE_UM / XI_UM  # 20 ξ
     
     nx = ny = int(film_size_xi / TDGL3D_GRID_SPACING)  # 1000 cells
     
@@ -183,7 +183,7 @@ def run_tdgl3d_simulation():
         progress=True,
     )
     
-    print(f"✓ tdgl3d simulation complete")
+    print("✓ tdgl3d simulation complete")
     print(f"  Final time: {solution.times[-1]:.2f} τ₀")
     print(f"  Time steps: {len(solution.times)}")
     
@@ -389,7 +389,7 @@ def compare_solutions(pytdgl_data, tdgl3d_data):
     
     plt.tight_layout()
     plt.savefig('comparison_plot.png', dpi=150, bbox_inches='tight')
-    print(f"✓ Saved comparison_plot.png")
+    print("✓ Saved comparison_plot.png")
     
     # Print summary to console
     print("\n" + "="*80)
@@ -423,8 +423,8 @@ def main():
     print("\n" + "="*80)
     print("PHASE 1: tdgl3d vs pyTDGL Validation")
     print("="*80)
-    print(f"Comparing field penetration for 2D film WITHOUT hole")
-    print(f"(Focus: validate field physics, not geometry)")
+    print("Comparing field penetration for 2D film WITHOUT hole")
+    print("(Focus: validate field physics, not geometry)")
     print(f"κ = {KAPPA}, ξ = {XI_UM} µm, λ = {LAMBDA_UM} µm")
     print(f"Applied field: Bz = {BZ_MT} mT")
     print()

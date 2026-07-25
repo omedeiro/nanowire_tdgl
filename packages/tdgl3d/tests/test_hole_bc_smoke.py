@@ -159,9 +159,9 @@ def test_hole_bc_3d_smoke():
     max_phi_y = np.max(np.abs(phi_y_full[device.idx.hole_y_bc_mask]))
     max_phi_z = np.max(np.abs(phi_z_full[device.idx.hole_z_bc_mask]))
     
-    assert max_phi_x < 1e-12, f"φ_x at hole boundaries should be ~0"
-    assert max_phi_y < 1e-12, f"φ_y at hole boundaries should be ~0"
-    assert max_phi_z < 1e-12, f"φ_z at hole boundaries should be ~0"
+    assert max_phi_x < 1e-12, "φ_x at hole boundaries should be ~0"
+    assert max_phi_y < 1e-12, "φ_y at hole boundaries should be ~0"
+    assert max_phi_z < 1e-12, "φ_z at hole boundaries should be ~0"
 
 
 def test_hole_save_load():

@@ -23,7 +23,6 @@ class StateVector:
     """
 
     def __init__(self, data: NDArray[np.complexfloating], params: SimulationParameters):
-        n = params.n_interior
         expected = params.n_state
         if data.shape != (expected,):
             raise ValueError(
@@ -61,7 +60,6 @@ class StateVector:
 
     @property
     def phi_y(self) -> NDArray[np.complex128]:
-        n = self._params.n_interior
         return self._data[2 * self._params.n_interior : 3 * self._params.n_interior]
 
     @phi_y.setter

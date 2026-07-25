@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import importlib
-import os
 import time
 
 import pytest
 from fastapi.testclient import TestClient
-
 from tdgl3d_schema import DeviceSpec, GridSpec, Project, SimulationSpec, SolverSettings
 
 

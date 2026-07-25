@@ -14,7 +14,6 @@ import pytest
 
 import tdgl3d
 from tdgl3d.core.solution import Solution
-from tdgl3d.mesh.indices import construct_indices
 from tdgl3d.visualization.plotting import (
     _grid_coords_2d,
     animate,

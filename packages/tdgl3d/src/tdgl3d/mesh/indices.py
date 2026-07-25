@@ -31,7 +31,6 @@ Each axis (x, y, z) has four face-index arrays that come in two flavours:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray

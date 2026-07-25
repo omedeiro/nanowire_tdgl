@@ -3,7 +3,8 @@ import numpy as np
 import tdgl3d
 from tdgl3d.core.parameters import SimulationParameters
 
-Nx = Ny = 20; Nz = 4
+Nx = Ny = 20
+Nz = 4
 params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=2.0)
 field = tdgl3d.AppliedField(Bz=1.0, t_on_fraction=1.0, ramp=True, ramp_fraction=0.5)
 device = tdgl3d.Device(params, applied_field=field)

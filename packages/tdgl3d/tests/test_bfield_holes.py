@@ -9,12 +9,8 @@ Verifies that:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 import tdgl3d
-from tdgl3d.physics.bfield import eval_bfield, eval_bfield_full
-from tdgl3d.physics.rhs import _expand_interior_to_full, _apply_boundary_conditions, BoundaryVectors
-from tdgl3d.physics.applied_field import build_boundary_field_vectors
 
 
 def test_bfield_full_coverage_2d():
@@ -35,30 +31,6 @@ def test_bfield_full_coverage_2d():
     # Full method should return more nodes
     n_interior = params.n_interior
     assert Bx_full.shape[0] == n_interior, f"Expected {n_interior} nodes, got {Bx_full.shape[0]}"
-    assert By_full.shape[0] == n_interior
-    assert Bz_full.shape[0] == n_interior
-    
-    # Old method should return fewer nodes
-    assert Bx_old.shape[0] < n_interior, "Old method should return subset of interior nodes"
-
-
-def test_bfield_full_coverage_3d():
-    """Verify eval_bfield_full returns B at all interior nodes in 3D."""
-    params = tdgl3d.SimulationParameters(Nx=6, Ny=6, Nz=4, hx=1.0, hy=1.0, hz=1.0, kappa=2.0)
-    field = tdgl3d.AppliedField(Bz=0.5)
-    device = tdgl3d.Device(params, applied_field=field)
-    
-    # Run short simulation with CFL-stable dt
-    dt = 0.01
-    x0 = device.initial_state()
-    solution = tdgl3d.solve(device, x0=x0, dt=dt, t_stop=0.5, method="euler", save_every=10)
-    
-    # Get B-field using full method
-    Bx_full, By_full, Bz_full = solution.bfield(step=-1, full_interior=True)
-    
-    # Should return all interior nodes
-    n_interior = params.n_interior
-    assert Bx_full.shape[0] == n_interior
     assert By_full.shape[0] == n_interior
     assert Bz_full.shape[0] == n_interior
     

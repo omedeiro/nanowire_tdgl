@@ -9,9 +9,8 @@ import sys
 sys.path.insert(0, "src")
 
 from tdgl3d.core.parameters import SimulationParameters
-from tdgl3d.mesh.indices import construct_indices, _linear_index
+from tdgl3d.mesh.indices import construct_indices
 from tdgl3d.physics.applied_field import AppliedField, build_boundary_field_vectors
-from tdgl3d.physics.rhs import BoundaryVectors
 
 
 def matlab_indices(Nx, Ny, Nz):
@@ -19,8 +18,8 @@ def matlab_indices(Nx, Ny, Nz):
 
     Returns 1-based indices (like MATLAB) then converts to 0-based.
     """
-    mj = Nx + 1
-    mk = (Nx + 1) * (Ny + 1)
+    Nx + 1
+    (Nx + 1) * (Ny + 1)
     is_3d = Nz > 1
 
     M2 = []
@@ -289,7 +288,7 @@ def verify_indices(Nx, Ny, Nz):
     # If Nx != Ny, this is wrong. For Nx=Ny it works. 
     # This is a bug in the MATLAB code that only works for square grids.
 
-    print(f"\n  Normal BC masks:")
+    print("\n  Normal BC masks:")
     print(f"    x_normal_bc_mask: {len(idx.x_normal_bc_mask)} entries (faces at i=0 and i={Nx-1})")
     print(f"    y_normal_bc_mask: {len(idx.y_normal_bc_mask)} entries (faces at j=0 and j={Ny-1})")
     print(f"    z_normal_bc_mask: {len(idx.z_normal_bc_mask)} entries (faces at k=0 and k={Nz-1})")
@@ -305,7 +304,7 @@ def verify_indices(Nx, Ny, Nz):
     if actual_x_mask == expected_x_mask:
         print(f"    x_normal_bc_mask: ✓ matches expected (i=0, i={Nx-1})")
     else:
-        print(f"    x_normal_bc_mask: ✗ MISMATCH")
+        print("    x_normal_bc_mask: ✗ MISMATCH")
         all_ok = False
 
     if all_ok:
@@ -408,13 +407,13 @@ def verify_boundary_conditions():
     # uses "j != 1 && j != p.Nx+1" instead of "j != 1 && j != p.Ny+1"
     # This means the inner x face indices are restricted to j in [2, Nx]
     # instead of j in [2, Ny]. If Nx != Ny, this is wrong.
-    print(f"\n  MATLAB BUG CHECK:")
+    print("\n  MATLAB BUG CHECK:")
     print(f"  MATLAB x inner: j != 1 && j != Nx+1 → j in [2,{Nx}] (should be [2,{Ny}])")
     print(f"  MATLAB y inner: i != 1 && i != Ny+1 → i in [2,{Ny}] (should be [2,{Nx}])")
     if Nx == Ny:
         print(f"  With Nx=Ny={Nx}, the bug is invisible")
     else:
-        print(f"  ✗ With Nx≠Ny, the MATLAB code has wrong inner face counts!")
+        print("  ✗ With Nx≠Ny, the MATLAB code has wrong inner face counts!")
 
     # Also check: MATLAB mNx = Ny + ... uses Ny for the x-index!
     # This gives i_1 = Ny (MATLAB 1-based) = i_0 = Ny-1 (Python 0-based)
@@ -427,7 +426,7 @@ def verify_boundary_conditions():
         print(f"  ✗ mNx gives i_0={Ny-1} but should be i_0={Nx-1}")
 
     # Verify that our Python normal BC masks are at the right indices
-    print(f"\n  Checking normal BC mask contents:")
+    print("\n  Checking normal BC mask contents:")
     mj = Nx + 1
     mk = (Nx + 1) * (Ny + 1)
 
@@ -436,18 +435,18 @@ def verify_boundary_conditions():
     x_unique_i = np.unique(x_mask_i_vals)
     print(f"  x_normal_bc_mask: i values = {x_unique_i} (expect [0, {Nx-1}])")
     if set(x_unique_i) == {0, Nx - 1}:
-        print(f"  ✓ x_normal_bc_mask at correct i planes")
+        print("  ✓ x_normal_bc_mask at correct i planes")
     else:
-        print(f"  ✗ x_normal_bc_mask at wrong i planes!")
+        print("  ✗ x_normal_bc_mask at wrong i planes!")
 
     # y_normal_bc_mask should be at j=0 and j=Ny-1
     y_mask_j_vals = (idx.y_normal_bc_mask % mk) // mj  # extract j coordinate
     y_unique_j = np.unique(y_mask_j_vals)
     print(f"  y_normal_bc_mask: j values = {y_unique_j} (expect [0, {Ny-1}])")
     if set(y_unique_j) == {0, Ny - 1}:
-        print(f"  ✓ y_normal_bc_mask at correct j planes")
+        print("  ✓ y_normal_bc_mask at correct j planes")
     else:
-        print(f"  ✗ y_normal_bc_mask at wrong j planes!")
+        print("  ✗ y_normal_bc_mask at wrong j planes!")
 
 
 def verify_symmetry_test():
@@ -479,7 +478,7 @@ def verify_symmetry_test():
     mid_z = max(Nz - 1, 1) // 2
     slice_z = psi2[:, :, mid_z]
 
-    print(f"\n  |ψ|² at mid-z plane:")
+    print("\n  |ψ|² at mid-z plane:")
     print(f"    mean = {np.mean(slice_z):.6f}")
     print(f"    min  = {np.min(slice_z):.6f}")
     print(f"    max  = {np.max(slice_z):.6f}")
@@ -487,21 +486,21 @@ def verify_symmetry_test():
     # Check C4 symmetry: should be unchanged under 90° rotation
     rot90 = np.rot90(slice_z)
     diff = np.max(np.abs(slice_z - rot90))
-    print(f"\n  C4 symmetry check (uniform IC, no perturbation):")
+    print("\n  C4 symmetry check (uniform IC, no perturbation):")
     print(f"    max|ψ² - rot90(ψ²)| = {diff:.2e}")
     if diff < 1e-10:
-        print(f"    ✓ Perfect C4 symmetry (as expected with uniform IC)")
+        print("    ✓ Perfect C4 symmetry (as expected with uniform IC)")
     else:
-        print(f"    ✗ C4 symmetry broken! Something is wrong in BCs or indices")
+        print("    ✗ C4 symmetry broken! Something is wrong in BCs or indices")
 
     # Check x↔y mirror symmetry
     mirror = slice_z.T
     diff_mirror = np.max(np.abs(slice_z - mirror))
     print(f"    max|ψ² - transpose(ψ²)| = {diff_mirror:.2e}")
     if diff_mirror < 1e-10:
-        print(f"    ✓ Perfect mirror symmetry")
+        print("    ✓ Perfect mirror symmetry")
     else:
-        print(f"    ✗ Mirror symmetry broken!")
+        print("    ✗ Mirror symmetry broken!")
 
 
 if __name__ == "__main__":

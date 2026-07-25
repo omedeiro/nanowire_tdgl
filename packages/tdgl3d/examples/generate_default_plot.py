@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 
 import numpy as np
 import tdgl3d
-from tdgl3d.visualization.plotting import plot_summary, plot_order_parameter
+from tdgl3d.visualization.plotting import plot_summary
 
 def main():
     # ── Parameters ──────────────────────────────────────────────────────

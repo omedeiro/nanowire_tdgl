@@ -9,8 +9,7 @@ every time-step evaluation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
@@ -91,7 +90,7 @@ class MaterialMap:
         # Convert 3D mask to linear indices
         # The full grid uses linear index m = i + mj*j + mk*k
         # But for 2D (Nz=1), we only use m = i + mj*j (no z component)
-        Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
+        Nx, Ny, _Nz = params.Nx, params.Ny, params.Nz
         mj = Nx + 1
         
         # Find all (i, j, k) where hole_mask_3d[i, j, k] == True
@@ -208,7 +207,7 @@ def build_material_map(
         )
 
     Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
-    mj = Nx + 1
+    Nx + 1
     mk = (Nx + 1) * (Ny + 1)
 
     # Full-grid arrays

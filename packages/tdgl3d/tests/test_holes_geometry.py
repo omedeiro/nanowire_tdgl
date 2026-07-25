@@ -149,7 +149,7 @@ def test_identify_boundary_links_square_hole():
     
     x_links = identify_boundary_links(mask, 'x')
     y_links = identify_boundary_links(mask, 'y')
-    z_links = identify_boundary_links(mask, 'z')
+    identify_boundary_links(mask, 'z')
     
     # Should find boundary links around the square perimeter
     assert len(x_links) > 0
@@ -324,7 +324,7 @@ def test_identify_normal_links_square_hole_2d():
     assert x_tangential_count > 0, "Should have tangential x-links (on horizontal edges)"
     assert y_tangential_count > 0, "Should have tangential y-links (on vertical edges)"
     
-    print(f"  Square hole boundary links:")
+    print("  Square hole boundary links:")
     print(f"    x-links: {len(x_all)} total, {len(x_normal)} normal, {x_tangential_count} tangential")
     print(f"    y-links: {len(y_all)} total, {len(y_normal)} normal, {y_tangential_count} tangential")
 
