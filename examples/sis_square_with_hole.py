@@ -48,7 +48,11 @@ LY_XI = LY_UM / UM_PER_XI         # 50 ξ
 HX = HY = HZ = 0.75               # grid spacing in ξ (intermediate mesh)
 NX = int(LX_XI / HX)              # ~67
 NY = int(LY_XI / HY)              # ~67
-KAPPA = 2.0                        # GL parameter
+KAPPA = 0.5  # GL parameter (reduced from 2.0 to increase vortex size for Phase 1 validation)
+# Physics: Vortex coherence length ξ = 1/κ = 2.0 in dimensionless units
+# With grid spacing h = 0.75 ξ, each vortex core spans ~2.67 grid cells (4× better than κ=2.0)
+# Hole dimensions in this script: 2.0 × 0.4 µm = 20ξ × 4ξ → fits ~10 × 2 vortex cores
+# CFL constraint: dt < h²/(4κ²) = 0.75²/(4×0.5²) = 0.5625 >> 0.01 ✓ (current dt=0.01)
 
 # Trilayer stack: 8 SC + 8 I + 8 SC  →  Nz = 24
 SC_THICKNESS = 8                   # z-cells per SC layer
