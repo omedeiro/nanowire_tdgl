@@ -226,9 +226,9 @@ def eval_f(
     dPsidt = (LPSIX_int / hx**2 + LPSIY_int / hy**2 + LPSIZ_int / hz**2) @ x + FPSI
 
     # dφ/dt
-    dPhidtX = (LPHIY_int + LPHIZ_int) @ y1 + FPHIX
-    dPhidtY = (LPHIX_int + LPHIZ_int) @ y2 + FPHIY
-    dPhidtZ = (LPHIX_int + LPHIY_int) @ y3 + FPHIZ
+    dPhidtX = LPHIX_int @ y1 + FPHIX
+    dPhidtY = LPHIY_int @ y2 + FPHIY
+    dPhidtZ = LPHIZ_int @ y3 + FPHIZ
 
     # NOTE: We do NOT enforce dφ/dt=0 on hole boundaries.
     # Physical reasoning (same as in _apply_boundary_conditions):

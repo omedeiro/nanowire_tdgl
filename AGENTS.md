@@ -8,9 +8,9 @@ plan.**
 
 | Path | What it is | Details |
 |---|---|---|
-| `packages/tdgl3d/` | Python TDGL solver (physics core) | `packages/tdgl3d/AGENTS.md` |
-| `packages/schema/` | POM (Project Object Model) Pydantic schemas | shared contract for UI/server/AI tools |
-| `packages/tdgl3d-server/` | FastAPI job service wrapping the solver | `packages/tdgl3d-server/README.md` |
+| `packages/tdgl3d/` | Python TDGL solver (physics core) | Load `tdgl3d-solver` skill |
+| `packages/schema/` | POM (Project Object Model) Pydantic schemas | Load `schema-pom` skill |
+| `packages/tdgl3d-server/` | FastAPI job service wrapping the solver | Load `tdgl3d-server` skill |
 | `apps/` | Frontend apps (Next.js studio — Phase 2, not yet created) | — |
 | `agents/` | AI agent tool definitions and prompts (Phase 3/4) | — |
 | `docs/` | Roadmap, design notes | `docs/ROADMAP.md`, `docs/notes/` |
