@@ -16,7 +16,6 @@ from numpy.typing import NDArray
 
 from .parameters import SimulationParameters
 
-
 # ---------------------------------------------------------------------------
 # Per-node material arrays
 # ---------------------------------------------------------------------------
@@ -92,10 +91,10 @@ class MaterialMap:
         # But for 2D (Nz=1), we only use m = i + mj*j (no z component)
         Nx, Ny, _Nz = params.Nx, params.Ny, params.Nz
         mj = Nx + 1
-        
+
         # Find all (i, j, k) where hole_mask_3d[i, j, k] == True
         ii, jj, kk = np.where(hole_mask_3d)
-        
+
         # Compute linear indices based on dimensionality
         if params.is_3d:
             mk = (Nx + 1) * (Ny + 1)

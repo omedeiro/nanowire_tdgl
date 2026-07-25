@@ -37,7 +37,6 @@ from numpy.typing import NDArray
 
 from ..core.parameters import SimulationParameters
 
-
 # ---------------------------------------------------------------------------
 # Helper: linear index on the full (Nx+1)×(Ny+1)×(Nz+1) grid
 # ---------------------------------------------------------------------------
@@ -56,6 +55,10 @@ def _linear_index(
 # ---------------------------------------------------------------------------
 # Data container
 # ---------------------------------------------------------------------------
+
+def _empty_intp() -> NDArray[np.intp]:
+    return np.array([], dtype=np.intp)
+
 
 @dataclass
 class GridIndices:
@@ -84,66 +87,66 @@ class GridIndices:
     )
 
     # -- x-axis face indices (all j, k) ------------------------------------
-    x_face_lo: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    x_first: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    x_last: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    x_face_hi: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    x_face_lo: NDArray[np.intp] = field(default_factory=_empty_intp)
+    x_first: NDArray[np.intp] = field(default_factory=_empty_intp)
+    x_last: NDArray[np.intp] = field(default_factory=_empty_intp)
+    x_face_hi: NDArray[np.intp] = field(default_factory=_empty_intp)
 
     # -- x-axis face indices (inner j, k only) -----------------------------
-    x_face_lo_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    x_first_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    x_last_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    x_face_hi_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    x_face_lo_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    x_first_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    x_last_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    x_face_hi_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
 
     # -- y-axis face indices -----------------------------------------------
-    y_face_lo: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_first: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_last: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_face_hi: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    y_face_lo: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_first: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_last: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_face_hi: NDArray[np.intp] = field(default_factory=_empty_intp)
 
-    y_face_lo_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_first_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_last_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_face_hi_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    y_face_lo_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_first_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_last_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_face_hi_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
 
     # -- z-axis face indices (empty for 2-D) --------------------------------
-    z_face_lo: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_first: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_last: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_face_hi: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    z_face_lo: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_first: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_last: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_face_hi: NDArray[np.intp] = field(default_factory=_empty_intp)
 
-    z_face_lo_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_first_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_last_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_face_hi_inner: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    z_face_lo_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_first_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_last_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_face_hi_inner: NDArray[np.intp] = field(default_factory=_empty_intp)
 
     # -- Boundary-normal masks (union of both faces ⊥ to that axis) ---------
-    x_normal_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    y_normal_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    z_normal_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    x_normal_bc_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+    y_normal_bc_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+    z_normal_bc_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
 
     # -- Hole boundary masks (links crossing hole boundaries) ---------------
     # ALL links crossing boundary (normal + tangential, for visualization/debugging)
-    hole_x_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_y_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_z_bc_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    
+    hole_x_bc_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_y_bc_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_z_bc_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+
     # NORMAL links only (perpendicular to boundary, for BC enforcement)
     # Only these should have φ = 0 enforced to allow flux trapping
-    hole_x_bc_normal_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_y_bc_normal_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_z_bc_normal_mask: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    
+    hole_x_bc_normal_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_y_bc_normal_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_z_bc_normal_mask: NDArray[np.intp] = field(default_factory=_empty_intp)
+
     # -- Hole boundary masks in interior numbering (for masking dφ/dt) ------
     # ALL links (legacy, kept for compatibility)
-    hole_x_bc_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_y_bc_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_z_bc_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    
+    hole_x_bc_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_y_bc_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_z_bc_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
+
     # NORMAL links only (interior numbering, for BC enforcement)
-    hole_x_bc_normal_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_y_bc_normal_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
-    hole_z_bc_normal_interior: NDArray[np.intp] = field(default_factory=lambda: np.array([], dtype=np.intp))
+    hole_x_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_y_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
+    hole_z_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
 
     def define_hole_polygon(
         self,
@@ -180,8 +183,8 @@ class GridIndices:
         >>> indices.define_hole_polygon(square, (0, 5), params)
         """
         from ..mesh.holes import (
-            identify_hole_nodes, 
             identify_boundary_links,
+            identify_hole_nodes,
             identify_normal_boundary_links,
         )
 
@@ -200,7 +203,7 @@ class GridIndices:
         new_x_all = identify_boundary_links(hole_mask, 'x', is_3d=params.is_3d)
         new_y_all = identify_boundary_links(hole_mask, 'y', is_3d=params.is_3d)
         new_z_all = identify_boundary_links(hole_mask, 'z', is_3d=params.is_3d)
-        
+
         # Identify NORMAL boundary links (for BC enforcement to allow flux trapping)
         new_x_normal = identify_normal_boundary_links(hole_mask, 'x', is_3d=params.is_3d)
         new_y_normal = identify_normal_boundary_links(hole_mask, 'y', is_3d=params.is_3d)
@@ -210,24 +213,24 @@ class GridIndices:
         self.hole_x_bc_mask = np.concatenate([self.hole_x_bc_mask, new_x_all])
         self.hole_y_bc_mask = np.concatenate([self.hole_y_bc_mask, new_y_all])
         self.hole_z_bc_mask = np.concatenate([self.hole_z_bc_mask, new_z_all])
-        
+
         # Append NORMAL links to separate masks
         self.hole_x_bc_normal_mask = np.concatenate([self.hole_x_bc_normal_mask, new_x_normal])
         self.hole_y_bc_normal_mask = np.concatenate([self.hole_y_bc_normal_mask, new_y_normal])
         self.hole_z_bc_normal_mask = np.concatenate([self.hole_z_bc_normal_mask, new_z_normal])
-        
+
         # Convert full-grid link indices to interior-grid indices
         # In 2D (Nz=1): φ is stored on same grid as ψ (interior nodes)
         # In 3D: φ_x, φ_y, φ_z are stored on separate link grids
-        
+
         def convert_link_to_interior(link_indices_full, direction):
             """Convert full-grid link indices to interior-grid indices.
-            
+
             For 2D: All fields use interior node grid.
             For 3D: Each direction uses its own interior link grid.
             """
             interior_indices = []
-            
+
             if not params.is_3d:
                 # 2D case: convert to interior node indices
                 # Full grid: m = j * (Nx+1) + i
@@ -235,7 +238,7 @@ class GridIndices:
                 for m in link_indices_full:
                     j_full = m // (params.Nx + 1)
                     i_full = m % (params.Nx + 1)
-                    
+
                     # Check if this is an interior point
                     if 1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1:
                         m_int = (j_full - 1) * (params.Nx - 1) + (i_full - 1)
@@ -252,12 +255,14 @@ class GridIndices:
                         rem = m % ((params.Ny + 1) * params.Nx)
                         j_full = rem // params.Nx
                         i_full = rem % params.Nx
-                        
+
                         # Check if interior (x-links: i ∈ [1, Nx-1], j ∈ [1, Ny-1], k ∈ [1, Nz-1])
-                        if 1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1 and 1 <= k_full <= params.Nz - 1:
-                            m_int = (k_full - 1) * params.Ny * (params.Nx - 1) + (j_full - 1) * (params.Nx - 1) + (i_full - 1)
+                        if (1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1
+                                and 1 <= k_full <= params.Nz - 1):
+                            m_int = ((k_full - 1) * params.Ny * (params.Nx - 1)
+                                     + (j_full - 1) * (params.Nx - 1) + (i_full - 1))
                             interior_indices.append(m_int)
-                
+
                 elif direction == 'y':
                     # Full y-link grid: (Nx+1) × Ny × (Nz+1)
                     # Interior y-link grid: Nx × (Ny-1) × Nz
@@ -267,12 +272,14 @@ class GridIndices:
                         rem = m % ((params.Nx + 1) * params.Ny)
                         j_full = rem // (params.Nx + 1)
                         i_full = rem % (params.Nx + 1)
-                        
+
                         # Check if interior (y-links: i ∈ [1, Nx-1], j ∈ [1, Ny-1], k ∈ [1, Nz-1])
-                        if 1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1 and 1 <= k_full <= params.Nz - 1:
-                            m_int = (k_full - 1) * params.Nx * (params.Ny - 1) + (j_full - 1) * params.Nx + (i_full - 1)
+                        if (1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1
+                                and 1 <= k_full <= params.Nz - 1):
+                            m_int = ((k_full - 1) * params.Nx * (params.Ny - 1)
+                                     + (j_full - 1) * params.Nx + (i_full - 1))
                             interior_indices.append(m_int)
-                
+
                 elif direction == 'z':
                     # Full z-link grid: (Nx+1) × (Ny+1) × Nz
                     # Interior z-link grid: Nx × Ny × (Nz-1)
@@ -282,28 +289,30 @@ class GridIndices:
                         rem = m % ((params.Nx + 1) * (params.Ny + 1))
                         j_full = rem // (params.Nx + 1)
                         i_full = rem % (params.Nx + 1)
-                        
+
                         # Check if interior (z-links: i ∈ [1, Nx-1], j ∈ [1, Ny-1], k ∈ [1, Nz-1])
-                        if 1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1 and 1 <= k_full <= params.Nz - 1:
-                            m_int = (k_full - 1) * params.Nx * params.Ny + (j_full - 1) * params.Nx + (i_full - 1)
+                        if (1 <= i_full <= params.Nx - 1 and 1 <= j_full <= params.Ny - 1
+                                and 1 <= k_full <= params.Nz - 1):
+                            m_int = ((k_full - 1) * params.Nx * params.Ny
+                                     + (j_full - 1) * params.Nx + (i_full - 1))
                             interior_indices.append(m_int)
-            
+
             return np.array(interior_indices, dtype=np.intp)
-        
+
         # Convert ALL boundary links to interior indices
         new_x_interior = convert_link_to_interior(new_x_all, 'x')
         new_y_interior = convert_link_to_interior(new_y_all, 'y')
         new_z_interior = convert_link_to_interior(new_z_all, 'z')
-        
+
         # Convert NORMAL boundary links to interior indices
         new_x_normal_interior = convert_link_to_interior(new_x_normal, 'x')
         new_y_normal_interior = convert_link_to_interior(new_y_normal, 'y')
         new_z_normal_interior = convert_link_to_interior(new_z_normal, 'z')
-        
+
         # Append ALL links to interior masks (legacy, for backward compatibility)
         if len(new_x_interior) > 0:
             self.hole_x_bc_interior = np.concatenate([
-                self.hole_x_bc_interior, 
+                self.hole_x_bc_interior,
                 new_x_interior
             ])
         if len(new_y_interior) > 0:
@@ -316,7 +325,7 @@ class GridIndices:
                 self.hole_z_bc_interior,
                 new_z_interior
             ])
-        
+
         # Append NORMAL links to interior normal masks (for BC enforcement)
         if len(new_x_normal_interior) > 0:
             self.hole_x_bc_normal_interior = np.concatenate([

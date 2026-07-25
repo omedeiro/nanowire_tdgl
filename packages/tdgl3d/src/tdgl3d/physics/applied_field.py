@@ -77,15 +77,21 @@ def build_boundary_field_vectors(
     # Indices where each field component lives on the boundary
     # (union of the two pairs of faces perpendicular to the other axes)
     if applied_bx != 0.0:
-        bc_idx = np.concatenate([idx.y_face_lo_inner, idx.z_face_lo_inner, idx.y_face_hi_inner, idx.z_face_hi_inner])
+        bc_idx = np.concatenate(
+            [idx.y_face_lo_inner, idx.z_face_lo_inner, idx.y_face_hi_inner, idx.z_face_hi_inner]
+        )
         np.add.at(Bx_vec, bc_idx, applied_bx)
 
     if applied_by != 0.0:
-        bc_idx = np.concatenate([idx.z_face_lo_inner, idx.x_face_lo_inner, idx.z_face_hi_inner, idx.x_face_hi_inner])
+        bc_idx = np.concatenate(
+            [idx.z_face_lo_inner, idx.x_face_lo_inner, idx.z_face_hi_inner, idx.x_face_hi_inner]
+        )
         np.add.at(By_vec, bc_idx, applied_by)
 
     if applied_bz != 0.0:
-        bc_idx = np.concatenate([idx.x_face_lo_inner, idx.y_face_lo_inner, idx.x_face_hi_inner, idx.y_face_hi_inner])
+        bc_idx = np.concatenate(
+            [idx.x_face_lo_inner, idx.y_face_lo_inner, idx.x_face_hi_inner, idx.y_face_hi_inner]
+        )
         np.add.at(Bz_vec, bc_idx, applied_bz)
 
     return Bx_vec, By_vec, Bz_vec

@@ -10,11 +10,14 @@ Physics parameters:
 """
 
 from __future__ import annotations
-import numpy as np
+
 import sys
+
+import numpy as np
+
 sys.path.insert(0, '/Users/owenmedeiros/nanowire_tdgl/src')
 
-from tdgl3d import Device, SimulationParameters, solve, AppliedField
+from tdgl3d import AppliedField, Device, SimulationParameters, solve
 from tdgl3d.physics.rhs import _expand_interior_to_full
 
 
@@ -22,21 +25,21 @@ def compute_fluxoid(phi_x, phi_y, contour, params, idx):
     """Compute fluxoid ∮φ·dl around a closed contour in units of Φ₀."""
     phi_x_full = _expand_interior_to_full(phi_x, params, idx)
     phi_y_full = _expand_interior_to_full(phi_y, params, idx)
-    
+
     nx, ny = params.Nx + 1, params.Ny + 1
     phi_x_grid = np.real(phi_x_full.reshape(nx, ny, order='F'))
     phi_y_grid = np.real(phi_y_full.reshape(nx, ny, order='F'))
-    
+
     fluxoid = 0.0
     for i in range(len(contour) - 1):
         p1, p2 = contour[i], contour[i + 1]
         dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-        
+
         ix = int(np.clip((p1[0] + p2[0])/2, 0, nx-1))
         iy = int(np.clip((p1[1] + p2[1])/2, 0, ny-1))
-        
+
         fluxoid += phi_x_grid[ix, iy] * dx + phi_y_grid[ix, iy] * dy
-    
+
     return fluxoid / (2 * np.pi)
 
 
@@ -158,10 +161,10 @@ for i, t in enumerate(sol.times):
     phi_x = sol.phi_x(step=i)
     phi_y = sol.phi_y(step=i)
     psi = sol.psi(step=i)
-    
+
     flux = compute_fluxoid(phi_x, phi_y, contour, params, device.idx)
     psi_sq_mean = np.mean(np.abs(psi)**2)
-    
+
     fluxoids.append(flux)
     print(f"{t:8.2f}  {flux:14.6f}  {psi_sq_mean:10.6f}")
 

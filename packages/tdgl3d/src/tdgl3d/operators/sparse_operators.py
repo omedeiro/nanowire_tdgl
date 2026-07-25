@@ -11,8 +11,8 @@ import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 
-from ..core.parameters import SimulationParameters
 from ..core.material import MaterialMap
+from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
 
 

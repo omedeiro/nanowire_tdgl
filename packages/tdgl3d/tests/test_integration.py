@@ -1,8 +1,8 @@
 """Integration tests — run short simulations end-to-end."""
 
 import numpy as np
-from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.core.device import Device
+from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.physics.applied_field import AppliedField
 from tdgl3d.solvers.runner import solve
 
@@ -67,11 +67,11 @@ class TestDeviceAndSolution:
         params = SimulationParameters(Nx=5, Ny=5, Nz=1, kappa=2.0)
         device = Device(params, applied_field=AppliedField())
         sol = solve(device, t_start=0.0, t_stop=0.05, dt=0.01, method="euler", progress=False)
-        
+
         # Default call (full_interior=True) should return all interior nodes
         Bx_full, By_full, Bz_full = sol.bfield(step=-1)
         assert Bz_full.shape == (params.n_interior,)
-        
+
         # Old behavior (full_interior=False) returns subset
         Bx_old, By_old, Bz_old = sol.bfield(step=-1, full_interior=False)
         assert Bz_old.shape == ((params.Nx - 2) * (params.Ny - 2),)

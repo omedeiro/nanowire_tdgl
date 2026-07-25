@@ -7,8 +7,8 @@ This script demonstrates the full workflow:
 4. Visualize the results
 """
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")  # non-interactive backend for saving figures
 
@@ -61,7 +61,7 @@ def main():
     print(f"B_z final: mean={np.mean(Bz):.4f}, max={np.max(np.abs(Bz)):.4f}")
 
     # 6. Visualization
-    from tdgl3d.visualization.plotting import plot_summary, animate
+    from tdgl3d.visualization.plotting import animate, plot_summary
 
     fig = plot_summary(solution, step=-1)
     fig.savefig("example_summary.png", dpi=150, bbox_inches="tight")

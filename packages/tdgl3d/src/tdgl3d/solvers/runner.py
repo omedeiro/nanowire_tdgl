@@ -132,7 +132,7 @@ def solve(
             )
         else:
             raise ValueError(f"Unknown method {method!r}. Use 'euler' or 'trapezoidal'.")
-    
+
     # Create metadata
     metadata_dict = None
     if log_metadata:
@@ -148,7 +148,7 @@ def solve(
             total_steps=len(times),
         )
         metadata_dict = metadata.to_dict()
-        
+
         # Auto-save metadata to JSON
         log_path = Path(log_dir)
         log_path.mkdir(parents=True, exist_ok=True)
@@ -156,4 +156,6 @@ def solve(
         json_file = log_path / f"run_{timestamp}.json"
         metadata.save_json(json_file)
 
-    return Solution(times=times, states=X_hist, params=params, idx=idx, device=device, metadata=metadata_dict)
+    return Solution(
+        times=times, states=X_hist, params=params, idx=idx, device=device, metadata=metadata_dict
+    )

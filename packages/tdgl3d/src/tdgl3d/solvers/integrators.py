@@ -5,13 +5,11 @@ Python ports of ``ForwardEuler.m`` and ``Trapezoidal.m``.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 from tqdm import tqdm
-
-from typing import Optional
 
 from ..core.material import MaterialMap
 from ..core.parameters import SimulationParameters

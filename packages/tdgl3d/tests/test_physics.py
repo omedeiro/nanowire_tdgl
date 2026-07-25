@@ -5,9 +5,9 @@ import pytest
 from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.core.state import StateVector
 from tdgl3d.mesh.indices import construct_indices
-from tdgl3d.physics.rhs import BoundaryVectors, eval_f
-from tdgl3d.physics.bfield import eval_bfield
 from tdgl3d.physics.applied_field import AppliedField, build_boundary_field_vectors
+from tdgl3d.physics.bfield import eval_bfield
+from tdgl3d.physics.rhs import BoundaryVectors, eval_f
 
 
 def _zero_bv(params, idx):

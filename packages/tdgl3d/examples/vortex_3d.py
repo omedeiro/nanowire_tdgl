@@ -36,8 +36,8 @@ def main():
     print(f"Saved {solution.n_steps} steps.")
 
     # Visualize middle z-slice
-    from tdgl3d.visualization.plotting import plot_order_parameter, plot_bfield
     import matplotlib.pyplot as plt
+    from tdgl3d.visualization.plotting import plot_bfield, plot_order_parameter
 
     middle_z = max(0, (params.Nz - 1) // 2 - 1)
 

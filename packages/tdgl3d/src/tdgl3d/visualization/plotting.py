@@ -88,10 +88,10 @@ def plot_bfield(
     data = comp_map[component.lower()]
 
     params = solution.params
-    
+
     # Reshape using Solution's helper (handles 2D and 3D correctly)
     data_2d = solution._reshape_interior(data, slice_z=slice_z)
-    
+
     # Grid coordinates for interior nodes
     xs = np.arange(1, params.Nx) * params.hx
     ys = np.arange(1, params.Ny) * params.hy
@@ -125,10 +125,10 @@ def plot_bfield_streamlines(
     vmax: Optional[float] = None,
 ):
     """Plot B-field with optional magnetic field line streamlines.
-    
-    Creates a visualization showing the magnetic field with optional 
+
+    Creates a visualization showing the magnetic field with optional
     streamlines indicating field line direction.
-    
+
     Parameters
     ----------
     solution : Solution
@@ -157,44 +157,44 @@ def plot_bfield_streamlines(
         Figure size if creating new axes
     vmin, vmax : float, optional
         Color scale limits (auto if None)
-    
+
     Returns
     -------
     fig : matplotlib Figure
     ax : matplotlib Axes
-    
+
     Notes
     -----
     - Heatmap shows the selected B-field component or total magnitude
     - Streamlines show in-plane field direction (Bx, By)
     - White streamlines provide good contrast on diverging colormaps
     - NaN regions (vortex cores, holes) appear as gaps
-    
+
     Examples
     --------
     >>> fig, ax = plot_bfield_streamlines(solution, component='z')
     >>> fig.savefig("bfield.png", dpi=150)
-    
+
     >>> # Show total field magnitude with streamlines
     >>> fig, ax = plot_bfield_streamlines(solution, component='magnitude', cmap='plasma')
     """
     import matplotlib.pyplot as plt
-    
+
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
-    
+
     # Get B-field (full interior to include holes)
     Bx, By, Bz = solution.bfield(step=step, full_interior=True)
-    
+
     params = solution.params
-    
+
     # Reshape to 2D slice
     Bx_2d = solution._reshape_interior(Bx, slice_z=slice_z)
     By_2d = solution._reshape_interior(By, slice_z=slice_z)
     Bz_2d = solution._reshape_interior(Bz, slice_z=slice_z)
-    
+
     # Select component for heatmap
     if component.lower() == 'x':
         data = Bx_2d
@@ -214,12 +214,12 @@ def plot_bfield_streamlines(
         diverging = False
     else:
         raise ValueError(f"Unknown component '{component}'. Use 'x', 'y', 'z', or 'magnitude'.")
-    
+
     # Grid coordinates for interior nodes
     xs = np.arange(1, params.Nx) * params.hx
     ys = np.arange(1, params.Ny) * params.hy
     xx, yy = np.meshgrid(xs, ys, indexing="ij")
-    
+
     # Auto-scale color limits
     if vmin is None or vmax is None:
         if diverging:
@@ -230,24 +230,24 @@ def plot_bfield_streamlines(
             vmax_auto = np.nanmax(data)
         vmin = vmin if vmin is not None else vmin_auto
         vmax = vmax if vmax is not None else vmax_auto
-    
+
     # Heatmap
     im = ax.pcolormesh(xx, yy, np.real(data), cmap=cmap, vmin=vmin, vmax=vmax, shading="auto")
-    
+
     # Streamlines of in-plane field
     if streamplot:
         # Mask NaN values for streamplot
         Bx_stream = np.where(np.isnan(Bx_2d), 0.0, Bx_2d)
         By_stream = np.where(np.isnan(By_2d), 0.0, By_2d)
-        
+
         # Only plot streamlines where field magnitude is significant
         B_mag = np.sqrt(Bx_stream**2 + By_stream**2)
         threshold = 1e-8 * np.nanmax(B_mag) if np.nanmax(B_mag) > 0 else 0
-        
+
         # Create masked arrays
         Bx_masked = np.ma.array(Bx_stream, mask=(B_mag < threshold))
         By_masked = np.ma.array(By_stream, mask=(B_mag < threshold))
-        
+
         try:
             ax.streamplot(
                 xx.T, yy.T,  # Note: transpose for streamplot
@@ -261,14 +261,14 @@ def plot_bfield_streamlines(
             # Streamplot can fail if field is too uniform or has NaNs
             # Just skip streamlines in this case
             pass
-    
+
     ax.set_aspect("equal")
     ax.set_xlabel(r"$x$ ($\xi$)")
     ax.set_ylabel(r"$y$ ($\xi$)")
     t = solution.times[step]
     ax.set_title(f"B-field ({label}) at t = {t:.3f}")
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=label)
-    
+
     return fig, ax
 
 
@@ -350,12 +350,12 @@ def plot_current_density(
     hole_linewidth: float = 1.5,
 ):
     """Plot current densities in a 3-panel figure: supercurrent, normal, total.
-    
+
     Creates a comprehensive visualization showing:
     - Left panel: Supercurrent density |J_s| with optional streamlines
     - Middle panel: Normal current density |J_n| with optional streamlines
     - Right panel: Total current density |J| with optional streamlines
-    
+
     Parameters
     ----------
     solution : Solution
@@ -389,12 +389,12 @@ def plot_current_density(
         Line style for hole outline (e.g., "--", "-", ":")
     hole_linewidth : float, default 1.5
         Width of hole outline
-        
+
     Returns
     -------
     fig : matplotlib Figure
     axes : array of 3 matplotlib Axes
-    
+
     Notes
     -----
     - Supercurrent (J_s) dominates in bulk SC regions and screens B-fields
@@ -402,24 +402,24 @@ def plot_current_density(
     - Streamlines show current flow direction; color shows magnitude
     - NaN regions (holes, vortex cores) appear as gaps
     - Hole outline helps visualize where zero-current BCs are enforced
-    
+
     Examples
     --------
     >>> # Without hole outline
     >>> fig, axes = plot_current_density(solution, streamplot=True)
     >>> fig.savefig("currents.png", dpi=150)
-    >>> 
+    >>>
     >>> # With hole outline
     >>> hole = [(10.0, 10.0), (20.0, 10.0), (20.0, 20.0), (10.0, 20.0)]
     >>> fig, axes = plot_current_density(solution, hole_polygon=hole)
     >>> fig.savefig("currents_with_hole.png", dpi=150)
     """
     import matplotlib.pyplot as plt
-    
+
     # Get current densities
     Jsx, Jsy, Jsz = solution.supercurrent_density(step=step)
     J_s_mag = solution.current_magnitude(step=step, dataset="supercurrent")
-    
+
     J_n = solution.normal_current_density(step=step)
     if J_n is not None:
         Jnx, Jny, Jnz = J_n
@@ -429,12 +429,12 @@ def plot_current_density(
         Jnx = np.zeros_like(Jsx)
         Jny = np.zeros_like(Jsy)
         J_n_mag = np.zeros_like(J_s_mag)
-    
+
     # Total current
     Jx_tot = Jsx + Jnx
     Jy_tot = Jsy + Jny
     J_tot_mag = np.sqrt(Jx_tot**2 + Jy_tot**2)
-    
+
     # Reshape to 2D grid for plotting
     params = solution.params
     def reshape_current(J_arr):
@@ -445,31 +445,31 @@ def plot_current_density(
             return J_3d[:, :, min(slice_z, Nz_int - 1)]
         else:
             return J_arr.reshape(params.Nx - 1, params.Ny - 1)
-    
+
     Jsx_2d = reshape_current(Jsx)
     Jsy_2d = reshape_current(Jsy)
     J_s_mag_2d = reshape_current(J_s_mag)
-    
+
     Jnx_2d = reshape_current(Jnx)
     Jny_2d = reshape_current(Jny)
     J_n_mag_2d = reshape_current(J_n_mag)
-    
+
     Jx_tot_2d = reshape_current(Jx_tot)
     Jy_tot_2d = reshape_current(Jy_tot)
     J_tot_mag_2d = reshape_current(J_tot_mag)
-    
+
     # Create coordinate grid
     xx, yy = _grid_coords_2d(params)
-    
+
     # Determine color scale
     if vmax is None:
         vmax = max(J_s_mag_2d.max(), J_n_mag_2d.max(), J_tot_mag_2d.max(), 1e-10)
     if vmin is None:
         vmin = 0.0
-    
+
     # Create 3-panel figure
     fig, axes = plt.subplots(1, 3, figsize=figsize)
-    
+
     # Panel 1: Supercurrent
     ax = axes[0]
     im1 = ax.pcolormesh(xx, yy, J_s_mag_2d, cmap=cmap, vmin=vmin, vmax=vmax, shading="auto")
@@ -487,7 +487,7 @@ def plot_current_density(
     t = solution.times[step]
     ax.set_title(f"Supercurrent |J_s|  (t = {t:.3f})")
     plt.colorbar(im1, ax=ax, fraction=0.046, pad=0.04, label="|J_s|")
-    
+
     # Panel 2: Normal current
     ax = axes[1]
     im2 = ax.pcolormesh(xx, yy, J_n_mag_2d, cmap=cmap, vmin=vmin, vmax=vmax, shading="auto")
@@ -504,7 +504,7 @@ def plot_current_density(
     ax.set_ylabel("y")
     ax.set_title(f"Normal Current |J_n|  (t = {t:.3f})")
     plt.colorbar(im2, ax=ax, fraction=0.046, pad=0.04, label="|J_n|")
-    
+
     # Panel 3: Total current
     ax = axes[2]
     im3 = ax.pcolormesh(xx, yy, J_tot_mag_2d, cmap=cmap, vmin=vmin, vmax=vmax, shading="auto")
@@ -521,17 +521,17 @@ def plot_current_density(
     ax.set_ylabel("y")
     ax.set_title(f"Total Current |J|  (t = {t:.3f})")
     plt.colorbar(im3, ax=ax, fraction=0.046, pad=0.04, label="|J|")
-    
+
     # Draw hole outline on all panels if provided
     if hole_polygon is not None:
         # Close the polygon
         poly_closed = list(hole_polygon) + [hole_polygon[0]]
         xs = [p[0] for p in poly_closed]
         ys = [p[1] for p in poly_closed]
-        
+
         for ax in axes:
-            ax.plot(xs, ys, color=hole_color, linestyle=hole_linestyle, 
+            ax.plot(xs, ys, color=hole_color, linestyle=hole_linestyle,
                    linewidth=hole_linewidth, label="Hole boundary")
-    
+
     fig.tight_layout()
     return fig, axes

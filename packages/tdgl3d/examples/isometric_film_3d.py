@@ -10,17 +10,16 @@ Abrikosov-like lattice.
 """
 
 import matplotlib
+
 matplotlib.use("Agg")
 
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 import matplotlib.cm as cm
-
+import matplotlib.pyplot as plt
+import numpy as np
 import tdgl3d
-from tdgl3d.core.solution import Solution
+from matplotlib.colors import Normalize
 from tdgl3d.core.parameters import SimulationParameters
-
+from tdgl3d.core.solution import Solution
 
 # ── Physical dimensions ────────────────────────────────────────────────
 # Film: 100 nm × 100 nm × 20 nm

@@ -22,17 +22,15 @@ gives 50 saved steps.  Should complete in under 30 min on a laptop.
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 
-import numpy as np
-import matplotlib.pyplot as plt
-
 import matplotlib.cm as cm
-from matplotlib.colors import Normalize
-
+import matplotlib.pyplot as plt
+import numpy as np
 import tdgl3d
+from matplotlib.colors import Normalize
 from tdgl3d.core.solution import Solution
-
 
 # ── Physical constants ─────────────────────────────────────────────────
 XI_NM = 100.0                     # coherence length ξ = 100 nm
@@ -421,8 +419,12 @@ def _compute_bz_full_3d(solution: Solution, device, step: int = -1) -> np.ndarra
     onto boundary link variables), then computes curl on interior nodes.
     Returns Bz reshaped to (Nx-1, Ny-1, Nz-1).
     """
-    from tdgl3d.physics.rhs import _expand_interior_to_full, _apply_boundary_conditions, BoundaryVectors
     from tdgl3d.physics.applied_field import build_boundary_field_vectors
+    from tdgl3d.physics.rhs import (
+        BoundaryVectors,
+        _apply_boundary_conditions,
+        _expand_interior_to_full,
+    )
 
     p = solution.params
     idx = solution.idx
@@ -503,7 +505,7 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
                       prefix: str = "sis_square_with_hole",
                       fps: int = 6, step_stride: int = 1) -> list[str]:
     """Create 4 animated GIFs — one per quantity — each with a single isometric cube.
-    
+
     Returns
     -------
     list[str]
@@ -598,11 +600,11 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
                             cmap_obj, norm, xs, ys, zs,
                             x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
             _draw_wireframe(ax, x_lo, x_hi, y_lo, y_hi, z_lo, z_hi)
-            
+
             ax.set_xlabel("x (µm)", color="white", fontsize=11)
             ax.set_ylabel("y (µm)", color="white", fontsize=11)
             ax.set_zlabel("z (ξ)", color="white", fontsize=11)
-            ax.set_title(f"{panel['title']}   t = {t:.2f} / {solution.times[-1]:.2f}", 
+            ax.set_title(f"{panel['title']}   t = {t:.2f} / {solution.times[-1]:.2f}",
                         fontsize=14, color="white", pad=20)
             ax.view_init(elev=25, azim=-60)
             ax.set_facecolor("#1a1a2e")
@@ -610,7 +612,7 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
             ax.yaxis.pane.fill = False
             ax.zaxis.pane.fill = False
             ax.tick_params(colors="white", labelsize=9)
-            
+
             # Add colorbar
             sm = cm.ScalarMappable(cmap=cmap_obj, norm=norm)
             sm.set_array([])
@@ -619,7 +621,7 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
             if panel["name"] == "phase":
                 cbar.set_ticks([-np.pi, 0, np.pi])
                 cbar.set_ticklabels(["-π", "0", "π"])
-            
+
             fig.patch.set_facecolor("#1a1a2e")
             return []
 
@@ -636,10 +638,10 @@ def animate_isometric(solution: Solution, device: tdgl3d.Device,
     return output_files
 
 
-def check_superconductivity(solution: Solution, device: tdgl3d.Device, 
+def check_superconductivity(solution: Solution, device: tdgl3d.Device,
                             threshold: float = 0.01) -> tuple[bool, float]:
     """Check if SC regions maintain superconductivity (|ψ|² > threshold).
-    
+
     Returns
     -------
     tuple[bool, float]
@@ -648,21 +650,21 @@ def check_superconductivity(solution: Solution, device: tdgl3d.Device,
     # Get final state
     psi_int = solution.psi(step=-1)
     psi2 = np.abs(psi_int) ** 2
-    
+
     # Get SC mask (interior nodes)
     sc_mask_int = device.material.interior_sc_mask
-    
+
     # Check minimum |ψ|² in SC regions
     psi2_sc = psi2[sc_mask_int > 0]
     min_psi2 = float(np.min(psi2_sc))
-    
+
     is_sc = min_psi2 > threshold
     return is_sc, min_psi2
 
 
 def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device, list[tuple[float, float]]]:
     """Run a simulation with given field strength.
-    
+
     Returns
     -------
     tuple[Solution, Device, list of (x,y)]
@@ -680,7 +682,7 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
         hx=HX, hy=HY, hz=HZ,
         kappa=KAPPA,
     )
-    
+
     # Field profile: zero for 10% of t_stop, ramp from 10% to 20%, hold at full for remaining 80%
     def _field_profile(t: float, t_stop: float) -> tuple[float, float, float]:
         t_settle = 0.10 * t_stop      # 0-6 s: zero field (10%)
@@ -709,7 +711,7 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
     hole_x_max_xi = um_to_xi(HOLE_X_MAX_UM, LX_UM, LX_XI)
     hole_y_min_xi = um_to_xi(HOLE_Y_MIN_UM, LY_UM, LY_XI)
     hole_y_max_xi = um_to_xi(HOLE_Y_MAX_UM, LY_UM, LY_XI)
-    
+
     # Define hole as rectangle polygon (vertices in ξ units)
     # Grid origin is at corner, so add offset for centered coordinates
     offset_x = LX_XI / 2.0
@@ -720,20 +722,20 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
         (hole_x_max_xi + offset_x, hole_y_max_xi + offset_y),
         (hole_x_min_xi + offset_x, hole_y_max_xi + offset_y),
     ]
-    
+
     # Get z-ranges for SC layers only (not insulator)
     z_ranges = trilayer.z_ranges()
     # Punch hole through both SC layers (bottom and top)
     # z_range for bottom SC
     z_bottom = z_ranges["bottom"]
-    # z_range for top SC  
+    # z_range for top SC
     z_top = z_ranges["top"]
-    
+
     # Add hole through bottom SC layer
     device.add_hole(hole_polygon, z_range=z_bottom)
     # Add hole through top SC layer
     device.add_hole(hole_polygon, z_range=z_top)
-    
+
     print("Added rectangular hole:")
     print(f"  Physical bounds (µm): x ∈ [{HOLE_X_MIN_UM}, {HOLE_X_MAX_UM}], "
           f"y ∈ [{HOLE_Y_MIN_UM}, {HOLE_Y_MAX_UM}]")
@@ -771,24 +773,24 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
     )
 
     print(f"\nSaved {solution.n_steps} snapshots.")
-    
+
     # Save solution to HDF5 for instant re-visualization
     output_file = f"sis_square_Bz{bz_field:.2f}_t{T_STOP:.0f}.h5"
     print(f"Saving solution to {output_file} ...")
     solution.save(output_file)
     print(f"  → Saved! Load anytime with: Solution.load('{output_file}')")
-    
+
     return solution, device, hole_polygon
 
 
 def analyze_vortices_timeseries(
-    solution: Solution, 
+    solution: Solution,
     device: tdgl3d.Device,
     slice_z: int = 0,
     stride: int = 1,
 ) -> tuple[list, list, list, list]:
     """Count vortices at each saved time step using both methods.
-    
+
     Returns
     -------
     times : list
@@ -801,21 +803,21 @@ def analyze_vortices_timeseries(
         Film vortices (boundary minus hole)
     """
     from tdgl3d.analysis.vortex_counting import (
-        count_vortices_plaquette,
         count_hole_flux_quanta,
+        count_vortices_plaquette,
     )
-    
+
     params = solution.params
     nx_int = params.Nx - 1
     ny_int = params.Ny - 1
-    
+
     # Convert hole bounds to grid indices
     i_lo = um_to_grid_index(HOLE_X_MIN_UM, LX_UM, params.Nx)
     i_hi = um_to_grid_index(HOLE_X_MAX_UM, LX_UM, params.Nx)
     j_lo = um_to_grid_index(HOLE_Y_MIN_UM, LY_UM, params.Ny)
     j_hi = um_to_grid_index(HOLE_Y_MAX_UM, LY_UM, params.Ny)
     hole_bounds = (i_lo, i_hi, j_lo, j_hi)
-    
+
     # Define polygon around entire boundary (for total flux)
     margin = 2  # Stay away from boundary
     np.array([
@@ -825,44 +827,44 @@ def analyze_vortices_timeseries(
         [margin, ny_int - margin],
         [margin, margin],
     ])
-    
+
     times = []
     n_vortices_plaquette_list = []
     n_hole_flux_list = []
     n_film_vortices_list = []
-    
+
     print(f"\n{'='*70}")
     print("Analyzing vortex evolution over time...")
     print(f"{'='*70}")
-    
+
     for step in range(0, solution.n_steps, stride):
         t = solution.times[step]
         times.append(t)
-        
+
         # Count vortices using plaquette method
         n_vort, vort_pos, winding = count_vortices_plaquette(
             solution, device, slice_z=slice_z, step=step
         )
-        
+
         # Count flux quanta in hole
         n_hole_flux = count_hole_flux_quanta(
             solution, device, hole_bounds, slice_z=slice_z, step=step
         )
-        
+
         # Estimate film vortices as total - hole
         # (This assumes vortices at boundary contribute to "film" count)
         n_film_vortices = n_vort  # Total detected by plaquette method
-        
+
         n_vortices_plaquette_list.append(n_vort)
         n_hole_flux_list.append(n_hole_flux)
         n_film_vortices_list.append(n_film_vortices)
-        
+
         if step % (10 * stride) == 0:
             print(f"  t={t:6.2f}: plaquette={n_vort:2d}, Φ_magnetic={n_hole_flux:5.2f} Φ₀, "
                   f"film≈{n_film_vortices:2d}")
-    
+
     print(f"{'='*70}\n")
-    
+
     return times, n_vortices_plaquette_list, n_hole_flux_list, n_film_vortices_list
 
 
@@ -875,26 +877,26 @@ def plot_vortex_timeseries(
 ) -> None:
     """Plot vortex count vs time."""
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-    
+
     # Top panel: Total vortices (plaquette method)
-    ax1.plot(times, n_vortices_plaquette, 'o-', label='Total vortices (plaquette)', 
+    ax1.plot(times, n_vortices_plaquette, 'o-', label='Total vortices (plaquette)',
              color='C0', markersize=4)
     ax1.set_ylabel("Vortex count", fontsize=12)
     ax1.set_title(f"Vortex Population vs Time — S/I/S square with hole\n"
                   f"Bz = {BZ}, κ = {KAPPA}", fontsize=13)
     ax1.grid(True, alpha=0.3)
     ax1.legend(fontsize=11)
-    
+
     # Bottom panel: Magnetic flux through hole and film vortices
-    ax2.plot(times, n_hole_flux, 's-', label='Φ_magnetic (not quantized)', 
+    ax2.plot(times, n_hole_flux, 's-', label='Φ_magnetic (not quantized)',
              color='C1', markersize=4)
-    ax2.plot(times, n_film_vortices, '^-', label='Film vortices', 
+    ax2.plot(times, n_film_vortices, '^-', label='Film vortices',
              color='C2', markersize=4)
     ax2.set_xlabel("Time (dimensionless)", fontsize=12)
     ax2.set_ylabel("Count / Flux quanta", fontsize=12)
     ax2.grid(True, alpha=0.3)
     ax2.legend(fontsize=11)
-    
+
     fig.tight_layout()
     fig.savefig(filename, dpi=150, bbox_inches='tight')
     print(f"Saved {filename}")
@@ -906,23 +908,23 @@ def main() -> None:
     print(f"\n{'='*70}")
     print(f"Running simulation with Bz = {BZ}")
     print(f"{'='*70}\n")
-    
+
     solution, device, hole_polygon = run_simulation_with_field(BZ)
-    
+
     # Check if SC is still superconducting
     min_threshold = 0.01
     is_sc, min_psi2 = check_superconductivity(solution, device, threshold=min_threshold)
-    
+
     print("\nSuperconductivity check:")
     print(f"  min |ψ|² in SC regions: {min_psi2:.6f}")
     print(f"  Threshold: {min_threshold}")
     print(f"  Status: {'✓ SUPERCONDUCTING' if is_sc else '✗ SUPPRESSED'}")
-    
+
     # ── Steady-state detection ────────────────────────────────────────
     print(f"\n{'='*70}")
     print("Checking for steady state...")
     print(f"{'='*70}")
-    
+
     is_steady, steady_step, metrics = solution.check_steady_state(
         device=device,
         window_size=10,
@@ -930,7 +932,7 @@ def main() -> None:
         current_threshold=1e-4,
         start_step=20,
     )
-    
+
     print("\nSteady State Analysis:")
     print(f"  Reached: {'YES ✓' if is_steady else 'NO ✗'}")
     if is_steady:
@@ -943,42 +945,42 @@ def main() -> None:
         print(f"  Final Δ|ψ|²: {metrics['psi2_rel_change']:.2e}")
         if 'current_rel_change' in metrics:
             print(f"  Final Δ|J_s|: {metrics['current_rel_change']:.2e}")
-    
+
     # ── Vortex counting time series ───────────────────────────────────
     z_ranges = device.trilayer.z_ranges()
     k_bot_mid = (z_ranges["bottom"][0] + z_ranges["bottom"][1]) // 2
     sz_bot = max(k_bot_mid - 1, 0)
-    
+
     times, n_plaq, n_hole, n_film = analyze_vortices_timeseries(
         solution, device, slice_z=sz_bot, stride=2
     )
-    
+
     # Plot vortex evolution
     plot_vortex_timeseries(times, n_plaq, n_hole, n_film)
-    
+
     # ── Final vortex count (detailed) ─────────────────────────────────
     from tdgl3d.analysis.vortex_counting import (
-        count_vortices_plaquette, 
         count_hole_flux_quanta,
+        count_vortices_plaquette,
         count_vortices_polygon,
     )
-    
+
     print(f"\n{'='*70}")
     print(f"Final Vortex Count (t = {solution.times[-1]:.2f})")
     print(f"{'='*70}")
-    
+
     # Hole bounds in grid indices
     i_lo = um_to_grid_index(HOLE_X_MIN_UM, LX_UM, solution.params.Nx)
     i_hi = um_to_grid_index(HOLE_X_MAX_UM, LX_UM, solution.params.Nx)
     j_lo = um_to_grid_index(HOLE_Y_MIN_UM, LY_UM, solution.params.Ny)
     j_hi = um_to_grid_index(HOLE_Y_MAX_UM, LY_UM, solution.params.Ny)
     hole_bounds = (i_lo, i_hi, j_lo, j_hi)
-    
+
     n_vort, vort_pos, winding = count_vortices_plaquette(solution, device, slice_z=sz_bot, step=-1)
-    
+
     # Magnetic flux through hole (NOT quantized - includes screening)
     n_hole_flux = count_hole_flux_quanta(solution, device, hole_bounds, slice_z=sz_bot, step=-1)
-    
+
     # Fluxoid around hole (IS quantized - includes supercurrent)
     margin = 2.0  # Grid cells outside hole boundary
     polygon_around_hole = np.array([
@@ -988,27 +990,27 @@ def main() -> None:
         [i_lo - margin, j_hi + margin],
     ])
     fluxoid_around_hole = count_vortices_polygon(solution, device, polygon_around_hole, slice_z=sz_bot, step=-1)
-    
+
     print(f"\nPlaquette method (bottom SC, z={sz_bot}):")
     print(f"  Total vortices detected: {n_vort}")
     if n_vort > 0:
         print("  Vortex positions (grid coords):")
         for idx, (pos, w) in enumerate(zip(vort_pos, winding)):
             print(f"    {idx+1}. ({pos[0]:.1f}, {pos[1]:.1f})  winding = {w:+.2f}")
-    
+
     print("\nMagnetic flux through hole (NOT quantized):")
     print(f"  Φ_magnetic = {n_hole_flux:.3f} Φ₀")
     print("  (Small value due to Meissner screening at hole boundary)")
-    
+
     print("\nFluxoid around hole (quantized):")
     print(f"  Φ_fluxoid = {fluxoid_around_hole:.3f} Φ₀")
     print("  (Should be ≈ integer Φ₀)")
-    
+
     print("\nFilm vortices (approximate):")
     print(f"  n_film ≈ n_total - n_hole ≈ {n_vort} vortices")
     print("  (Boundary vortices counted in film)")
     print(f"{'='*70}\n")
-    
+
     # ── Diagnostics: verify plot data correctness ─────────────────────
     p = solution.params
     sc_mask_3d = device.material.interior_sc_mask.reshape(
@@ -1068,7 +1070,7 @@ def main() -> None:
     plot_slices(solution, device)
     plot_xy_overview(solution, device)
     plot_isometric(solution, device)
-    
+
     # ── Current density visualization ──────────────────────────────────
     from tdgl3d.visualization.plotting import plot_current_density
     fig_current, _ = plot_current_density(

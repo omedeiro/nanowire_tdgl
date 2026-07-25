@@ -17,11 +17,11 @@ def eval_bfield_full(
     idx: GridIndices,
 ) -> tuple[NDArray, NDArray, NDArray]:
     """Compute B = curl(A) at ALL interior nodes using full-grid link variables.
-    
+
     This function computes the magnetic field at all interior nodes (including
     holes/insulators) by using full-grid arrays that include boundary ghost nodes.
     This allows the curl stencil to access neighbors safely.
-    
+
     Parameters
     ----------
     phi_x_full : ndarray, shape (n_full,)
@@ -32,18 +32,18 @@ def eval_bfield_full(
         z-component of link variables on full grid (zeros for 2D)
     params : SimulationParameters
     idx : GridIndices
-        
+
     Returns
     -------
     Bx, By, Bz : ndarray, each shape (n_interior,)
         Magnetic field at ALL interior nodes (including holes).
-        
+
     Notes
     -----
     This function enables B-field visualization in holes by computing curl
     everywhere. The input arrays must be full-grid (not interior-only) so
     that boundary neighbors exist for the curl stencil.
-    
+
     For typical use, call this after expanding interior state to full grid
     and applying boundary conditions. See examples/sis_square_with_hole.py.
     """
@@ -51,14 +51,14 @@ def eval_bfield_full(
     m = idx.interior_to_full
     mj = params.mj  # Full-grid stride in j direction
     mk = params.mk  # Full-grid stride in k direction
-    
+
     if params.is_3d:
         # B = ∇×A using finite differences on full grid
         # Bx = ∂Az/∂y - ∂Ay/∂z
         Bx = (1.0 / (params.hy * params.hz)) * (
             phi_y_full[m] - phi_y_full[m + mk] - phi_z_full[m] + phi_z_full[m + mj]
         )
-        # By = ∂Ax/∂z - ∂Az/∂x  
+        # By = ∂Ax/∂z - ∂Az/∂x
         By = (1.0 / (params.hz * params.hx)) * (
             phi_z_full[m] - phi_z_full[m + 1] - phi_x_full[m] + phi_x_full[m + mk]
         )
@@ -74,7 +74,7 @@ def eval_bfield_full(
         Bz = (1.0 / (params.hx * params.hy)) * (
             phi_x_full[m] - phi_x_full[m + mj] - phi_y_full[m] + phi_y_full[m + 1]
         )
-        
+
     return np.real(Bx), np.real(By), np.real(Bz)
 
 
@@ -102,7 +102,7 @@ def eval_bfield(
         Discrete curl of the link variables.
         If full_interior=False: shape (len(bfield_interior),)
         If full_interior=True: shape (n_interior,)
-        
+
     Notes
     -----
     The curl stencil B = ∇×A requires accessing neighboring link variables.
@@ -110,7 +110,7 @@ def eval_bfield(
       one layer inward from the interior boundary to avoid out-of-bounds access.
     - When full_interior=True, we compute at ALL interior nodes but this requires
       that state_data comes from a full-grid expansion with boundary conditions applied.
-      
+
     To visualize B-field in holes, use full_interior=True with a state expanded to
     the full grid (see examples/sis_square_with_hole.py:_compute_bz_full_3d).
     """

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tdgl3d
-from tdgl3d.analysis import count_vortices_plaquette, count_hole_flux_quanta
+from tdgl3d.analysis import count_hole_flux_quanta, count_vortices_plaquette
 
 # Quick test parameters
 params = tdgl3d.SimulationParameters(

@@ -7,11 +7,11 @@ from typing import Optional
 
 import numpy as np
 
-from .parameters import SimulationParameters
-from .state import StateVector
-from .material import MaterialMap, Trilayer, build_material_map
 from ..mesh.indices import GridIndices, construct_indices
 from ..physics.applied_field import AppliedField
+from .material import MaterialMap, Trilayer, build_material_map
+from .parameters import SimulationParameters
+from .state import StateVector
 
 
 @dataclass
@@ -66,53 +66,54 @@ class Device:
         init_phi_to_gauge : bool, default False
             If True, initialize φ fields to symmetric gauge A = B × r / 2.
             If False, initialize φ = 0 and let boundary conditions build up the field.
-            
+
             NOTE: The existing boundary conditions are designed for φ=0 initialization.
             Setting init_phi_to_gauge=True will cause φ fields to grow unbounded due to
             incompatibility between symmetric gauge and the BC implementation.
 
         If a trilayer is present, ψ is set to 0 in the insulator layer.
-        
+
         Returns
         -------
         StateVector
             Initial state with |ψ|=1 in SC regions, φ fields either zero or gauge-initialized.
         """
         sv = StateVector.uniform_superconducting(self.params)
-        
+
         # Optionally set φ fields to match applied vector potential (symmetric gauge)
         # For uniform field B = (Bx, By, Bz), use A = B × r / 2:
         #   A_x = (By·z - Bz·y) / 2
-        #   A_y = (Bz·x - Bx·z) / 2  
+        #   A_y = (Bz·x - Bx·z) / 2
         #   A_z = (Bx·y - By·x) / 2
-        
-        if init_phi_to_gauge and hasattr(self.applied_field, 'Bx') and hasattr(self.applied_field, 'By') and hasattr(self.applied_field, 'Bz'):
+
+        has_b = all(hasattr(self.applied_field, a) for a in ('Bx', 'By', 'Bz'))
+        if init_phi_to_gauge and has_b:
             Bx = self.applied_field.Bx
             By = self.applied_field.By
             Bz = self.applied_field.Bz
-            
+
             # Create coordinate grids for interior nodes
             # Interior indices: i in [1, Nx-1], j in [1, Ny-1], k in [1, Nz-1] (for Nz>1)
             # Physical coordinates: x = i*hx, y = j*hy, z = k*hz
             import numpy as np
-            
+
             Nx, Ny, Nz = self.params.Nx, self.params.Ny, self.params.Nz
             hx, hy, hz = self.params.hx, self.params.hy, self.params.hz
-            
+
             # Interior node indices
             i_int = np.arange(1, Nx, dtype=np.float64)  # 1 to Nx-1
             j_int = np.arange(1, Ny, dtype=np.float64)  # 1 to Ny-1
-            
+
             if self.params.is_3d:
                 k_int = np.arange(1, Nz, dtype=np.float64)  # 1 to Nz-1
                 # Create 3D meshgrid (indexing='ij' so shapes match interior grid layout)
                 ii, jj, kk = np.meshgrid(i_int, j_int, k_int, indexing='ij')
-                
+
                 # Physical coordinates
                 x = ii * hx
                 y = jj * hy
                 z = kk * hz
-                
+
                 # Symmetric gauge: A = B × r / 2
                 sv.phi_x[:] = (By * z - Bz * y) / 2.0
                 sv.phi_y[:] = (Bz * x - Bx * z) / 2.0
@@ -120,19 +121,19 @@ class Device:
             else:
                 # 2D case (Nz=1): z=0, so terms with z vanish
                 ii, jj = np.meshgrid(i_int, j_int, indexing='ij')
-                
+
                 # Physical coordinates
                 x = ii * hx
                 y = jj * hy
-                
+
                 # Symmetric gauge in 2D: A_x = -Bz·y/2, A_y = Bz·x/2
                 sv.phi_x[:] = (-Bz * y / 2.0).ravel()
                 sv.phi_y[:] = (Bz * x / 2.0).ravel()
-        
+
         # Kill ψ in non-SC regions (holes, insulators)
         if self._material is not None:
             sv.psi[:] *= self._material.interior_sc_mask
-            
+
         return sv
 
     def rebuild_indices(self) -> None:
@@ -166,17 +167,17 @@ class Device:
         Notes
         -----
         **Physics: Holes vs Insulators**
-        
+
         - **Holes** are geometric voids completely removed from the simulation.
           Zero-current boundary condition φ = 0 is enforced at all hole edges.
           Vortices CANNOT form inside holes (no superconductor = no phase winding).
-          
+
         - **Insulators** (e.g., S/I/S layers) are part of the simulation domain
           with suppressed order parameter but no special BCs on φ.
           Use `Trilayer` for insulator layers, not this method.
-        
+
         **Implementation details:**
-        
+
         - Can be called multiple times to add multiple holes
         - Holes must be added **before** calling solve()
         - Zero-current BCs are enforced at hole boundaries automatically during

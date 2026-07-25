@@ -6,12 +6,12 @@ import os
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")  # non-interactive backend for CI / headless runs
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-
 import tdgl3d
 from tdgl3d.core.solution import Solution
 from tdgl3d.visualization.plotting import (
@@ -21,7 +21,6 @@ from tdgl3d.visualization.plotting import (
     plot_order_parameter,
     plot_summary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures

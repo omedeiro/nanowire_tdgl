@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from .convergence import check_steady_state, compute_convergence_metrics
 from .vortex_counting import (
+    count_hole_flux_quanta,
     count_vortices_plaquette,
     count_vortices_polygon,
-    count_hole_flux_quanta,
     find_vortex_cores,
 )
 

@@ -4,19 +4,17 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from tdgl3d import (
+    AppliedField,
     Device,
     Layer,
     MaterialMap,
     SimulationParameters,
     Trilayer,
-    AppliedField,
     solve,
 )
 from tdgl3d.core.material import build_material_map
 from tdgl3d.mesh.indices import construct_indices
-
 
 # ────────────────────────────────────────────────────────────
 # Fixtures

@@ -5,11 +5,13 @@ Runs a short Forward-Euler simulation and produces a summary PNG with
 """
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import numpy as np
 import tdgl3d
 from tdgl3d.visualization.plotting import plot_summary
+
 
 def main():
     # ── Parameters ──────────────────────────────────────────────────────

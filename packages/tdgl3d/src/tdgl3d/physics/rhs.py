@@ -12,8 +12,8 @@ import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 
-from ..core.parameters import SimulationParameters
 from ..core.material import MaterialMap
+from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
 from ..operators.sparse_operators import (
     construct_FPHI_x,
@@ -119,9 +119,13 @@ def _apply_boundary_conditions(
             y3[idx.z_face_lo_inner] += y300[idx.z_last_inner]
             y3[idx.z_face_hi_inner] += y300[idx.z_first_inner]
         else:
-            x[idx.z_face_lo_inner] += x00[idx.z_first_inner] * np.exp(-1j * y300[idx.z_face_lo_inner])
+            x[idx.z_face_lo_inner] += x00[idx.z_first_inner] * np.exp(
+                -1j * y300[idx.z_face_lo_inner]
+            )
             x[idx.z_face_hi_inner] += x00[idx.z_last_inner] * np.exp(1j * y300[idx.z_last_inner])
-            y1[idx.z_face_lo_inner] += -u.By[idx.z_face_lo_inner] * hz * hx + y100[idx.z_first_inner]
+            y1[idx.z_face_lo_inner] += (
+                -u.By[idx.z_face_lo_inner] * hz * hx + y100[idx.z_first_inner]
+            )
             y1[idx.z_face_hi_inner] += u.By[idx.z_face_hi_inner] * hz * hx + y100[idx.z_last_inner]
             y2[idx.z_face_lo_inner] += u.Bx[idx.z_face_lo_inner] * hy * hz + y200[idx.z_first_inner]
             y2[idx.z_face_hi_inner] += -u.Bx[idx.z_face_hi_inner] * hy * hz + y200[idx.z_last_inner]
@@ -134,7 +138,7 @@ def _apply_boundary_conditions(
     #   forcing ∮∇φ·dl = 0 (no phase winding around hole)
     # - For flux quantization, we need φ free to vary around hole boundary
     # - The zero-current BC (J_n = 0) emerges naturally from ψ=0, not from φ=0
-    # 
+    #
     # This is fundamentally different from external simulation boundaries, where
     # φ=0 is needed to prevent numerical artifacts at infinity.
 
@@ -225,7 +229,7 @@ def eval_f(
     dPhidtX = (LPHIY_int + LPHIZ_int) @ y1 + FPHIX
     dPhidtY = (LPHIX_int + LPHIZ_int) @ y2 + FPHIY
     dPhidtZ = (LPHIX_int + LPHIY_int) @ y3 + FPHIZ
-    
+
     # NOTE: We do NOT enforce dφ/dt=0 on hole boundaries.
     # Physical reasoning (same as in _apply_boundary_conditions):
     # - The ψ=0 material mask inside holes naturally prevents current flow

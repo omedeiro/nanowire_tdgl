@@ -4,8 +4,10 @@ Compares the Python vectorised index construction against the MATLAB triple-loop
 logic (re-implemented here in Python for cross-validation).
 """
 
-import numpy as np
 import sys
+
+import numpy as np
+
 sys.path.insert(0, "src")
 
 from tdgl3d.core.parameters import SimulationParameters
@@ -276,16 +278,16 @@ def verify_indices(Nx, Ny, Nz):
     # i_1 = Ny means the i-index = Ny (1-based).
     # When Nx=Ny, i_1 = Ny = Nx, which is i_0 = Nx-1 (0-based).
     # But for general Nx≠Ny: i_1 = Ny... that's wrong for a general case.
-    # 
+    #
     # Wait, that's a BUG in the MATLAB code — or rather, it's only used
     # when Nx = Ny (square grid). Let me look again...
     # Actually the MATLAB line is: p.mNx(h_x) = Ny + ...
     # But Ny here is Matlab variable p.Ny, which is the Ny parameter.
     # The x index is supposed to be i_1 = Nx (1-based) = Nx-1 (0-based).
-    # But the code writes Ny, not Nx! 
+    # But the code writes Ny, not Nx!
     # This means p.mNx actually stores indices at i_1 = Ny (1-based).
     #
-    # If Nx != Ny, this is wrong. For Nx=Ny it works. 
+    # If Nx != Ny, this is wrong. For Nx=Ny it works.
     # This is a bug in the MATLAB code that only works for square grids.
 
     print("\n  Normal BC masks:")

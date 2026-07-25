@@ -20,7 +20,7 @@ from tdgl3d.core.parameters import SimulationParameters
 @dataclass
 class RunMetadata:
     """Complete metadata for a simulation run.
-    
+
     Attributes:
         timestamp: ISO 8601 timestamp when run started
         wall_time_seconds: Total wall-clock time for simulation
@@ -57,23 +57,23 @@ class RunMetadata:
 
     def save_json(self, filepath: str | Path) -> None:
         """Save metadata to JSON file.
-        
+
         Args:
             filepath: Path to output JSON file
         """
         filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(filepath, 'w') as f:
             json.dump(self.to_dict(), f, indent=2, default=_json_serializer)
-    
+
     @classmethod
     def load_json(cls, filepath: str | Path) -> RunMetadata:
         """Load metadata from JSON file.
-        
+
         Args:
             filepath: Path to JSON file
-            
+
         Returns:
             Reconstructed metadata object
         """
@@ -93,7 +93,7 @@ def _json_serializer(obj: Any) -> Any:
 
 def _get_git_commit() -> Optional[str]:
     """Get current git commit hash if in a git repo.
-    
+
     Returns:
         Commit hash as hex string, or None if not in git repo
     """
@@ -125,7 +125,7 @@ def create_run_metadata(
     **extra_metrics: Any
 ) -> RunMetadata:
     """Create run metadata from simulation configuration.
-    
+
     Args:
         params: Simulation parameters
         device: Device configuration
@@ -136,7 +136,7 @@ def create_run_metadata(
         atol: Absolute tolerance (for adaptive methods)
         rtol: Relative tolerance (for adaptive methods)
         **extra_metrics: Additional performance metrics to record
-    
+
     Returns:
         Complete metadata object
     """
@@ -148,7 +148,7 @@ def create_run_metadata(
         'machine': platform.machine(),
         'processor': platform.processor(),
     }
-    
+
     # Simulation parameters
     params_dict = {
         'Nx': params.Nx,
@@ -162,12 +162,12 @@ def create_run_metadata(
         'periodic_y': params.periodic_y,
         'periodic_z': params.periodic_z,
     }
-    
+
     # Device configuration
     device_config = {
         'has_trilayer': device.trilayer is not None,
     }
-    
+
     if device.trilayer is not None:
         device_config['trilayer'] = {
             'top_thickness': device.trilayer.top.thickness_z,
@@ -176,7 +176,7 @@ def create_run_metadata(
             'bottom_thickness': device.trilayer.bottom.thickness_z,
             'bottom_kappa': device.trilayer.bottom.kappa,
         }
-    
+
     # Applied field info
     if device.applied_field is not None:
         field = device.applied_field
@@ -195,19 +195,19 @@ def create_run_metadata(
                 'Bz': field.Bz,
                 'B_initial': B_initial,
             }
-    
+
     # Solver configuration
     solver_config = {
         'method': method,
         'dt_initial': dt,
         't_final': t_final,
     }
-    
+
     if atol is not None:
         solver_config['atol'] = atol
     if rtol is not None:
         solver_config['rtol'] = rtol
-    
+
     # Performance metrics
     performance_metrics = {
         'wall_time_per_timestep_avg': extra_metrics.get('wall_time_per_step'),
@@ -217,9 +217,9 @@ def create_run_metadata(
     }
     # Remove None values
     performance_metrics = {k: v for k, v in performance_metrics.items() if v is not None}
-    performance_metrics.update({k: v for k, v in extra_metrics.items() 
+    performance_metrics.update({k: v for k, v in extra_metrics.items()
                                if k not in performance_metrics})
-    
+
     return RunMetadata(
         timestamp=datetime.now().isoformat(),
         wall_time_seconds=wall_time,
@@ -239,35 +239,35 @@ def setup_file_logger(
     level: int = logging.INFO
 ) -> tuple[logging.Logger, Path]:
     """Set up file-based logger for a simulation run.
-    
+
     Args:
         log_dir: Directory for log files
         log_name: Log file name (auto-generated if None)
         level: Logging level
-    
+
     Returns:
         Tuple of (logger instance, log file path)
     """
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     if log_name is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_name = f"tdgl_run_{timestamp}.log"
-    
+
     log_path = log_dir / log_name
-    
+
     # Create logger
     logger = logging.getLogger(f"tdgl3d.run.{log_name}")
     logger.setLevel(level)
-    
+
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
-    
+
     # File handler
     fh = logging.FileHandler(log_path)
     fh.setLevel(level)
-    
+
     # Formatter
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -275,32 +275,32 @@ def setup_file_logger(
     )
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-    
+
     return logger, log_path
 
 
 class TimingContext:
     """Context manager for timing code blocks.
-    
+
     Example:
         >>> with TimingContext() as timer:
         ...     # do work
         ...     pass
         >>> print(f"Elapsed: {timer.elapsed:.3f} seconds")
     """
-    
+
     def __init__(self):
         self.start_time: Optional[float] = None
         self.end_time: Optional[float] = None
-    
+
     def __enter__(self) -> TimingContext:
         self.start_time = time.perf_counter()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.end_time = time.perf_counter()
         return False  # Don't suppress exceptions
-    
+
     @property
     def elapsed(self) -> float:
         """Get elapsed time in seconds."""
