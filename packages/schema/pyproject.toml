@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tdgl3d-schema"
-version = "0.1.0"
+version = "0.2.0"
 description = "Project Object Model (POM) schemas for the tdgl3d platform"
 readme = "README.md"
 license = {text = "MIT"}
