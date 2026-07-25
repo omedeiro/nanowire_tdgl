@@ -28,7 +28,10 @@ htmlcov/
 coverage.xml
 
 # Output artifacts
-# *.gif
+*.gif
+*.mp4
+artifacts/
+flux_figures/
 *.mat
 *.h5
 *.hdf5
@@ -37,4 +40,10 @@ coverage.xml
 *.log
 logs/
 run_metadata/
-*.json
+run-*.json
+
+# Node / frontend (future apps)
+node_modules/
+.next/
+.turbo/
+.wrangler/
