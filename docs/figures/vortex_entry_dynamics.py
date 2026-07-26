@@ -30,13 +30,13 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         save_every = 5
         step_stride = 5
     else:
-        Nx, Ny, Nz = 100, 100, 1
-        t_stop = 500.0
+        Nx, Ny, Nz = 25, 25, 1
+        t_stop = 1000.0
         save_every = 20
         step_stride = 40
 
-    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=4.0)
-    Bz_applied = 0.5
+    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=1.0)
+    Bz_applied = 1.0
     device = Device(params, applied_field=AppliedField(Bz=Bz_applied, t_on_fraction=1.0))
 
     sol = solve(
