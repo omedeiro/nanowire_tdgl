@@ -163,10 +163,6 @@ def test_current_in_hole():
     # Run simulation
     dt = 0.01
     x0 = device.initial_state()
-    # Add small noise only in SC regions
-    rng = np.random.default_rng(42)
-    noise = 0.01 * (rng.standard_normal(params.n_interior) + 1j * rng.standard_normal(params.n_interior))
-    x0.psi[:] += noise * device.material.interior_sc_mask
 
     solution = tdgl3d.solve(
         device,

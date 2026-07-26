@@ -29,13 +29,13 @@ from tdgl3d.visualization.plotting import plot_current_density
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
-        Nx, Ny = 10, 10
+        Nx, Ny = 20, 20
         t_stop = 1.0
-        hole_lo, hole_hi = 4, 6
+        hole_lo, hole_hi = 8, 12
     else:
-        Nx, Ny = 40, 40
+        Nx, Ny = 60, 60
         t_stop = 30.0
-        hole_lo, hole_hi = 15, 25
+        hole_lo, hole_hi = 22, 38
 
     params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=1, kappa=2.0)
 
@@ -101,20 +101,45 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     axes[0].grid(True, alpha=0.3)
 
     axes[1].plot(times_arr, flux_hole_list, "o-", color="C1", markersize=2)
+    # Expected: flux quantized to integer multiples of Φ₀
+    axes[1].axhline(1.0, color="gray", ls=":", alpha=0.5, label="n = 1 Φ₀")
+    axes[1].axhline(2.0, color="gray", ls=":", alpha=0.3, label="n = 2 Φ₀")
     axes[1].set_xlabel("t")
     axes[1].set_ylabel("Flux / Φ₀")
     axes[1].set_title("Flux through hole")
+    axes[1].legend(fontsize=7)
     axes[1].grid(True, alpha=0.3)
 
     # Bz at a point in the hole vs SC
     Bx, By, Bz = sol.bfield(step=-1, full_interior=True)
-    Bz_2d = Bz.reshape(Nx - 1, Ny - 1)
+    Bz_2d = np.real(Bz.reshape(Nx - 1, Ny - 1))
     mid = (Nx - 1) // 2
     axes[2].plot(Bz_2d[mid, :], "o-", color="C2", markersize=2)
+    # Mark hole region
+    axes[2].axvspan(hole_lo, hole_hi, alpha=0.15, color="red", label="Hole")
     axes[2].set_xlabel("x index")
     axes[2].set_ylabel("Bz")
     axes[2].set_title("Bz cross-section at y-mid")
+    axes[2].legend(fontsize=7)
     axes[2].grid(True, alpha=0.3)
+
+    # Flux quantization error annotation
+    final_flux = flux_hole_list[-1] if flux_hole_list else 0
+    nearest_int = round(final_flux)
+    flux_error = abs(final_flux - nearest_int)
+    n_v_final = n_vort_list[-1] if n_vort_list else 0
+    text = (
+        f"Final flux:   {final_flux:.3f} Φ₀\n"
+        f"Nearest int:  {nearest_int}\n"
+        f"Quant. error: {flux_error:.4f}\n"
+        f"Final vort:   {n_v_final}"
+    )
+    axes[1].text(
+        0.97, 0.03, text, transform=axes[1].transAxes,
+        fontsize=8, fontfamily="monospace",
+        verticalalignment="bottom", horizontalalignment="right",
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="gray", alpha=0.9),
+    )
 
     fig.suptitle("Hole BC Verification — Time Evolution", fontsize=14, y=1.02)
     fig.tight_layout()
@@ -163,10 +188,13 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     mid_y = (Ny - 1) // 2
     ax.plot(xs, psi2[:, mid_y], "o-", color="C0", markersize=2, label="|ψ|² at y-mid")
     ax.axvspan(hole_lo, hole_hi, alpha=0.2, color="red", label="Hole region")
+    # Expected: |ψ|² → 0 inside hole, |ψ|² → 1 outside
+    ax.axhline(0.0, color="gray", ls=":", alpha=0.3, label="Expected in hole: 0")
+    ax.axhline(1.0, color="gray", ls=":", alpha=0.3, label="Expected in SC: 1")
     ax.set_xlabel("x (ξ)")
     ax.set_ylabel("|ψ|²")
     ax.set_title("Cross-section through hole center")
-    ax.legend()
+    ax.legend(fontsize=7)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     p = output_dir / "hole_bc_verification_crosssection.png"

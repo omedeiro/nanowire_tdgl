@@ -258,7 +258,7 @@ def test_hole_bc_enforced_during_simulation():
     device.add_hole(hole)
 
     # Initial state
-    x0 = device.initial_state()
+    x0 = device.initial_state(noise_amplitude=0.0)
 
     # Run short simulation
     solution = solve(

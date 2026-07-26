@@ -12,20 +12,28 @@ from typing import Any, Optional
 
 import pytest
 
+_SANITIZED_REPLACEMENTS = str.maketrans({"/": "_", "[": "_", "]": "_"})
+
+
+def _sanitize_test_name(name: str) -> str:
+    """Turn a test name into a safe filename component."""
+    return name.translate(_SANITIZED_REPLACEMENTS)
+
 
 class PhysicsTestLogger:
-    """Logs physics test results with diagnostics to a JSON runlog.
+    """Logs physics test results with diagnostics to per-test JSON files.
 
     Each test gets a context manager that captures:
     - test name, parameters, status, duration
     - arbitrary diagnostic key-value pairs logged during the test
     - error message and traceback on failure
 
-    Output: logs/physics_test_runlog.json
+    Each completed test is immediately persisted to:
+        logs/test_<sanitized_name>.json
     """
 
-    def __init__(self, log_path: str | Path):
-        self.log_path = Path(log_path)
+    def __init__(self, log_dir: str | Path):
+        self.log_dir = Path(log_dir)
         self.results: list[dict[str, Any]] = []
 
     @contextmanager
@@ -61,24 +69,27 @@ class PhysicsTestLogger:
         finally:
             entry["duration_s"] = round(time.perf_counter() - start, 4)
             self.results.append(entry)
+            self._write_entry(entry)
+
+    def _write_entry(self, entry: dict[str, Any]) -> None:
+        """Persist a single test result to its own JSON file."""
+        safe_name = _sanitize_test_name(entry["test_name"])
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        path = self.log_dir / f"test_{safe_name}.json"
+        with open(path, "w") as f:
+            json.dump(entry, f, indent=2, default=str)
 
     def save(self) -> None:
-        """Write runlog JSON to disk."""
-        summary = {
-            "run_timestamp": datetime.now().isoformat(),
-            "total": len(self.results),
-            "passed": sum(1 for r in self.results if r["status"] == "passed"),
-            "failed": sum(1 for r in self.results if r["status"] == "failed"),
-            "results": self.results,
-        }
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_path, "w") as f:
-            json.dump(summary, f, indent=2, default=str)
+        """No-op — entries are written individually in test()."""
+        pass
 
 
 @pytest.fixture(scope="session")
 def phys_log():
-    """Session-scoped fixture that yields a PhysicsTestLogger and saves on teardown."""
-    log = PhysicsTestLogger(Path("logs") / "physics_test_runlog.json")
+    """Session-scoped fixture that yields a PhysicsTestLogger.
+
+    Each test result is written immediately to logs/test_<name>.json.
+    """
+    log = PhysicsTestLogger(Path("logs"))
     yield log
     log.save()

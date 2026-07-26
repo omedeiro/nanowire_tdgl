@@ -58,8 +58,13 @@ class Device:
     def material(self) -> Optional[MaterialMap]:
         return self._material
 
-    def initial_state(self, init_phi_to_gauge: bool = False) -> StateVector:
-        """Return a uniform-superconducting initial state with optional φ field initialization.
+    def initial_state(
+        self,
+        init_phi_to_gauge: bool = False,
+        noise_amplitude: float = 0.01,
+        seed: int | None = None,
+    ) -> StateVector:
+        """Return a uniform-superconducting initial state with optional noise and φ initialization.
 
         Parameters
         ----------
@@ -71,12 +76,22 @@ class Device:
             Setting init_phi_to_gauge=True will cause φ fields to grow unbounded due to
             incompatibility between symmetric gauge and the BC implementation.
 
+        noise_amplitude : float, default 0.01
+            Amplitude of complex Gaussian noise added to ψ in superconducting regions.
+            Set to 0.0 for a perfectly uniform state (preserves spatial symmetries).
+            The noise is scaled as ``noise_amplitude * (randn + 1j * randn)``, so the
+            default 0.01 gives ~1% perturbation to the order parameter.
+
+        seed : int, optional
+            Random seed for reproducibility.  If None, uses a non-deterministic RNG.
+
         If a trilayer is present, ψ is set to 0 in the insulator layer.
 
         Returns
         -------
         StateVector
-            Initial state with |ψ|=1 in SC regions, φ fields either zero or gauge-initialized.
+            Initial state with |ψ|≈1 in SC regions and small random perturbation
+            to break spatial symmetries.
         """
         sv = StateVector.uniform_superconducting(self.params)
 
@@ -95,7 +110,6 @@ class Device:
             # Create coordinate grids for interior nodes
             # Interior indices: i in [1, Nx-1], j in [1, Ny-1], k in [1, Nz-1] (for Nz>1)
             # Physical coordinates: x = i*hx, y = j*hy, z = k*hz
-            import numpy as np
 
             Nx, Ny, Nz = self.params.Nx, self.params.Ny, self.params.Nz
             hx, hy, hz = self.params.hx, self.params.hy, self.params.hz
@@ -133,6 +147,17 @@ class Device:
         # Kill ψ in non-SC regions (holes, insulators)
         if self._material is not None:
             sv.psi[:] *= self._material.interior_sc_mask
+
+        # Add symmetry-breaking noise to ψ in SC regions
+        if noise_amplitude > 0:
+            rng = np.random.default_rng(seed)
+            noise = noise_amplitude * (
+                rng.standard_normal(self.params.n_interior)
+                + 1j * rng.standard_normal(self.params.n_interior)
+            )
+            if self._material is not None:
+                noise *= self._material.interior_sc_mask
+            sv.psi[:] += noise
 
         return sv
 

@@ -47,10 +47,6 @@ def test_hole_bc_smoke_fast():
 
     # Initial state with noise
     x0 = device.initial_state()
-    rng = np.random.default_rng(42)
-    noise = 0.01 * (rng.standard_normal(params.n_interior)
-                   + 1j * rng.standard_normal(params.n_interior))
-    x0.psi[:] += noise * device.material.interior_sc_mask
 
     # Quick simulation (20 steps ≈ 0.5 seconds on laptop)
     solution = solve(
