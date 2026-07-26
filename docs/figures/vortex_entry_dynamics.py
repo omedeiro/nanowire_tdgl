@@ -36,7 +36,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         step_stride = 100
 
     params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=1.0)
-    Bz_applied = 0.01
+    Bz_applied = 0.2
     device = Device(params, applied_field=AppliedField(Bz=Bz_applied, t_on_fraction=1.0))
 
     sol = solve(
