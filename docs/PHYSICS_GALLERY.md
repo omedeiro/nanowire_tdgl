@@ -252,3 +252,27 @@ and are included for debugging purposes.
 2. Current density: streamlines diverted around hole
 3. Order parameter: |ψ|² with hole outline
 4. Cross-section: 1D |ψ|² slice through hole center
+
+---
+
+## 11. Vortex Entry Dynamics (Animation)
+
+![Vortex entry dynamics](figures/vortex_entry_dynamics.gif)
+
+**Physical mechanism:** When the applied field Bz exceeds the lower critical field
+H_c1, magnetic flux penetrates the superconductor as quantized Abrikosov vortices.
+Each vortex carries one flux quantum Φ₀ = h/(2e) and has a phase winding of ±2π.
+Vortices nucleate at the boundary, migrate inward, and eventually reach a
+steady-state lattice configuration.
+
+**Validates:** `test_physics_validation.py::test_vortex_entry_dynamics`
+
+**Parameters:** 100×100×1 grid, κ=2.0, Bz=0.5, t=200 (Forward Euler)
+
+**Key features (animated GIF):**
+- Top-left: |ψ|² heatmap with vortex core markers (cyan ×)
+- Top-right: arg(ψ) phase heatmap showing ±2π winding around each vortex
+- Bottom: Vortex count vs time with red vertical marker tracking the current frame
+
+**Validation metrics:** Count starts at 0, grows, saturates; first vortex before t=100;
+final count ≥ 15% of expected B·A/Φ₀; steady-state fluctuation < 50%

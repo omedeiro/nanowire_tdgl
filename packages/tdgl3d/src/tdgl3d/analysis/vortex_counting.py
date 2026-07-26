@@ -18,7 +18,7 @@ def count_vortices_plaquette(
     slice_z: int = 0,
     step: int = -1,
     winding_threshold: float = 0.8,
-    mask_threshold: float = 0.02,
+    mask_threshold: float = 1e-6,
 ) -> tuple[int, NDArray[np.float64], NDArray[np.float64]]:
     """Count vortices using phase winding around elementary plaquettes.
 
@@ -40,7 +40,7 @@ def count_vortices_plaquette(
         Which saved time step to analyze
     winding_threshold : float, default 0.8
         Detect vortex if |winding_number| > threshold (1.0 = full 2π winding)
-    mask_threshold : float, default 0.02
+    mask_threshold : float, default 1e-6
         Ignore plaquettes where any corner has |ψ|² < threshold (insulator/hole)
 
     Returns

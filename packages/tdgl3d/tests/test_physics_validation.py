@@ -806,3 +806,95 @@ def test_vortex_entry_and_counting(phys_log):
             assert np.all(np.abs(np.abs(windings) - 1.0) < 0.3), (
                 f"Winding numbers not ≈ ±1: {windings}"
             )
+
+
+def test_vortex_entry_dynamics(phys_log):
+    """Vortex nucleation dynamics: count starts at 0, grows, saturates."""
+    from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
+
+    params = SimulationParameters(Nx=20, Ny=20, Nz=1, kappa=2.0)
+    device = Device(params, applied_field=AppliedField(Bz=0.5, t_on_fraction=1.0))
+
+    with phys_log.test("test_vortex_entry_dynamics", {"Nx": 20, "kappa": 2.0, "Bz": 0.5}) as log:
+        sol = solve(
+            device, t_start=0.0, t_stop=60.0, dt=0.01, method="euler",
+            save_every=10, progress=False, log_metadata=False,
+        )
+
+        # Sample vortex count at regular intervals
+        sample_stride = 50
+        sample_steps = list(range(0, sol.n_steps, sample_stride))
+        if sample_steps[-1] != sol.n_steps - 1:
+            sample_steps.append(sol.n_steps - 1)
+
+        times = []
+        counts = []
+        for step in sample_steps:
+            n_v, _, _ = count_vortices_plaquette(sol, device, slice_z=0, step=step)
+            times.append(float(sol.times[step]))
+            counts.append(n_v)
+
+        times = np.array(times)
+        counts = np.array(counts, dtype=int)
+
+        log["times"] = times.tolist()
+        log["vortex_counts"] = counts.tolist()
+        log["n_sampled"] = len(sample_steps)
+
+        # --- Assertions ---
+
+        # 1. Initial count is 0
+        assert counts[0] == 0, f"Initial vortex count should be 0, got {counts[0]}"
+
+        # 2. Final count > 0 (vortices entered)
+        assert counts[-1] > 0, "No vortices entered by end of simulation"
+
+        # 3. Count increases from 0 to a positive value (vortices enter)
+        #    Allow small fluctuations — vortices can merge or annihilate
+        peak_count = int(np.max(counts))
+        log["peak_count"] = peak_count
+        assert peak_count > 0, "Vortex count never increased from 0"
+        assert counts[-1] > 0, "Vortex count dropped to 0 by end"
+
+        # 4. Time to first vortex < halfway
+        t_first = None
+        for i, c in enumerate(counts):
+            if c > 0:
+                t_first = times[i]
+                break
+        assert t_first is not None, "Vortex never appeared"
+        t_stop = 60.0
+        assert t_first < t_stop * 0.5, (
+            f"First vortex at t={t_first:.2f}, expected before {t_stop * 0.5:.2f}"
+        )
+        log["t_first_vortex"] = t_first
+
+        # 5. Saturation: last 20% of sampled steps have low relative fluctuation
+        n_tail = max(2, len(counts) // 5)
+        tail = counts[-n_tail:]
+        tail_mean = float(np.mean(tail))
+        tail_std = float(np.std(tail))
+        saturation_ratio = tail_std / max(tail_mean, 1.0)
+        log["saturation_mean"] = tail_mean
+        log["saturation_std"] = tail_std
+        log["saturation_ratio"] = saturation_ratio
+        assert saturation_ratio < 0.5, (
+            f"Count not saturated: last {n_tail} steps have "
+            f"mean={tail_mean:.1f}, std={tail_std:.1f}, ratio={saturation_ratio:.2f}"
+        )
+
+        # 6. Final count vs expected B·A/Φ₀
+        Bz_applied = 0.5
+        expected = float(Bz_applied * (params.Nx * params.hx) * (params.Ny * params.hy) / (2 * np.pi))
+        log["expected_approx"] = expected
+        log["final_count"] = int(counts[-1])
+
+        min_expected = int(0.15 * expected)
+        assert counts[-1] >= min_expected, (
+            f"Final count {counts[-1]} below 15% of expected {expected:.0f} (min {min_expected})"
+        )
+
+        # 7. Entry rate (logged, no hard assert)
+        if t_first < t_stop:
+            rate = float(counts[-1]) / (t_stop - t_first)
+            log["entry_rate"] = rate
