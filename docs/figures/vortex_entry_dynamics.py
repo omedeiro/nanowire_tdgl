@@ -35,8 +35,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         save_every = 20
         step_stride = 40
 
-    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=2.0)
-    Bz_applied = 0.5
+    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=1.0)
+    Bz_applied = 1.0
     device = Device(params, applied_field=AppliedField(Bz=Bz_applied, t_on_fraction=1.0))
 
     sol = solve(
