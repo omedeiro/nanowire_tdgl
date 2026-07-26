@@ -814,7 +814,7 @@ def test_vortex_entry_dynamics(phys_log):
     from tdgl3d.analysis.convergence import compute_convergence_metrics
     from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 
-    params = SimulationParameters(Nx=20, Ny=20, Nz=1, kappa=1.0)
+    params = SimulationParameters(Nx=60, Ny=60, Nz=1, kappa=1.0)
     device = Device(params, applied_field=AppliedField(Bz=1.0, t_on_fraction=1.0))
 
     with phys_log.test("test_vortex_entry_dynamics", {"Nx": 20, "kappa": 1.0, "Bz": 1.0}) as log:

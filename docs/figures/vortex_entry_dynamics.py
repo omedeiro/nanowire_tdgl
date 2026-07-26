@@ -30,10 +30,10 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         save_every = 5
         step_stride = 5
     else:
-        Nx, Ny, Nz = 25, 25, 1
-        t_stop = 1000.0
-        save_every = 20
-        step_stride = 40
+        Nx, Ny, Nz = 75, 75, 1
+        t_stop = 500.0
+        save_every = 50
+        step_stride = 100
 
     params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=1.0)
     Bz_applied = 1.0
@@ -63,7 +63,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     psi2_rel_changes = np.full(n_steps, np.nan)
     current_rel_changes = np.full(n_steps, np.nan)
 
-    for step in range(window_size, n_steps):
+    conv_stride = 5
+    for step in range(window_size, n_steps, conv_stride):
         metrics = compute_convergence_metrics(
             sol, device=device, step=step, window_size=window_size,
         )
