@@ -55,6 +55,8 @@ def solve_kwargs(settings: SolverSettings) -> dict:
         tol_gcr=settings.tol_gcr,
         eps_mf=settings.eps_mf,
         adaptive=settings.adaptive,
+        noise_amplitude=settings.initial_noise_amplitude,
+        noise_seed=settings.initial_noise_seed,
         progress=False,
         log_metadata=False,
     )

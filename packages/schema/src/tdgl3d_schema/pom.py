@@ -126,6 +126,16 @@ class SolverSettings(BaseModel):
     tol_gcr: float = 1e-4
     eps_mf: float = 1e-4
     adaptive: bool = True
+    # Initial-state noise (symmetry breaking)
+    initial_noise_amplitude: float = Field(
+        0.01, ge=0,
+        description="Amplitude of complex Gaussian noise on ψ in SC regions. "
+                    "Set to 0 for a perfectly uniform state.",
+    )
+    initial_noise_seed: Optional[int] = Field(
+        default=None,
+        description="Random seed for reproducibility. None = non-deterministic.",
+    )
 
     @model_validator(mode="after")
     def _check_window(self) -> "SolverSettings":

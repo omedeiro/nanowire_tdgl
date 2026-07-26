@@ -59,8 +59,8 @@ def run_simulation() -> Solution:
     dt = 0.01
     t_stop = 100.0
 
-    # Uniform superconducting initial condition (|ψ|=1, φ=0).
-    x0 = tdgl3d.StateVector.uniform_superconducting(params).data.copy()
+    # Superconducting initial condition with symmetry-breaking noise (|ψ|≈1, φ=0).
+    x0 = device.initial_state()
 
     print(f"Running Forward-Euler (dt={dt}, t_stop={t_stop}) …")
     solution = tdgl3d.solve(

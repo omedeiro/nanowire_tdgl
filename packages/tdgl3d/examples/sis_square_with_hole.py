@@ -747,13 +747,8 @@ def run_simulation_with_field(bz_field: float) -> tuple[Solution, tdgl3d.Device,
     n_hole_interior = int(np.sum(device.material.interior_sc_mask == 0.0))
     print(f"  Interior nodes with sc_mask=0: {n_hole_interior} / {params.n_interior}\n")
 
-    # Initial state (ψ = 0 in insulator + hole)
-    x0 = device.initial_state()
-    # Add small random noise to break symmetry
-    rng = np.random.default_rng(42)
-    noise = 0.02 * (rng.standard_normal(params.n_interior)
-                     + 1j * rng.standard_normal(params.n_interior))
-    x0.psi[:] += noise * device.material.interior_sc_mask
+    # Initial state (ψ = 0 in insulator + hole, with symmetry-breaking noise)
+    x0 = device.initial_state(seed=42)
 
     print("Initial state: ψ zeroed in insulator + hole regions\n")
 

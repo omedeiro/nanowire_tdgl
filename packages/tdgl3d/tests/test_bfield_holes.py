@@ -110,10 +110,6 @@ def test_applied_field_in_hole():
 
     # Initial state
     x0 = device.initial_state()
-    # Add small noise only in SC regions
-    rng = np.random.default_rng(42)
-    noise = 0.01 * (rng.standard_normal(params.n_interior) + 1j * rng.standard_normal(params.n_interior))
-    x0.psi[:] += noise * device.material.interior_sc_mask
 
     # Run to equilibrium
     # Note: Field needs time to diffuse in from boundaries

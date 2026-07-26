@@ -54,6 +54,9 @@ def solve(
     tol_gcr: float = 1e-4,
     eps_mf: float = 1e-4,
     adaptive: bool = True,
+    # Initial state noise
+    noise_amplitude: float = 0.01,
+    noise_seed: int | None = None,
     # Logging options
     log_metadata: bool = True,
     log_dir: str | Path = "logs",
@@ -71,7 +74,8 @@ def solve(
     method : ``"euler"`` or ``"trapezoidal"``
         Time integration scheme.
     x0 : ndarray or StateVector, optional
-        Initial state.  Defaults to uniform superconducting (|ψ|=1, φ=0).
+        Initial state.  Defaults to uniform superconducting with symmetry-breaking
+        noise (|ψ|≈1, φ=0, small random perturbation).
     save_every : int
         Save every n-th time step.
     progress : bool
@@ -82,6 +86,12 @@ def solve(
     tol_gcr, eps_mf : GCR params.
     adaptive : bool
         Allow adaptive dt reduction on Newton failure.
+    noise_amplitude : float, default 0.01
+        Amplitude of complex Gaussian noise added to ψ in superconducting regions
+        when generating the initial state (only used when ``x0 is None``).
+        Set to 0.0 for a perfectly uniform state.
+    noise_seed : int, optional
+        Random seed for initial-state noise reproducibility.
     log_metadata : bool
         If True, create run metadata and auto-save to JSON.
     log_dir : str or Path
@@ -98,9 +108,10 @@ def solve(
 
     # Initial state
     if x0 is None:
-        # Use device.initial_state() which properly initializes φ fields
-        # based on applied magnetic field (essential for flux trapping)
-        x0_arr = device.initial_state().data
+        # Use device.initial_state() with symmetry-breaking noise
+        x0_arr = device.initial_state(
+            noise_amplitude=noise_amplitude, seed=noise_seed,
+        ).data
     elif isinstance(x0, StateVector):
         x0_arr = x0.data
     else:

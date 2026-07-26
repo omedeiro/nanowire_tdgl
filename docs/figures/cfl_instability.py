@@ -19,9 +19,9 @@ from tdgl3d import AppliedField, Device, SimulationParameters, solve
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
-        Nx, Ny, Nz = 6, 6, 1
+        Nx, Ny, Nz = 12, 12, 1
     else:
-        Nx, Ny, Nz = 10, 10, 1
+        Nx, Ny, Nz = 20, 20, 1
 
     params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=2.0)
     h = params.hx
@@ -50,10 +50,32 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
         psi2_t = np.array(psi2_t)
         ax.plot(times, psi2_t, "-", color=color, linewidth=1.5)
-        ax.axhline(1.0, color="gray", ls=":", alpha=0.5, label="|ψ|² = 1")
+        ax.axhline(1.0, color="gray", ls=":", alpha=0.5, label="|ψ|² = 1 (expected)")
+
+        # Expected: |ψ|² stays near 1 for stable, collapses to 0 for unstable
+        expected_final = 1.0 if dt_factor < 1 else 0.0
+        actual_final = float(psi2_t[-1]) if len(psi2_t) > 0 else 0.0
+        error = abs(actual_final - expected_final)
+
+        # Error annotation
+        text = (
+            f"dt/CFL:    {dt_factor:.1f}\n"
+            f"dt:        {dt:.4f}\n"
+            f"CFL limit: {cfl_limit:.4f}\n"
+            f"Expected:  {expected_final:.1f}\n"
+            f"Actual:    {actual_final:.4f}\n"
+            f"Error:     {error:.4f}"
+        )
+        ax.text(
+            0.97, 0.97, text, transform=ax.transAxes,
+            fontsize=8, fontfamily="monospace",
+            verticalalignment="top", horizontalalignment="right",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="gray", alpha=0.9),
+        )
+
         ax.set_xlabel("t (ξ/v_F)")
         ax.set_ylabel("mean |ψ|²")
-        ax.set_title(f"{label}\ndt = {dt:.4f}, CFL = {cfl_limit:.4f}")
+        ax.set_title(f"{label}")
         ax.legend()
         ax.grid(True, alpha=0.3)
         ax.set_ylim(-0.1, 1.5)

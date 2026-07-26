@@ -175,14 +175,8 @@ def test_field_symmetry_bx_vs_by():
     device_y = Device(params=params, applied_field=field_y)
 
     # Use same random seed for fair comparison
-    rng = np.random.default_rng(42)
-    noise = 0.01 * (rng.standard_normal(params.n_interior) + 1j * rng.standard_normal(params.n_interior))
-
-    x0_x = device_x.initial_state()
-    x0_x.psi[:] += noise.copy()
-
-    x0_y = device_y.initial_state()
-    x0_y.psi[:] += noise.copy()
+    x0_x = device_x.initial_state(seed=42)
+    x0_y = device_y.initial_state(seed=42)
 
     sol_x = solve(device_x, x0=x0_x, t_start=0.0, t_stop=1.0, dt=0.02,
                   method="euler", save_every=10, progress=False)

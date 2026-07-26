@@ -161,7 +161,7 @@ class TestTrilayerDevice:
             params=SimulationParameters(Nx=4, Ny=4, kappa=2.0),
             trilayer=trilayer,
         )
-        sv = dev.initial_state()
+        sv = dev.initial_state(noise_amplitude=0.0)
 
         # All interior ψ at insulator nodes should be 0
         mat = dev.material

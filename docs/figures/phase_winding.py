@@ -20,14 +20,15 @@ from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
-        Nx, Ny, Nz = 6, 6, 1
+        Nx, Ny, Nz = 12, 12, 1
         t_stop = 2.0
     else:
-        Nx, Ny, Nz = 20, 20, 1
+        Nx, Ny, Nz = 40, 40, 1
         t_stop = 15.0
 
     params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=2.0)
-    field = AppliedField(Bz=2.5, t_on_fraction=1.0)
+    Bz_applied = 2.5
+    field = AppliedField(Bz=Bz_applied, t_on_fraction=1.0)
     device = Device(params, applied_field=field)
 
     sol = solve(
@@ -39,6 +40,27 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     phase_2d = sol._reshape_interior(phase, slice_z=0)
     psi2 = sol.psi_squared_2d(step=-1)
     n_vort, positions, windings = count_vortices_plaquette(sol, device, step=-1)
+
+    # Expected: each vortex has winding = ±1 (phase change of ±2π)
+    all_unit_windings = bool(
+        np.all(np.abs(np.abs(windings) - 1.0) < 0.3)
+    ) if len(windings) > 0 else True
+    n_positive = int(np.sum(windings > 0)) if len(windings) > 0 else 0
+    n_negative = int(np.sum(windings < 0)) if len(windings) > 0 else 0
+
+    # Expected vortex count from B·A/Φ₀
+    area = (params.Nx * params.hx) * (params.Ny * params.hy)
+    expected_vortices = float(Bz_applied * area / (2 * np.pi))
+
+    # Symmetry check on |ψ|²
+    Nx_int, Ny_int = Nx - 1, Ny - 1
+    mid_x, mid_y = Nx_int // 2, Ny_int // 2
+    psi2_left = psi2[:mid_x, :]
+    psi2_right = psi2[Nx_int - mid_x:Nx_int, :][::-1, :]
+    sym_x = float(np.max(np.abs(psi2_left - psi2_right))) if psi2_left.size > 0 else 0.0
+    psi2_bottom = psi2[:, :mid_y]
+    psi2_top = psi2[:, Ny_int - mid_y:Ny_int][:, ::-1]
+    sym_y = float(np.max(np.abs(psi2_bottom - psi2_top))) if psi2_bottom.size > 0 else 0.0
 
     # --- Figure ---
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
@@ -65,6 +87,23 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
             ax.annotate(f"{'+' if w > 0 else ''}{w:.0f}", (vx, vy),
                         textcoords="offset points", xytext=(10, 10),
                         fontsize=9, color="lime", fontweight="bold")
+
+    # Annotation box
+    text = (
+        f"Vortices:   {n_vort}\n"
+        f"Expected:   {expected_vortices:.0f}\n"
+        f"n(w=+1):    {n_positive}\n"
+        f"n(w=-1):    {n_negative}\n"
+        f"|w|=1:      {all_unit_windings}\n"
+        f"Sym-x:      {sym_x:.4f}\n"
+        f"Sym-y:      {sym_y:.4f}"
+    )
+    ax.text(
+        0.03, 0.03, text, transform=ax.transAxes,
+        fontsize=8, fontfamily="monospace",
+        verticalalignment="bottom", horizontalalignment="left",
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="gray", alpha=0.9),
+    )
 
     ax.set_xlabel("x (ξ)")
     ax.set_ylabel("y (ξ)")
