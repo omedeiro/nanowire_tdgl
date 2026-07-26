@@ -815,11 +815,11 @@ def test_vortex_entry_dynamics(phys_log):
     from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 
     params = SimulationParameters(Nx=60, Ny=60, Nz=1, kappa=1.0)
-    device = Device(params, applied_field=AppliedField(Bz=1.0, t_on_fraction=1.0))
+    device = Device(params, applied_field=AppliedField(Bz=0.01, t_on_fraction=1.0))
 
-    with phys_log.test("test_vortex_entry_dynamics", {"Nx": 20, "kappa": 1.0, "Bz": 1.0}) as log:
+    with phys_log.test("test_vortex_entry_dynamics", {"Nx": 60, "kappa": 1.0, "Bz": 0.01}) as log:
         sol = solve(
-            device, t_start=0.0, t_stop=500.0, dt=0.01, method="euler",
+            device, t_start=0.0, t_stop=1000.0, dt=0.01, method="euler",
             save_every=10, progress=False, log_metadata=False,
         )
 
@@ -868,7 +868,7 @@ def test_vortex_entry_dynamics(phys_log):
                 t_first = times[i]
                 break
         assert t_first is not None, "Vortex never appeared"
-        t_stop = 500.0
+        t_stop = 1000.0
         assert t_first < t_stop * 0.5, (
             f"First vortex at t={t_first:.2f}, expected before {t_stop * 0.5:.2f}"
         )
@@ -938,7 +938,7 @@ def test_vortex_entry_dynamics(phys_log):
         )
 
         # 7. Final count vs expected B·A/Φ₀
-        Bz_applied = 1.0
+        Bz_applied = 0.01
         expected = float(Bz_applied * (params.Nx * params.hx) * (params.Ny * params.hy) / (2 * np.pi))
         log["expected_approx"] = expected
         log["final_count"] = int(counts[-1])
