@@ -810,7 +810,7 @@ def test_vortex_entry_and_counting(phys_log):
 
 def test_vortex_entry_dynamics(phys_log):
     """Vortex nucleation dynamics: count starts at 0, grows, saturates."""
-    from tdgl3d.analysis.convergence import check_steady_state
+    from tdgl3d.analysis.convergence import compute_convergence_metrics
     from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 
     params = SimulationParameters(Nx=20, Ny=20, Nz=1, kappa=2.0)
@@ -822,17 +822,20 @@ def test_vortex_entry_dynamics(phys_log):
             save_every=10, progress=False, log_metadata=False,
         )
 
+        n_steps = sol.n_steps
+        times_arr = sol.times
+
         # Sample vortex count at regular intervals
         sample_stride = 50
-        sample_steps = list(range(0, sol.n_steps, sample_stride))
-        if sample_steps[-1] != sol.n_steps - 1:
-            sample_steps.append(sol.n_steps - 1)
+        sample_steps = list(range(0, n_steps, sample_stride))
+        if sample_steps[-1] != n_steps - 1:
+            sample_steps.append(n_steps - 1)
 
         times = []
         counts = []
         for step in sample_steps:
             n_v, _, _ = count_vortices_plaquette(sol, device, slice_z=0, step=step)
-            times.append(float(sol.times[step]))
+            times.append(float(times_arr[step]))
             counts.append(n_v)
 
         times = np.array(times)
@@ -870,17 +873,48 @@ def test_vortex_entry_dynamics(phys_log):
         )
         log["t_first_vortex"] = t_first
 
-        # 5. Steady state: |ψ|² and |J_s| convergence check
-        is_steady, steady_step, conv_metrics = check_steady_state(
-            sol, device=device, window_size=10, psi_threshold=1e-4,
-            current_threshold=1e-4, start_step=20,
-        )
+        # 5. Steady state: sustained convergence check
+        psi_threshold = 1e-4
+        current_threshold = 1e-4
+        window_size = 50
+        min_sustained = 20
+
+        psi2_rel_changes = np.full(n_steps, np.nan)
+        current_rel_changes = np.full(n_steps, np.nan)
+
+        for step in range(window_size, n_steps):
+            metrics = compute_convergence_metrics(
+                sol, device=device, step=step, window_size=window_size,
+            )
+            psi2_rel_changes[step] = metrics.get("psi2_rel_change", np.nan)
+            if "current_rel_change" in metrics:
+                current_rel_changes[step] = metrics["current_rel_change"]
+
+        # Log final convergence values
+        log["psi2_rel_change_final"] = float(psi2_rel_changes[-1]) if not np.isnan(psi2_rel_changes[-1]) else None
+        log["current_rel_change_final"] = float(current_rel_changes[-1]) if not np.isnan(current_rel_changes[-1]) else None
+
+        # Sustained convergence: first step where BOTH metrics stay below
+        # threshold for min_sustained consecutive steps
+        is_steady = False
+        steady_step = -1
+        consecutive = 0
+        for step in range(window_size, n_steps):
+            psi_ok = not np.isnan(psi2_rel_changes[step]) and psi2_rel_changes[step] < psi_threshold
+            cur_ok = not np.isnan(current_rel_changes[step]) and current_rel_changes[step] < current_threshold
+            if psi_ok and cur_ok:
+                consecutive += 1
+                if consecutive >= min_sustained:
+                    steady_step = step - min_sustained + 1
+                    is_steady = True
+                    break
+            else:
+                consecutive = 0
+
         log["is_steady"] = is_steady
         log["steady_step"] = steady_step
-        log["psi2_rel_change"] = conv_metrics.get("psi2_rel_change")
-        log["current_rel_change"] = conv_metrics.get("current_rel_change")
         if is_steady:
-            t_steady = float(sol.times[steady_step])
+            t_steady = float(times_arr[steady_step])
             log["steady_time"] = t_steady
         else:
             log["steady_time"] = None
