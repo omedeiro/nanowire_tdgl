@@ -82,15 +82,13 @@ def compute_convergence_metrics(
     # --- Supercurrent convergence (if device available) ---
     if device is not None:
         try:
-            from ..physics.current_density import eval_supercurrent_density
-
-            # Compute supercurrent magnitude at both steps
-            Jx_cur, Jy_cur, Jz_cur = eval_supercurrent_density(solution, device, step=step)
+            # Use the Solution method which correctly expands interior state
+            Jx_cur, Jy_cur, Jz_cur = solution.supercurrent_density(step=step)
             J_mag_current = np.sqrt(
                 Jx_cur**2 + Jy_cur**2 + (Jz_cur**2 if Jz_cur is not None else 0)
             )
 
-            Jx_past, Jy_past, Jz_past = eval_supercurrent_density(solution, device, step=past_step)
+            Jx_past, Jy_past, Jz_past = solution.supercurrent_density(step=past_step)
             J_mag_past = np.sqrt(
                 Jx_past**2 + Jy_past**2 + (Jz_past**2 if Jz_past is not None else 0)
             )

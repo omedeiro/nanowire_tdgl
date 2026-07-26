@@ -31,12 +31,12 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         step_stride = 5
     else:
         Nx, Ny, Nz = 100, 100, 1
-        t_stop = 200.0
+        t_stop = 500.0
         save_every = 20
         step_stride = 40
 
-    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=1.0)
-    Bz_applied = 1.0
+    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=4.0)
+    Bz_applied = 0.5
     device = Device(params, applied_field=AppliedField(Bz=Bz_applied, t_on_fraction=1.0))
 
     sol = solve(
@@ -71,15 +71,17 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         if "current_rel_change" in metrics:
             current_rel_changes[step] = metrics["current_rel_change"]
 
-    # Sustained convergence: find first step where BOTH metrics stay below
-    # threshold for min_sustained consecutive steps
+    # Sustained convergence: find first step where metrics stay below
+    # threshold for min_sustained consecutive steps.
+    # If current_rel_change is unavailable (NaN), fall back to psi-only.
     t_steady = None
     steady_step = -1
     consecutive = 0
     for step in range(window_size, n_steps):
-        psi_ok = not np.isnan(psi2_rel_changes[step]) and psi2_rel_changes[step] < psi_threshold
-        cur_ok = (not np.isnan(current_rel_changes[step])
-                  and current_rel_changes[step] < current_threshold)
+        psi_ok = (not np.isnan(psi2_rel_changes[step])
+                  and psi2_rel_changes[step] < psi_threshold)
+        cur_val = current_rel_changes[step]
+        cur_ok = np.isnan(cur_val) or cur_val < current_threshold
         if psi_ok and cur_ok:
             consecutive += 1
             if consecutive >= min_sustained:
