@@ -8,6 +8,7 @@ from .vortex_counting import (
     count_vortices_plaquette,
     count_vortices_polygon,
     find_vortex_cores,
+    plaquette_vorticity,
 )
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "compute_convergence_metrics",
     "count_vortices_plaquette",
     "count_vortices_polygon",
+    "plaquette_vorticity",
     "count_hole_flux_quanta",
     "find_vortex_cores",
 ]
