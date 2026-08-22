@@ -18,6 +18,17 @@ Each axis (x, y, z) has four face-index arrays that come in two flavours:
 ``interior_to_full``
     1-D array of full-grid linear indices for the interior nodes (the map
     from the compact interior numbering to the full grid).
+
+    .. warning::
+       The two numberings use **opposite** orderings.  The *full* grid is
+       ``i + (Nx+1)*j + (Nx+1)*(Ny+1)*k`` — i-fastest.  The *interior*
+       numbering comes from ``meshgrid(..., indexing="ij").ravel()`` and is
+       therefore i-slowest / k-fastest, i.e. C order over the shape
+       ``(Nx-1, Ny-1, max(Nz-1, 1))``.  Interior-array strides are
+       ``stride_i = (Ny-1)*max(Nz-1,1)``, ``stride_j = max(Nz-1,1)``,
+       ``stride_k = 1``.  Applying full-grid strides to an interior array
+       (or vice versa) transposes x and z and is a silent source of wrong
+       physics; on a cubic grid it is invisible in array shapes.
 ``bfield_interior``
     Subset of *interior* indices (in interior numbering) that are one more
     layer inward — used for evaluating *B* = curl(*A*) where neighbours are
@@ -392,24 +403,28 @@ def construct_indices(params: SimulationParameters) -> GridIndices:
     # =================================================================
     # bfield_interior  (formerly M2B) — in *interior* numbering
     # =================================================================
-    int_Nx_m1 = Nx - 1  # interior x-extent
-    int_Ny_m1 = Ny - 1
-    # In interior numbering, index = (i-1) + int_Nx_m1*(j-1) + ...
-    # The B-field interior skips the outermost layer of interior nodes,
-    # so (i-1) ranges from 0 to Nx-3, i.e., arange(0, Nx-2).
+    # ``interior_to_full`` is built from ``meshgrid(..., indexing="ij").ravel()``,
+    # so the interior numbering is **i-slowest / k-fastest** (C order over
+    # ``(Nx-1, Ny-1, Nz-1)``).  The strides below must match that layout — using
+    # the full-grid strides (i-fastest) here silently scrambles x and z.
+    int_stride_k = 1
+    int_stride_j = max(Nz - 1, 1)
+    int_stride_i = (Ny - 1) * int_stride_j
+    # The B-field interior skips the outermost layer of interior nodes so that
+    # the forward curl stencil (+1 in each direction) stays in range.
     bi = np.arange(0, Nx - 2, dtype=np.intp)
     bj = np.arange(0, Ny - 2, dtype=np.intp)
     if is_3d:
         bk = np.arange(0, Nz - 2, dtype=np.intp)
         bgi, bgj, bgk = np.meshgrid(bi, bj, bk, indexing="ij")
         bfield_interior = (
-            bgi.ravel()
-            + int_Nx_m1 * bgj.ravel()
-            + int_Nx_m1 * int_Ny_m1 * bgk.ravel()
+            int_stride_i * bgi.ravel()
+            + int_stride_j * bgj.ravel()
+            + int_stride_k * bgk.ravel()
         )
     else:
         bgi, bgj = np.meshgrid(bi, bj, indexing="ij")
-        bfield_interior = bgi.ravel() + int_Nx_m1 * bgj.ravel()
+        bfield_interior = int_stride_i * bgi.ravel() + int_stride_j * bgj.ravel()
 
     # =================================================================
     # Helper: build the 4-tuple of face indices for one axis
