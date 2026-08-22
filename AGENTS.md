@@ -14,6 +14,7 @@ plan.**
 | `apps/` | Frontend apps (Next.js studio — Phase 2, not yet created) | — |
 | `agents/` | AI agent tool definitions and prompts (Phase 3/4) | — |
 | `docs/` | Roadmap, design notes | `docs/ROADMAP.md`, `docs/notes/` |
+| `docs/notes/PHYSICS_CONVENTIONS.md` | Units, gauge convention, exact discrete identities, index ordering | **Read before touching the solver core** |
 
 ## Development workflow (applies to humans AND AI agents)
 
@@ -46,6 +47,28 @@ python3 -m uvicorn tdgl3d_server.app:app --port 8787
 
 **Critical:** Always use `python3`, never bare `python` (machine has no alias).
 
+## Physics verification
+
+Before changing anything in `packages/tdgl3d/src/tdgl3d/{operators,physics,mesh}/`,
+read `docs/notes/PHYSICS_CONVENTIONS.md`. It records the sign and index
+conventions the solver depends on, and which test fails when each one is broken.
+
+The physics is verified by five suites in `packages/tdgl3d/tests/`:
+`test_verification_{gauge,conservation,symmetry,analytic,vortex}.py`, plus
+`test_physics_validation.py` for heterostructures. They assert through the
+`check_*` helpers on the `phys_log` fixture, which record measured value,
+expected value and tolerance into `logs/test_*.json` for
+`docs/generate_test_report.py`.
+
+Two rules for adding checks there:
+
+1. **State the expected value and the tolerance up front.** A tolerance computed
+   from the measurement it is checking (`tol = max(0.01, 10 * observed)`) can
+   never fail and verifies nothing.
+2. **Make the test non-vacuous.** If a quantity can be trivially zero — no
+   vortices nucleated, no field present, an empty index array — assert the scale
+   as well as the deviation.
+
 ## Architecture invariants
 
 - **POM is the contract.** UI, server, and AI tools all operate on
@@ -63,3 +86,8 @@ python3 -m uvicorn tdgl3d_server.app:app --port 8787
 - 3 tests in `packages/tdgl3d/tests` are marked `xfail` (hole-BC / flux
   trapping work; see `docs/notes/HOLE_BC_STATUS.md`).
 - Periodic BCs are defined in `SimulationParameters` but not implemented.
+- An insulating layer with `kappa = 0.0` cannot carry a magnetic field: its
+  φ-equation degenerates entirely. See the "Known limitation" note in
+  `docs/PHYSICS_GALLERY.md`.
+- The ghost-ring corner plaquette at `(0, 0)` carries zero applied flux; it does
+  not enter the dynamics (see `docs/notes/PHYSICS_CONVENTIONS.md`).

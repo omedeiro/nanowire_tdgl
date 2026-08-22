@@ -151,6 +151,34 @@ Implemented by setting normal link variables to zero and using ghost-node reflec
 
 This writes the external field into the link variables, allowing it to diffuse into the interior and interact with supercurrents.
 
+### Verification
+
+The physics is pinned down by five suites in `packages/tdgl3d/tests/`, organised
+by principle rather than by feature:
+
+| Suite | Verifies |
+|-------|----------|
+| `test_verification_gauge.py` | local U(1) covariance of the RHS; gauge invariance of \|ψ\|, B, J_s, F and the vortex count |
+| `test_verification_conservation.py` | ∇·B = 0 and ∇·(∇×∇×A) = 0 to round-off; free energy as a Lyapunov functional; ∇·J_s = 0 in steady state |
+| `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
+| `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt |
+| `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field sign; lattice Stokes |
+
+Three numbers anchor the normalisation: **Φ₀ = 2π**, **λ = κ** (in ξ), and
+**H_c2 = 1**. An applied field above 1 leaves a normal metal, not a vortex
+lattice. The sign and index conventions the solver depends on — and which test
+fails when each is broken — are recorded in
+[`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+
+```bash
+cd packages/tdgl3d
+python3 -m pytest tests/test_verification_*.py tests/test_physics_validation.py -q
+cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
+```
+
+The report lists every check with its measured value, the value physics
+requires, and the tolerance allowed.
+
 ### Further Reading
 
 - **Original theory**: Ginzburg & Landau, *Zh. Eksp. Teor. Fiz.* **20**, 1064 (1950)

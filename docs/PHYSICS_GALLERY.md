@@ -20,26 +20,36 @@ python docs/figures/meissner_screening.py
 pytest docs/figures/test_figures.py -v
 ```
 
-## Test Results Summary
+## Verification status
 
-Latest run from `logs/physics_test_runlog.json`. Regenerate with:
+The numeric verification of the physics lives in the test suite, not in this
+gallery. Regenerate the report with:
+
 ```bash
-python docs/generate_test_report.py
+cd packages/tdgl3d
+python3 -m pytest tests/test_verification_*.py tests/test_physics_validation.py -q
+cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
 ```
-Full details: [`physics_test_report.md`](physics_test_report.md)
 
-| Figure | Metric | Details | Status |
-|--------|--------|---------|--------|
-| Meissner screening | λ=12.06 vs κ=2.0 | error = 502.8% — cosh fit gives λ >> κ | FAIL |
-| Insulator \|ψ\| decay | τ=0.0885 (expected 0.1) | error = 11.5% | PASS |
-| Trilayer κ discontinuity | SC=-16.0 (expected -16), Ins=0.0 | matches κ² stencil | PASS |
-| Trilayer B penetration | Bz(ins)=1.88e-6 (0.0% of applied) | insulator not penetrated — field stuck at ~0 | FAIL |
-| Vortex entry & counting | n=4 (expected ≈46) | 9% of expected, winding=[-1,-1,-1,-1] | FAIL |
+Full details: [`physics_test_report.md`](physics_test_report.md), which lists
+every check with its measured value, the value physics requires, and the
+tolerance allowed.
 
-> **Known failures:** The 3 failing tests reveal genuine physics issues in the solver:
-> - Meissner: penetration depth λ ≈ 12 (should be κ = 2), field barely screens
-> - Trilayer: field doesn't penetrate the insulator layer at all (Bz ≈ 0 vs applied 0.3)
-> - Vortices: only 4 of ~46 expected vortices nucleate in the simulation time
+| Suite | What it pins down |
+|-------|-------------------|
+| `test_verification_gauge.py` | ψ → ψe^{iχ}, A → A + ∇χ leaves dφ/dt, \|ψ\|, B, J_s, F and the vortex count unchanged |
+| `test_verification_conservation.py` | ∇·B = 0 and ∇·(∇×∇×A) = 0 to round-off; F is a Lyapunov functional; ∇·J_s = 0 in steady state; J_n = 0 on every face |
+| `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
+| `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt |
+| `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
+| `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents |
+
+> **Known limitation.** Setting `kappa = 0.0` on an insulating layer degenerates
+> its φ-equation entirely (`LPHI ∝ κ² = 0` and `FPHI ∝ J_s ∝ ψ = 0`), so the
+> gauge field is frozen there and the layer cannot carry the field that should
+> pass straight through it — see figure 5. This is a solver limitation, not a
+> physical result; the trilayer test pins the current behaviour so a fix is
+> visible as a test failure.
 
 ---
 
@@ -53,14 +63,21 @@ In Ginzburg-Landau units, λ ≈ κ.
 
 **Validates:** `test_physics_validation.py::test_meissner_screening_exponential`
 
-**Parameters:** 30×8×1 grid, κ=2.0, Bz=0.3, t=30 (Forward Euler)
+**Parameters:** 32×32×1 grid, h=0.5ξ, κ=2.0, Bz=0.1, t=12 (Forward Euler)
+
+The grid must resolve λ = κ and the sample must be several λ across in both
+in-plane directions. At h = 1ξ there are only two cells per penetration depth
+and the measured decay length is set by the stencil, not by the physics.
 
 **Key features:**
 - Left: 2D heatmap of Bz showing field penetration from the boundary
 - Right: 1D Bz(x) profile at mid-y with cosh fit; fitted λ should be ≈ κ
 - Annotation box shows κ (set value), λ (fitted), and relative error
 
-**Validation metrics:** λ_fit = 2.00, κ = 2.00, error = 0.00%
+**Validation metrics:** λ (edge fit) = 2.24 ξ vs κ = 2.00, error = 12%; cosh fit R² = 0.998.
+The dedicated check `test_london_penetration_depth_equals_kappa` measures λ within 10% of κ
+for κ = 1.5 and κ = 3.0, and `test_penetration_depth_converges_with_grid_refinement`
+confirms the residual error shrinks with h.
 
 ---
 
@@ -74,13 +91,17 @@ Each vortex carries one flux quantum Φ₀ = h/(2e) and has a ±2π phase windin
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_and_counting`
 
-**Parameters:** 12×12×1 grid, κ=2.0, Bz=0.5, t=20 (Forward Euler)
+**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=40 (Forward Euler)
+
+H_c2 = 1 in these units, so the applied field must stay below 1; H_c1(κ=2) ≈ 0.15.
 
 **Key features:**
 - Left: |ψ|² heatmap with vortex cores (dark spots) marked ×
 - Right: Phase arg(ψ) colormap showing ±2π winding; gray where |ψ|² ≈ 0
 
-**Validation metrics:** n_vortices = 4 of ~46 expected, winding numbers ≈ -1.0 (FAIL — count below 20% threshold)
+**Validation metrics:** 69 vortices, every winding +1 (matching the sign of Bz), against an
+upper bound of B·A/Φ₀ = 153. The flux front is still advancing at t = 40, leaving a
+vortex-free Meissner core — the Bean-Livingston surface barrier delays entry well above H_c1.
 
 ---
 
@@ -142,7 +163,9 @@ allows field penetration. For a symmetric trilayer, screening is approximately s
   field is screened in SC layers, penetrates insulator
 - Right: |ψ|²(z) profile showing order parameter in SC vs insulator layers
 
-**Validation metrics:** Bz(Nb) ≈ 2e-7/6e-6, Bz(insulator) ≈ 1.88e-6, Bz(applied) = 0.3 (FAIL — insulator not penetrated)
+**Validation metrics:** Bz ≈ 0.01 in the Nb layers (screened from 0.3) and |ψ|² → 0 across the
+insulator, both as expected. Bz ≈ 0 in the insulator is the κ = 0 limitation noted above,
+not a physical result.
 
 ---
 
@@ -182,7 +205,9 @@ This guarantees thermodynamic consistency of the dynamics.
 - Left: F(t) showing monotonic decrease
 - Right: dF/dt ≤ 0 confirming energy dissipation
 
-**Validation metrics:** max_energy_increase = 0.0083, tolerance = 0.0833 (PASS)
+**Validation metrics:** see `test_free_energy_decreases_monotonically_at_zero_field`, which
+requires *zero* steps of increase in the gauge-invariant free energy
+(`tdgl3d.physics.gl_free_energy`) rather than a tolerance fitted to the observed drift.
 
 ---
 
@@ -196,14 +221,16 @@ sign indicating the direction of the circulating supercurrent.
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_and_counting`
 
-**Parameters:** 20×20×1 grid, κ=2.0, Bz=2.5, t=15 (Forward Euler)
+**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=15 (Forward Euler)
 
 **Key features:**
 - Left: Phase arg(ψ) colormap (twilight) with vortex positions marked;
   gray overlay where |ψ|² ≈ 0
 - Right: |ψ|² heatmap with vortex core positions
 
-**Validation metrics:** Same run as figure 2 — 4 vortices with winding ≈ -1.0
+**Validation metrics:** All windings +1. `test_plaquette_vorticity_is_an_exact_integer` shows the
+winding is integral to 1e-16, and `test_fluxoid_equals_enclosed_vorticity_for_any_contour`
+confirms the lattice Stokes theorem holds for square and non-convex contours alike.
 
 ---
 

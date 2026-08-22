@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
 from tdgl3d import AppliedField, Device, Layer, SimulationParameters, Trilayer, solve
+from tdgl3d.operators.sparse_operators import INSULATOR_RELAXATION_TIME
 
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
@@ -76,8 +77,9 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     # --- Expected values ---
     # Insulator: |ψ|² → 0 (no superconductivity)
     # SC layers: |ψ|² → 1
-    # Decay time: τ_fit should be on order of 1/κ = 0.5 (but solver uses τ_relax)
-    expected_tau = 1.0 / kappa
+    # Decay time: the insulator relaxation constant used by construct_FPSI,
+    # not 1/κ — the insulator has no Ginzburg-Landau dynamics of its own.
+    expected_tau = INSULATOR_RELAXATION_TIME
 
     # Symmetry: bottom SC vs top SC in final z-profile
     psi_final = sol.psi(step=-1)
@@ -114,7 +116,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     tau_error = abs(tau_fit - expected_tau) / expected_tau
     text = (
         f"τ (fit):     {tau_fit:.4f}\n"
-        f"τ (expected): ~{expected_tau:.2f} (1/κ)\n"
+        f"τ (expected): {expected_tau:.2f} (τ_relax)\n"
         f"τ error:     {tau_error:.1%}\n"
         f"|ψ|²_final:  {psi_ins_mean[-1]:.6f}"
     )

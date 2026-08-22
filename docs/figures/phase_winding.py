@@ -27,7 +27,12 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         t_stop = 15.0
 
     params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=2.0)
-    Bz_applied = 2.5
+    # H_c2 = 1 in these units (fields are measured in Φ₀/(2πξ²)), so the applied
+    # field must stay below 1 or the sample is simply normal — at Bz = 2.5 the
+    # order parameter is zero everywhere and the "vortices" reported are
+    # detector noise in a non-superconducting region.  H_c1(κ=2) ≈ 0.15, so
+    # Bz = 0.6 is comfortably inside the mixed state.
+    Bz_applied = 0.6
     field = AppliedField(Bz=Bz_applied, t_on_fraction=1.0)
     device = Device(params, applied_field=field)
 

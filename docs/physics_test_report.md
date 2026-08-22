@@ -1,190 +1,1028 @@
-# Physics Test Results Report
+# Physics Verification Report
 
-**Run timestamp:** 2026-07-25T22:14:41.519224
-**Results:** 15/15 passed, 0 failed
+**Run timestamp:** 2026-08-22T22:57:33.097118
+**Tests:** 55/55 passed, 0 failed
+**Checks:** 167/167 passed (0 failed)
 
-## Summary
+Each check records the measured value, the value physics requires and the tolerance allowed, so every line below is falsifiable. Tolerances near machine precision mark exact discrete identities; the wider ones are discretisation error bounds stated up front rather than fitted to the measurement.
 
-| Test | Metric | Details | Status | Duration |
-|------|--------|---------|--------|----------|
-| B-field div-free | 4.08e-04 | max|∇·B|/max|B| should be ~0 | PASS | 0.000s |
-| B-field reversal symmetry | 0.0000 | max|Bz(+B) + Bz(-B)| should be 0 | PASS | 0.100s |
-| B-field uniform at boundary | 0.0000 | std(Bz) at boundary should be 0 | PASS | 0.000s |
-| C4 symmetry preserved | 3.97e-22 | max|φ_x + φ_y^T| should be 0 | PASS | 0.000s |
-| CFL unstable (above limit) | 2.07e-05 | mean|ψ| should collapse to ~0 | PASS | 0.096s |
-| CFL stable (below limit) | 1.0010 | max|ψ|² should stay near 1 | PASS | 0.025s |
-| Energy dissipation | 0.0084 (tol 0.0836) | max relative energy increase must stay below tolerance | PASS | 0.040s |
-| Insulator |ψ| decay | τ=0.0885 (expected 0.1) | relative error = 11.5% | PASS | 0.100s |
-| Meissner screening | λ=11.1742 | λ should equal κ | PASS | 4.039s |
-| Supercurrent zero at boundary | 0.0000 | max|φ_boundary| should be 0 | PASS | 0.000s |
-| Trilayer B penetration | Bz(ins)=1.16e-07 (0.0% of applied) | Bz(Nb)=0.1984/0.2310, Bz(app)=0.3, SC✓ | PASS | 2.372s |
-| Trilayer z-boundary J_n | 0.0000 | J_n at z-faces should be 0 | PASS | 0.059s |
-| Trilayer κ discontinuity | SC=-16.0000 (expected -16.0), Ins=0.0000 | SC diagonal should match κ² stencil, insulator should be 0 | PASS | 0.006s |
-| Uniform state zero RHS | 0.0000 | max|RHS| should be 0 | PASS | 0.000s |
-| Vortex entry & counting | n=25 (expected ≈127) | detected 20% of expected, winding=[-1.0000000000000002, -1.0, -1.0, -1.0, -1.0000000000000002, 0.9999999999999999, 1.0, 1.0, -1.0, -1.0000000000000002, -1.0, 1.0, 1.0, 1.0, 1.0000000000000002, -0.9999999999999999, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, -1.0, -1.0] | PASS | 8.446s |
+## Checks
 
-## Detailed Results
+### Gauge invariance
 
-### B-field div-free
+| Check | Measured | Expected | Tolerance | Status |
+|-------|----------|----------|-----------|--------|
+| **test_global_phase_rotation_is_exact_symmetry** | | | | |
+| max\|dψ/dt rotation error\| | 9.155e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|dφ/dt change\| | 4.441e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| **test_observables_are_gauge_invariant[10x10x1]** | | | | |
+| max Δ\|ψ\| | 2.220e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max ΔB | 2.776e-16 | <= 1e-11 | 1.000e-11 | PASS |
+| max ΔJ_s | 2.220e-16 | <= 1.04e-11 | 1.041e-11 | PASS |
+| Δ free energy | 0 | <= 5.47e-08 | 5.466e-08 | PASS |
+| **test_observables_are_gauge_invariant[6x7x5]** | | | | |
+| max Δ\|ψ\| | 2.220e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max ΔB | 2.220e-16 | <= 1e-11 | 1.000e-11 | PASS |
+| max ΔJ_s | 1.665e-16 | <= 1.55e-11 | 1.553e-11 | PASS |
+| Δ free energy | 2.842e-14 | <= 1.9e-07 | 1.904e-07 | PASS |
+| **test_observables_are_gauge_invariant[9x7x1]** | | | | |
+| max Δ\|ψ\| | 3.331e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max ΔB | 3.331e-16 | <= 1e-11 | 1.000e-11 | PASS |
+| max ΔJ_s | 2.220e-16 | <= 1e-11 | 1.000e-11 | PASS |
+| Δ free energy | 0 | <= 5.61e-08 | 5.608e-08 | PASS |
+| **test_rhs_covariant_with_material_map** | | | | |
+| max covariance violation | 4.885e-15 | <= 1.84e-10 | 1.843e-10 | PASS |
+| **test_rhs_is_gauge_covariant[10x10x1]** | | | | |
+| max\|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)\| | 9.930e-16 | <= 8.15e-11 | 8.146e-11 | PASS |
+| max\|dφ/dt(GX) − dφ/dt(X)\| | 2.665e-15 | <= 8.15e-11 | 8.146e-11 | PASS |
+| **test_rhs_is_gauge_covariant[6x7x5]** | | | | |
+| max\|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)\| | 1.337e-15 | <= 1.21e-10 | 1.211e-10 | PASS |
+| max\|dφ/dt(GX) − dφ/dt(X)\| | 4.441e-15 | <= 1.21e-10 | 1.211e-10 | PASS |
+| **test_rhs_is_gauge_covariant[9x7x1]** | | | | |
+| max\|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)\| | 1.332e-15 | <= 1.02e-10 | 1.016e-10 | PASS |
+| max\|dφ/dt(GX) − dφ/dt(X)\| | 6.217e-15 | <= 1.02e-10 | 1.016e-10 | PASS |
+| **test_vortex_count_is_gauge_invariant** | | | | |
+| vortices present (test would be vacuous otherwise) | 8 | >= 1 | 1 | PASS |
+| vortex count after gauge change | 8 | 8 | 0 | PASS |
+| max Δ(plaquette vorticity) | 2.220e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|winding change\| | 2.220e-16 | <= 1e-09 | 1.000e-09 | PASS |
+
+### Conservation laws and identities
+
+| Check | Measured | Expected | Tolerance | Status |
+|-------|----------|----------|-----------|--------|
+| **test_curl_curl_operator_is_divergence_free[7x6x6]** | | | | |
+| max\|∇·(∇×∇×A)\| / scale | 2.432e-16 | <= 1e-13 | 1.000e-13 | PASS |
+| **test_curl_curl_operator_is_divergence_free[9x8x1]** | | | | |
+| max\|∇·(∇×∇×A)\| / scale | 2.918e-16 | <= 1e-13 | 1.000e-13 | PASS |
+| **test_divergence_of_discrete_curl_is_exactly_zero[6x7x8]** | | | | |
+| bulk nodes tested | 120 | >= 1 | 1 | PASS |
+| max\|∇·B\| / max\|B\| | 3.204e-16 | <= 1e-13 | 1.000e-13 | PASS |
+| **test_divergence_of_discrete_curl_is_exactly_zero[8x7x1]** | | | | |
+| bulk nodes tested | 30 | >= 1 | 1 | PASS |
+| max\|∇·B\| / max\|B\| | 0 | <= 1e-13 | 1.000e-13 | PASS |
+| **test_forward_euler_is_stable_below_the_cfl_limit** | | | | |
+| max\|ψ\|² at dt = 0.9 dt_CFL | 1 | 1 | 0.05 | PASS |
+| min\|ψ\|² at dt = 0.9 dt_CFL | 1 | 1 | 0.05 | PASS |
+| run at dt = 3 dt_CFL loses the superconducting state | 1 | >= 1 | 1 | PASS |
+| **test_free_energy_decreases_monotonically_at_zero_field** | | | | |
+| energy released (test would be vacuous otherwise) | 44.1063 | >= 1 | 1 | PASS |
+| steps on which F increased | 0 | <= 0 | 0 | PASS |
+| worst single-step ΔF / energy released | -9.570e-10 | <= 1e-09 | 1.000e-09 | PASS |
+| **test_free_energy_decreases_while_relaxing_in_a_field** | | | | |
+| energy released | 53.0219 | >= 0.5 | 0.5 | PASS |
+| worst single-step ΔF / energy released | -1.320e-08 | <= 1e-06 | 1.000e-06 | PASS |
+| **test_normal_supercurrent_vanishes_on_external_boundaries** | | | | |
+| bulk current scale (non-trivial state) | 0.397249 | >= 0.0001 | 1.000e-04 | PASS |
+| max\|J_n\| on x_lo face | 4.165e-19 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|J_n\| on x_hi face | 3.899e-19 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|J_n\| on y_lo face | 7.915e-19 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|J_n\| on y_hi face | 8.040e-19 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|J_n\| on z_lo face | 7.100e-19 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|J_n\| on z_hi face | 8.040e-19 | <= 1e-12 | 1.000e-12 | PASS |
+| **test_supercurrent_is_divergence_free_in_steady_state** | | | | |
+| state drift between saved steps | 8.183e-12 | <= 1e-06 | 1.000e-06 | PASS |
+| max\|∇·J_s\| · h / max\|J_s\| | 5.569e-14 | <= 1e-06 | 1.000e-06 | PASS |
+| **test_uniform_state_is_an_exact_fixed_point** | | | | |
+| max\|dX/dt\| | 0 | <= 1e-13 | 1.000e-13 | PASS |
+| kinetic + magnetic energy | 0 | <= 1e-13 | 1.000e-13 | PASS |
+| condensation energy per unit volume | -0.5 | -0.5 | 1.000e-12 | PASS |
+
+### Symmetry and boundary conditions
+
+| Check | Measured | Expected | Tolerance | Status |
+|-------|----------|----------|-----------|--------|
+| **test_applied_field_vectors_are_uniform_on_each_face** | | | | |
+| max deviation of Bz on x_lo | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of Bz on x_hi | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of Bz on y_lo | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of Bz on y_hi | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of Bx on y_lo | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of Bx on z_hi | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of By on x_hi | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max deviation of By on z_lo | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| **test_applied_flux_on_boundary_plaquettes[8x8]** | | | | |
+| flux on the hi/hi corner plaquette | 0.12 | 0.12 | 1.200e-11 | PASS |
+| max deviation of boundary ring from B_applied | 2.776e-17 | <= 1.2e-11 | 1.201e-11 | PASS |
+| state drift once relaxed | 8.954e-11 | <= 1e-08 | 1.000e-08 | PASS |
+| screened interior field / applied | 0.941456 | <= 0.99 | 0.99 | PASS |
+| **test_applied_flux_on_boundary_plaquettes[9x7]** | | | | |
+| flux on the hi/hi corner plaquette | 0.12 | 0.12 | 1.200e-11 | PASS |
+| max deviation of boundary ring from B_applied | 2.776e-17 | <= 1.2e-11 | 1.201e-11 | PASS |
+| state drift once relaxed | 8.286e-11 | <= 1e-08 | 1.000e-08 | PASS |
+| screened interior field / applied | 0.942774 | <= 0.99 | 0.99 | PASS |
+| **test_bfield_evaluators_agree[5x7x6]** | | | | |
+| max\|eval_bfield(subset) − reference\| | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max\|eval_bfield(all interior) − reference\| | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| len(bfield_interior) | 60 | 60 | 0 | PASS |
+| **test_bfield_evaluators_agree[6x6x1]** | | | | |
+| max\|eval_bfield(subset) − reference\| | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max\|eval_bfield(all interior) − reference\| | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| len(bfield_interior) | 16 | 16 | 0 | PASS |
+| **test_bfield_evaluators_agree[9x5x1]** | | | | |
+| max\|eval_bfield(subset) − reference\| | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| max\|eval_bfield(all interior) − reference\| | 0 | <= 1e-14 | 1.000e-14 | PASS |
+| len(bfield_interior) | 21 | 21 | 0 | PASS |
+| **test_c4_symmetry_of_a_square_device** | | | | |
+| Bz contrast (screening present, so the test is non-trivial) | 0.0322938 | >= 0.001 | 0.001 | PASS |
+| max\|ψ\| − R₉₀\|ψ\|\| | 1.110e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|Bz − R₉₀Bz\| | 5.551e-17 | <= 1e-12 | 1.000e-12 | PASS |
+| **test_field_reversal_flips_b_and_preserves_psi** | | | | |
+| B scale (non-trivial state) | 0.334784 | >= 0.001 | 0.001 | PASS |
+| max\|Bz(+B) + Bz(−B)\| | 0 | <= 1e-12 | 1.000e-12 | PASS |
+| max\| \|ψ(+B)\| − \|ψ(−B)\| \| | 0 | <= 1e-12 | 1.000e-12 | PASS |
+| **test_indices_are_within_bounds_on_ragged_grids** | | | | |
+| index arrays checked | 67 | >= 40 | 40 | PASS |
+| worst overshoot past the last valid index | -1 | <= -1 | -1 | PASS |
+| **test_interior_numbering_matches_documented_strides[5x7x6]** | | | | |
+| mismatched entries of interior_to_full | 0 | <= 0 | 0 | PASS |
+| reshape stride mismatch | 0 | <= 0 | 0 | PASS |
+| **test_interior_numbering_matches_documented_strides[6x6x1]** | | | | |
+| mismatched entries of interior_to_full | 0 | <= 0 | 0 | PASS |
+| reshape stride mismatch | 0 | <= 0 | 0 | PASS |
+| **test_interior_numbering_matches_documented_strides[9x5x1]** | | | | |
+| mismatched entries of interior_to_full | 0 | <= 0 | 0 | PASS |
+| reshape stride mismatch | 0 | <= 0 | 0 | PASS |
+| **test_mirror_symmetry_of_a_rectangular_device** | | | | |
+| Bz contrast | 0.0272986 | >= 0.001 | 0.001 | PASS |
+| max\|ψ(x) − ψ(−x)\| | 1.110e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|ψ(y) − ψ(−y)\| | 1.110e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|Bz(x) − Bz(−x)\| | 8.327e-17 | <= 1e-12 | 1.000e-12 | PASS |
+| max\|Bz(y) − Bz(−y)\| | 5.551e-17 | <= 1e-12 | 1.000e-12 | PASS |
+| **test_solution_reshape_helpers_are_consistent** | | | | |
+| shape[0] | 10 | 10 | 0 | PASS |
+| shape[1] | 5 | 5 | 0 | PASS |
+| max\|reshape − stride-indexed\| | 0 | <= 1e-15 | 1.000e-15 | PASS |
+
+### Analytic limits
+
+| Check | Measured | Expected | Tolerance | Status |
+|-------|----------|----------|-----------|--------|
+| **test_covariant_laplacian_is_second_order_accurate** | | | | |
+| observed order of accuracy | 1.99835 | 2 | 0.15 | PASS |
+| error at h = 0.1 | 2.214e-04 | <= 0.001 | 0.001 | PASS |
+| **test_covariant_laplacian_reduces_to_the_standard_laplacian** | | | | |
+| max\|L_covariant(A=0) − L_standard\| | 0 | <= 1e-13 | 1.000e-13 | PASS |
+| **test_forward_euler_is_first_order_in_dt** | | | | |
+| observed order in dt | 1.00371 | 1 | 0.1 | PASS |
+| Richardson error at the smallest dt | 1.854e-05 | <= 0.001 | 0.001 | PASS |
+| **test_insulator_order_parameter_decays_with_the_stated_time_constant** | | | | |
+| points used in the fit | 30 | >= 5 | 5 | PASS |
+| fitted τ | 0.090997 | 0.1 | 0.02 | PASS |
+| residual \|ψ\| in the insulator | 0.0776087 | <= 0.15 | 0.15 | PASS |
+| **test_london_penetration_depth_equals_kappa[kappa=1.5]** | | | | |
+| state drift (equilibrium reached) | 3.696e-08 | <= 1e-06 | 1.000e-06 | PASS |
+| min \|ψ\| (still Meissner, no vortices) | 0.999794 | >= 0.9 | 0.9 | PASS |
+| λ from the screening profile | 1.61931 | 1.5 | 0.15 | PASS |
+| **test_london_penetration_depth_equals_kappa[kappa=3.0]** | | | | |
+| state drift (equilibrium reached) | 1.009e-07 | <= 1e-06 | 1.000e-06 | PASS |
+| min \|ψ\| (still Meissner, no vortices) | 0.998855 | >= 0.9 | 0.9 | PASS |
+| λ from the screening profile | 3.13849 | 3 | 0.3 | PASS |
+| **test_lowest_landau_level_of_covariant_laplacian[Bz=0.1]** | | | | |
+| max\|∇×A − B\| for the Landau-gauge links | 5.274e-16 | <= 1e-13 | 1.000e-13 | PASS |
+| non-Hermiticity of −(∇ − iA)² | 0 | <= 1e-13 | 1.000e-13 | PASS |
+| lowest eigenvalue E₀ | 0.100006 | 0.1 | 0.003 | PASS |
+| **test_lowest_landau_level_of_covariant_laplacian[Bz=0.2]** | | | | |
+| max\|∇×A − B\| for the Landau-gauge links | 1.055e-15 | <= 1e-13 | 1.000e-13 | PASS |
+| non-Hermiticity of −(∇ − iA)² | 0 | <= 1e-13 | 1.000e-13 | PASS |
+| lowest eigenvalue E₀ | 0.198753 | 0.2 | 0.006 | PASS |
+| **test_penetration_depth_converges_with_grid_refinement** | | | | |
+| \|λ − κ\| at h = 1.0 | 0.348405 | <= 0.7 | 0.7 | PASS |
+| \|λ − κ\| at h = 0.5 | 0.105629 | <= 0.2 | 0.2 | PASS |
+| error ratio fine/coarse | 0.30318 | <= 0.75 | 0.75 | PASS |
+| **test_trapezoidal_agrees_with_euler_in_the_small_dt_limit** | | | | |
+| max\|X_trapezoidal − X_euler\| / \|X\| | 1.563e-05 | <= 0.001 | 0.001 | PASS |
+| **test_zero_field_ground_state_is_the_uniform_condensate** | | | | |
+| min \|ψ\| | 1 | 1 | 1.000e-04 | PASS |
+| max \|ψ\| | 1 | 1 | 1.000e-04 | PASS |
+| max \|B\| in the relaxed state | 8.327e-17 | <= 1e-06 | 1.000e-06 | PASS |
+| max \|dX/dt\| at the fixed point | 4.442e-15 | <= 0.0001 | 1.000e-04 | PASS |
+
+### Vortices and flux quantisation
+
+| Check | Measured | Expected | Tolerance | Status |
+|-------|----------|----------|-----------|--------|
+| **test_fluxoid_equals_enclosed_vorticity_for_any_contour** | | | | |
+| max \|fluxoid − nearest integer\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − enclosed vorticity\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| \|staircase fluxoid − enclosed vorticity\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| **test_no_vortices_in_the_meissner_state** | | | | |
+| vortex count | 0 | 0 | 0 | PASS |
+| max \|vorticity\| anywhere | 2.209e-18 | <= 1e-09 | 1.000e-09 | PASS |
+| min \|ψ\| | 0.999159 | >= 0.95 | 0.95 | PASS |
+| **test_plaquette_vorticity_is_an_exact_integer** | | | | |
+| plaquettes carrying vorticity | 8 | >= 1 | 1 | PASS |
+| max \|vorticity − nearest integer\| | 2.297e-16 | <= 1e-10 | 1.000e-10 | PASS |
+| **test_vortex_count_increases_with_the_applied_field** | | | | |
+| largest decrease in count along the sweep | -4 | <= 0 | 0 | PASS |
+| increase from the lowest to the highest field | 12 | >= 1 | 1 | PASS |
+| count / (B·A/Φ₀) at Bz = 0.35 | 0 | <= 1 | 1 | PASS |
+| count / (B·A/Φ₀) at Bz = 0.5 | 0.19635 | <= 1 | 1 | PASS |
+| count / (B·A/Φ₀) at Bz = 0.7 | 0.420749 | <= 1 | 1 | PASS |
+| mean interior Bz / applied at Bz = 0.35 | 0.42922 | <= 1 | 1 | PASS |
+| mean interior Bz / applied at Bz = 0.5 | 0.68131 | <= 1 | 1 | PASS |
+| mean interior Bz / applied at Bz = 0.7 | 0.853044 | <= 1 | 1 | PASS |
+| **test_vortex_winding_sign_follows_the_applied_field[Bz=-0.5]** | | | | |
+| vortices detected | 8 | >= 1 | 1 | PASS |
+| distinct winding values | 1 | 1 | 0 | PASS |
+| common winding | -1 | -1 | 0 | PASS |
+| max \|winding\| | 1 | 1 | 0 | PASS |
+| **test_vortex_winding_sign_follows_the_applied_field[Bz=0.5]** | | | | |
+| vortices detected | 8 | >= 1 | 1 | PASS |
+| distinct winding values | 1 | 1 | 0 | PASS |
+| common winding | 1 | 1 | 0 | PASS |
+| max \|winding\| | 1 | 1 | 0 | PASS |
+| **test_vortices_grow_from_zero_and_saturate** | | | | |
+| vortex count at t = 0 | 0 | 0 | 0 | PASS |
+| final vortex count | 8 | >= 1 | 1 | PASS |
+| time of first vortex entry | 10 | <= 30 | 30 | PASS |
+| std/mean of the count over the final quarter | 0 | <= 0.25 | 0.25 | PASS |
+
+### Heterostructures
+
+| Check | Measured | Expected | Tolerance | Status |
+|-------|----------|----------|-----------|--------|
+| **test_insulator_mask_suppresses_the_order_parameter** | | | | |
+| insulator nodes present | 48 | >= 1 | 1 | PASS |
+| mean \|ψ\| in the insulator | 0.0304171 | <= 0.15 | 0.15 | PASS |
+| max \|ψ\| in the superconductor | 0.99084 | >= 0.95 | 0.95 | PASS |
+| mean \|ψ\| in the superconductor | 0.865684 | >= 0.75 | 0.75 | PASS |
+| **test_trilayer_bfield_penetration_profile** | | | | |
+| Bz in the bottom Nb layer / applied | 0.66143 | <= 0.8 | 0.8 | PASS |
+| Bz in the bottom Nb layer / applied | 0.66143 | >= 0 | 0 | PASS |
+| Bz in the top Nb layer / applied | 0.769987 | <= 0.8 | 0.8 | PASS |
+| Bz in the top Nb layer / applied | 0.769987 | >= 0 | 0 | PASS |
+| Bz in the SiO₂ layer / applied | 9.535e-08 | <= 0.001 | 0.001 | PASS |
+| **test_trilayer_external_z_boundary_jn** | | | | |
+| max \|J_z\| on the bottom face | 1.637e-21 | <= 1e-12 | 1.000e-12 | PASS |
+| max \|J_z\| on the top face | 2.943e-21 | <= 1e-12 | 1.000e-12 | PASS |
+| **test_trilayer_kappa_discontinuity** | | | | |
+| LPHI_x diagonal in the superconductor | -16 | -16 | 1.000e-12 | PASS |
+| LPHI_x diagonal in the insulator | 0 | 0 | 1.000e-12 | PASS |
+
+## Test details
+
+### test_applied_field_vectors_are_uniform_on_each_face
+
+_a uniform applied field must be uniform on every face it is imposed on_
 
 - **Status:** PASS
 - **Duration:** 0.000s
-- **Parameters:** Nx=4, Nz=4, Bz=0.5
-- **Diagnostics:**
-  - `max_div_b`: 5.18e-05
-  - `mean_div_b`: 5.18e-05
-  - `max_B_magnitude`: 0.1271
-  - `div_to_B_ratio`: 4.08e-04
+- **Parameters:** Nx=7, Ny=6, Nz=5, Bx=0.3, By=-0.2, Bz=1
+- **PASS** max deviation of Bz on x_lo: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of Bz on x_hi: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of Bz on y_lo: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of Bz on y_hi: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of Bx on y_lo: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of Bx on z_hi: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of By on x_hi: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max deviation of By on z_lo: measured 0, expected <= 1e-14 — must not exceed 1e-14
 
-### B-field reversal symmetry
+### test_applied_flux_on_boundary_plaquettes[8x8]
 
-- **Status:** PASS
-- **Duration:** 0.100s
-- **Parameters:** Nx=6, Bz=0.5, n_steps=20
-- **Diagnostics:**
-  - `max_asymmetry`: 0.0000
-
-### B-field uniform at boundary
+_the boundary condition must impose B_applied on each boundary plaquette exactly once_
 
 - **Status:** PASS
 - **Duration:** 0.000s
-- **Parameters:** Nx=6, Bz=1.0
+- **Parameters:** Nx=8, Ny=8, h=0.5, Bz=0.12
+- **PASS** flux on the hi/hi corner plaquette: measured 0.12, expected 0.12 — must be B_applied, not 2 B_applied
+- **PASS** max deviation of boundary ring from B_applied: measured 2.776e-17, expected <= 1.2e-11 — must not exceed 1.2e-11
+- **PASS** state drift once relaxed: measured 8.954e-11, expected <= 1e-08 — an over-counted corner drives an unbounded drift of the corner links
+- **PASS** screened interior field / applied: measured 0.941456, expected <= 0.99 — the interior must be screened below the applied field
 - **Diagnostics:**
-  - `bz_x_lo_mean`: 1.0000
-  - `bz_x_hi_mean`: 1.0000
-  - `bz_y_lo_mean`: 1.0000
-  - `bz_y_hi_mean`: 1.0000
-  - `bz_x_lo_std`: 0.0000
+  - `corner_hi_hi`: 0.12
+  - `boundary_ring_min`: 0.12
+  - `boundary_ring_max`: 0.12
+  - `interior_min`: 0.0981056
 
-### C4 symmetry preserved
+### test_applied_flux_on_boundary_plaquettes[9x7]
+
+_the boundary condition must impose B_applied on each boundary plaquette exactly once_
 
 - **Status:** PASS
 - **Duration:** 0.000s
-- **Parameters:** Nx=8, kappa=2.0, Bz=0.5
+- **Parameters:** Nx=9, Ny=7, h=0.5, Bz=0.12
+- **PASS** flux on the hi/hi corner plaquette: measured 0.12, expected 0.12 — must be B_applied, not 2 B_applied
+- **PASS** max deviation of boundary ring from B_applied: measured 2.776e-17, expected <= 1.2e-11 — must not exceed 1.2e-11
+- **PASS** state drift once relaxed: measured 8.286e-11, expected <= 1e-08 — an over-counted corner drives an unbounded drift of the corner links
+- **PASS** screened interior field / applied: measured 0.942774, expected <= 0.99 — the interior must be screened below the applied field
 - **Diagnostics:**
-  - `max_symmetry_violation`: 3.97e-22
+  - `corner_hi_hi`: 0.12
+  - `boundary_ring_min`: 0.12
+  - `boundary_ring_max`: 0.12
+  - `interior_min`: 0.0986514
 
-### CFL unstable (above limit)
+### test_bfield_evaluators_agree[5x7x6]
+
+_one curl stencil, one answer, on any grid shape_
 
 - **Status:** PASS
-- **Duration:** 0.096s
-- **Parameters:** Nx=5, kappa=2.0, cfl=0.0625, dt=0.1875
+- **Duration:** 0.000s
+- **Parameters:** Nx=5, Ny=7, Nz=6
+- **PASS** max|eval_bfield(subset) − reference|: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max|eval_bfield(all interior) − reference|: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** len(bfield_interior): measured 60, expected 60 — |measured - expected| <= 0
+- **Diagnostics:**
+  - `b_scale`: 1.48934
+
+### test_bfield_evaluators_agree[6x6x1]
+
+_one curl stencil, one answer, on any grid shape_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=6, Ny=6, Nz=1
+- **PASS** max|eval_bfield(subset) − reference|: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max|eval_bfield(all interior) − reference|: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** len(bfield_interior): measured 16, expected 16 — |measured - expected| <= 0
+- **Diagnostics:**
+  - `b_scale`: 1.10429
+
+### test_bfield_evaluators_agree[9x5x1]
+
+_one curl stencil, one answer, on any grid shape_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=5, Nz=1
+- **PASS** max|eval_bfield(subset) − reference|: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** max|eval_bfield(all interior) − reference|: measured 0, expected <= 1e-14 — must not exceed 1e-14
+- **PASS** len(bfield_interior): measured 21, expected 21 — |measured - expected| <= 0
+- **Diagnostics:**
+  - `b_scale`: 1.3361
+
+### test_c4_symmetry_of_a_square_device
+
+_a square sample in a uniform out-of-plane field is invariant under 90° rotation_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=10, Ny=10, h=0.5, Bz=0.15
+- **PASS** Bz contrast (screening present, so the test is non-trivial): measured 0.0322938, expected >= 0.001 — must be at least 0.001
+- **PASS** max|ψ| − R₉₀|ψ||: measured 1.110e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|Bz − R₉₀Bz|: measured 5.551e-17, expected <= 1e-12 — must not exceed 1e-12
+- **Diagnostics:**
+  - `psi_contrast`: 0.00476886
+  - `bz_contrast`: 0.0322938
+
+### test_covariant_laplacian_is_second_order_accurate
+
+_the discrete Laplacian must converge at second order_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** k=[0.7, 0.4], h_values=[0.4, 0.2, 0.1]
+- **PASS** observed order of accuracy: measured 1.99835, expected 2 — |measured - expected| <= 0.15
+- **PASS** error at h = 0.1: measured 2.214e-04, expected <= 0.001 — must not exceed 0.001
+- **Diagnostics:**
+  - `errors`: 0.1=2.214e-04, 0.2=8.851e-04, 0.4=0.00353402
+
+### test_covariant_laplacian_reduces_to_the_standard_laplacian
+
+_the Peierls factors must be the only difference from the plain Laplacian_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=7, hx=0.4, hy=0.6
+- **PASS** max|L_covariant(A=0) − L_standard|: measured 0, expected <= 1e-13 — must not exceed 1e-13
+- **Diagnostics:**
+  - `operator_scale`: 18.0556
+
+### test_curl_curl_operator_is_divergence_free[7x6x6]
+
+_the discrete curl-curl operator must annihilate gradients exactly_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=7, Ny=6, Nz=6
+- **PASS** max|∇·(∇×∇×A)| / scale: measured 2.432e-16, expected <= 1e-13 — must not exceed 1e-13
+- **Diagnostics:**
+  - `operator_scale`: 10.9543
+
+### test_curl_curl_operator_is_divergence_free[9x8x1]
+
+_the discrete curl-curl operator must annihilate gradients exactly_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=8, Nz=1
+- **PASS** max|∇·(∇×∇×A)| / scale: measured 2.918e-16, expected <= 1e-13 — must not exceed 1e-13
+- **Diagnostics:**
+  - `operator_scale`: 6.08859
+
+### test_divergence_of_discrete_curl_is_exactly_zero[6x7x8]
+
+_∇·B must vanish identically, not merely to discretisation order_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=6, Ny=7, Nz=8
+- **PASS** bulk nodes tested: measured 120, expected >= 1 — must be at least 1
+- **PASS** max|∇·B| / max|B|: measured 3.204e-16, expected <= 1e-13 — forward-difference divergence of the forward plaquette curl
+- **Diagnostics:**
+  - `n_bulk_nodes`: 120
+  - `B_scale`: 2.07885
+
+### test_divergence_of_discrete_curl_is_exactly_zero[8x7x1]
+
+_∇·B must vanish identically, not merely to discretisation order_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=8, Ny=7, Nz=1
+- **PASS** bulk nodes tested: measured 30, expected >= 1 — must be at least 1
+- **PASS** max|∇·B| / max|B|: measured 0, expected <= 1e-13 — forward-difference divergence of the forward plaquette curl
+- **Diagnostics:**
+  - `n_bulk_nodes`: 30
+  - `B_scale`: 1.6196
+
+### test_field_reversal_flips_b_and_preserves_psi
+
+_the GL equations are invariant under B → −B combined with ψ → ψ*_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=7, Bz=0.4, n_steps=60
+- **PASS** B scale (non-trivial state): measured 0.334784, expected >= 0.001 — must be at least 0.001
+- **PASS** max|Bz(+B) + Bz(−B)|: measured 0, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max| |ψ(+B)| − |ψ(−B)| |: measured 0, expected <= 1e-12 — must not exceed 1e-12
+- **Diagnostics:**
+  - `B_scale`: 0.334784
+
+### test_fluxoid_equals_enclosed_vorticity_for_any_contour
+
+_the fluxoid is a topological invariant of the region, not of the path_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=20, kappa=2, Bz=0.5
+- **PASS** max |fluxoid − nearest integer|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − enclosed vorticity|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |staircase fluxoid − enclosed vorticity|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
+- **Diagnostics:**
+  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=1.767e-17, enclosed_vorticity=0
+  - `staircase_fluxoid`: 6
+  - `staircase_enclosed`: 6
+
+### test_forward_euler_is_first_order_in_dt
+
+_explicit Euler must show first-order global convergence_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=8, Ny=7, t_stop=0.5, dt_max=0.0078125
+- **PASS** observed order in dt: measured 1.00371, expected 1 — |measured - expected| <= 0.1
+- **PASS** Richardson error at the smallest dt: measured 1.854e-05, expected <= 0.001 — must not exceed 0.001
+- **Diagnostics:**
+  - `richardson_errors`: 9.766e-04=1.854e-05, 1.953e-03=3.713e-05, 3.906e-03=7.441e-05, 7.812e-03=1.495e-04
+
+### test_forward_euler_is_stable_below_the_cfl_limit
+
+_the explicit step size limit is set by the κ²∇×∇× term_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=6, kappa=2, cfl_limit=0.0625
+- **PASS** max|ψ|² at dt = 0.9 dt_CFL: measured 1, expected 1 — relaxes to the uniform state without amplification
+- **PASS** min|ψ|² at dt = 0.9 dt_CFL: measured 1, expected 1 — |measured - expected| <= 0.05
+- **PASS** run at dt = 3 dt_CFL loses the superconducting state: measured 1, expected >= 1 — must be at least 1
 - **Diagnostics:**
   - `cfl_limit`: 0.0625
-  - `dt_used`: 0.1875
-  - `has_nan`: False
-  - `max_psi_final`: 7.82e-05
-  - `mean_psi_final`: 2.07e-05
+  - `max_psi2_stable`: 1
+  - `min_psi2_stable`: 1
+  - `unstable_run_diverged`: True
 
-### CFL stable (below limit)
+### test_free_energy_decreases_monotonically_at_zero_field
 
-- **Status:** PASS
-- **Duration:** 0.025s
-- **Parameters:** Nx=5, kappa=2.0, cfl=0.0625, dt=0.05625
-- **Diagnostics:**
-  - `cfl_limit`: 0.0625
-  - `dt_used`: 0.0563
-  - `max_psi2`: 1.0010
-  - `min_psi2`: 0.9993
-
-### Energy dissipation
-
-- **Status:** PASS
-- **Duration:** 0.040s
-- **Parameters:** Nx=6, kappa=2.0, Bz=0.5, n_steps=30
-- **Diagnostics:**
-  - `F_initial`: 12.4730
-  - `F_final`: 12.9718
-  - `max_energy_increase`: 0.0084
-  - `tolerance`: 0.0836
-
-### Insulator |ψ| decay
-
-- **Status:** PASS
-- **Duration:** 0.100s
-- **Parameters:** Nx=4, Nz=6
-- **Diagnostics:**
-  - `tau_fit`: 0.0885
-  - `tau_expected`: 0.1000
-  - `fit_converged`: True
-  - `psi_steady_state`: 0.0770
-  - `tau_rel_error`: 0.1147
-
-### Meissner screening
-
-- **Status:** PASS
-- **Duration:** 4.039s
-- **Parameters:** Nx=30, Ny=8, kappa=2.0, Bz=0.1
-- **Diagnostics:**
-  - `lambda_fit`: 11.1742
-  - `lambda_expected`: 2.0000
-  - `fit_converged`: True
-  - `bfield_edge_left`: 0.0699
-  - `bfield_edge_right`: 0.0699
-  - `bfield_center`: 0.0357
-  - `x_positions`: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0]
-  - `r_squared`: 0.7441
-  - `fit_center`: 0.0179
-
-### Supercurrent zero at boundary
+_TDGL is a gradient flow of the GL free energy, so F(t) is non-increasing_
 
 - **Status:** PASS
 - **Duration:** 0.000s
-- **Parameters:** Nx=6, Bz=0.5
+- **Parameters:** Nx=12, Ny=11, h=0.5, kappa=2, dt=0.007812, n_steps=400
+- **PASS** energy released (test would be vacuous otherwise): measured 44.1063, expected >= 1 — must be at least 1
+- **PASS** steps on which F increased: measured 0, expected <= 0 — out of 400 steps
+- **PASS** worst single-step ΔF / energy released: measured -9.570e-10, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
-  - `max_boundary_link_phi`: 0.0000
+  - `F_initial`: 30.3563
+  - `F_final`: -13.75
+  - `energy_released`: 44.1063
+  - `n_steps_increasing`: 0
 
-### Trilayer B penetration
+### test_free_energy_decreases_while_relaxing_in_a_field
+
+_relaxation at fixed applied field lowers the free energy_
 
 - **Status:** PASS
-- **Duration:** 2.372s
+- **Duration:** 0.000s
+- **Parameters:** Nx=12, h=0.5, kappa=2, Bz=0.15
+- **PASS** energy released: measured 53.0219, expected >= 0.5 — must be at least 0.5
+- **PASS** worst single-step ΔF / energy released: measured -1.320e-08, expected <= 1e-06 — must not exceed 1e-06
+- **Diagnostics:**
+  - `F_initial`: 40.1134
+  - `F_final`: -12.9085
+  - `energy_released`: 53.0219
+
+### test_global_phase_rotation_is_exact_symmetry
+
+_global U(1) symmetry holds even with an applied field on the boundary_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=8, alpha=0.7, Bz=0.4
+- **PASS** max|dψ/dt rotation error|: measured 9.155e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|dφ/dt change|: measured 4.441e-16, expected <= 1e-12 — must not exceed 1e-12
+
+### test_indices_are_within_bounds_on_ragged_grids
+
+_index arrays must stay in range for every grid aspect ratio_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** grids=4x9x3, 9x4x3, 3x4x9, 5x5x2
+- **PASS** index arrays checked: measured 67, expected >= 40 — must be at least 40
+- **PASS** worst overshoot past the last valid index: measured -1, expected <= -1 — must not exceed -1
+- **Diagnostics:**
+  - `index_arrays_checked`: 67
+
+### test_insulator_mask_suppresses_the_order_parameter
+
+_the material mask must separate superconducting from insulating nodes_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=4, Ny=5, Nz=12, sc_thickness=4
+- **PASS** insulator nodes present: measured 48, expected >= 1 — must be at least 1
+- **PASS** mean |ψ| in the insulator: measured 0.0304171, expected <= 0.15 — residual value is proximity leakage from the adjacent layers
+- **PASS** max |ψ| in the superconductor: measured 0.99084, expected >= 0.95 — the middle of a 4-cell layer must recover the bulk condensate
+- **PASS** mean |ψ| in the superconductor: measured 0.865684, expected >= 0.75 — must be at least 0.75
+- **Diagnostics:**
+  - `n_insulator_nodes`: 48
+  - `psi_z_profile`: [0.965496, 0.900018, 0.663562, 0.055719, 0.00506601, 0.00507301, 0.0558101, 0.664649, … (11 values)]
+  - `sc_mask_z_profile`: [1, 1, 1, 0, 0, 0, 0, 1, … (11 values)]
+
+### test_insulator_order_parameter_decays_with_the_stated_time_constant
+
+_the insulator relaxation term must act on its documented time scale_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nz=6, tau_expected=0.1
+- **PASS** points used in the fit: measured 30, expected >= 5 — must be at least 5
+- **PASS** fitted τ: measured 0.090997, expected 0.1 — |measured - expected| <= 0.02
+- **PASS** residual |ψ| in the insulator: measured 0.0776087, expected <= 0.15 — proximity leakage from the neighbouring superconductors
+- **Diagnostics:**
+  - `tau_fit`: 0.090997
+  - `psi_steady_state`: 0.0776087
+
+### test_interior_numbering_matches_documented_strides[5x7x6]
+
+_interior arrays are C-ordered over (Nx-1, Ny-1, Nz-1)_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=5, Ny=7, Nz=6
+- **PASS** mismatched entries of interior_to_full: measured 0, expected <= 0 — must not exceed 0
+- **PASS** reshape stride mismatch: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `strides`: [30, 5, 1]
+
+### test_interior_numbering_matches_documented_strides[6x6x1]
+
+_interior arrays are C-ordered over (Nx-1, Ny-1, Nz-1)_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=6, Ny=6, Nz=1
+- **PASS** mismatched entries of interior_to_full: measured 0, expected <= 0 — must not exceed 0
+- **PASS** reshape stride mismatch: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `strides`: [5, 1, 1]
+
+### test_interior_numbering_matches_documented_strides[9x5x1]
+
+_interior arrays are C-ordered over (Nx-1, Ny-1, Nz-1)_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=5, Nz=1
+- **PASS** mismatched entries of interior_to_full: measured 0, expected <= 0 — must not exceed 0
+- **PASS** reshape stride mismatch: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `strides`: [4, 1, 1]
+
+### test_london_penetration_depth_equals_kappa[kappa=1.5]
+
+_λ = κ in these units — the field decays as exp(-x/κ) into the bulk_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=24, h=0.5, kappa=1.5, Bz=0.02, L_over_lambda=8
+- **PASS** state drift (equilibrium reached): measured 3.696e-08, expected <= 1e-06 — must not exceed 1e-06
+- **PASS** min |ψ| (still Meissner, no vortices): measured 0.999794, expected >= 0.9 — must be at least 0.9
+- **PASS** λ from the screening profile: measured 1.61931, expected 1.5 — London penetration depth must equal the GL parameter κ
+- **Diagnostics:**
+  - `lambda_fit`: 1.61931
+  - `profile`: [0.0144655, 0.0105224, 0.00771877, 0.00573052, 0.00432546, 0.00333788]
+  - `state_drift`: 3.696e-08
+
+### test_london_penetration_depth_equals_kappa[kappa=3.0]
+
+_λ = κ in these units — the field decays as exp(-x/κ) into the bulk_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=48, h=0.5, kappa=3, Bz=0.02, L_over_lambda=8
+- **PASS** state drift (equilibrium reached): measured 1.009e-07, expected <= 1e-06 — must not exceed 1e-06
+- **PASS** min |ψ| (still Meissner, no vortices): measured 0.998855, expected >= 0.9 — must be at least 0.9
+- **PASS** λ from the screening profile: measured 3.13849, expected 3 — London penetration depth must equal the GL parameter κ
+- **Diagnostics:**
+  - `lambda_fit`: 3.13849
+  - `profile`: [0.0169869, 0.014442, 0.0122933, 0.01048, 0.00895069, 0.00766161, 0.0065758, 0.0056619, … (12 values)]
+  - `state_drift`: 1.009e-07
+
+### test_lowest_landau_level_of_covariant_laplacian[Bz=0.1]
+
+_the covariant Laplacian's ground-state energy is the lowest Landau level_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** L=24, h=0.5, Bz=0.1
+- **PASS** max|∇×A − B| for the Landau-gauge links: measured 5.274e-16, expected <= 1e-13 — the test field must really be uniform before the spectrum means anything
+- **PASS** non-Hermiticity of −(∇ − iA)²: measured 0, expected <= 1e-13 — must not exceed 1e-13
+- **PASS** lowest eigenvalue E₀: measured 0.100006, expected 0.1 — E₀ = B places H_c2 at B = 1
+- **Diagnostics:**
+  - `E0`: 0.100006
+  - `B_c2_implied`: 0.99994
+
+### test_lowest_landau_level_of_covariant_laplacian[Bz=0.2]
+
+_the covariant Laplacian's ground-state energy is the lowest Landau level_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** L=24, h=0.5, Bz=0.2
+- **PASS** max|∇×A − B| for the Landau-gauge links: measured 1.055e-15, expected <= 1e-13 — the test field must really be uniform before the spectrum means anything
+- **PASS** non-Hermiticity of −(∇ − iA)²: measured 0, expected <= 1e-13 — must not exceed 1e-13
+- **PASS** lowest eigenvalue E₀: measured 0.198753, expected 0.2 — E₀ = B places H_c2 at B = 1
+- **Diagnostics:**
+  - `E0`: 0.198753
+  - `B_c2_implied`: 1.00627
+
+### test_mirror_symmetry_of_a_rectangular_device
+
+_reflection symmetry on a non-square grid — a transposed index would break it_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=12, Ny=8, h=0.5, Bz=0.15
+- **PASS** Bz contrast: measured 0.0272986, expected >= 0.001 — must be at least 0.001
+- **PASS** max|ψ(x) − ψ(−x)|: measured 1.110e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|ψ(y) − ψ(−y)|: measured 1.110e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|Bz(x) − Bz(−x)|: measured 8.327e-17, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|Bz(y) − Bz(−y)|: measured 5.551e-17, expected <= 1e-12 — must not exceed 1e-12
+- **Diagnostics:**
+  - `psi_contrast`: 0.00447933
+
+### test_no_vortices_in_the_meissner_state
+
+_below H_c1 flux is expelled and the order parameter stays uniform_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=16, kappa=2, Bz=0.03
+- **PASS** vortex count: measured 0, expected 0 — |measured - expected| <= 0
+- **PASS** max |vorticity| anywhere: measured 2.209e-18, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** min |ψ|: measured 0.999159, expected >= 0.95 — no cores means no suppression of the order parameter
+- **Diagnostics:**
+  - `n_vortices`: 0
+  - `psi_min`: 0.999159
+
+### test_normal_supercurrent_vanishes_on_external_boundaries
+
+_no supercurrent may cross the superconductor/vacuum interface_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=8, Ny=7, Nz=6, Bz=0.4
+- **PASS** bulk current scale (non-trivial state): measured 0.397249, expected >= 0.0001 — must be at least 0.0001
+- **PASS** max|J_n| on x_lo face: measured 4.165e-19, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|J_n| on x_hi face: measured 3.899e-19, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|J_n| on y_lo face: measured 7.915e-19, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|J_n| on y_hi face: measured 8.040e-19, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|J_n| on z_lo face: measured 7.100e-19, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max|J_n| on z_hi face: measured 8.040e-19, expected <= 1e-12 — must not exceed 1e-12
+- **Diagnostics:**
+  - `bulk_current_scale`: 0.397249
+
+### test_observables_are_gauge_invariant[10x10x1]
+
+_every measurable quantity must be independent of the gauge_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=10, Ny=10, Nz=1, kappa=2
+- **PASS** max Δ|ψ|: measured 2.220e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max ΔB: measured 2.776e-16, expected <= 1e-11 — must not exceed 1e-11
+- **PASS** max ΔJ_s: measured 2.220e-16, expected <= 1.04e-11 — must not exceed 1.04e-11
+- **PASS** Δ free energy: measured 0, expected <= 5.47e-08 — must not exceed 5.47e-08
+- **Diagnostics:**
+  - `B_scale`: 0.891155
+  - `J_scale`: 1.04104
+  - `free_energy`: 54.6602
+
+### test_observables_are_gauge_invariant[6x7x5]
+
+_every measurable quantity must be independent of the gauge_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=6, Ny=7, Nz=5, kappa=2
+- **PASS** max Δ|ψ|: measured 2.220e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max ΔB: measured 2.220e-16, expected <= 1e-11 — must not exceed 1e-11
+- **PASS** max ΔJ_s: measured 1.665e-16, expected <= 1.55e-11 — must not exceed 1.55e-11
+- **PASS** Δ free energy: measured 2.842e-14, expected <= 1.9e-07 — must not exceed 1.9e-07
+- **Diagnostics:**
+  - `B_scale`: 0.941579
+  - `J_scale`: 1.55302
+  - `free_energy`: 190.385
+
+### test_observables_are_gauge_invariant[9x7x1]
+
+_every measurable quantity must be independent of the gauge_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=7, Nz=1, kappa=3
+- **PASS** max Δ|ψ|: measured 3.331e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max ΔB: measured 3.331e-16, expected <= 1e-11 — must not exceed 1e-11
+- **PASS** max ΔJ_s: measured 2.220e-16, expected <= 1e-11 — must not exceed 1e-11
+- **PASS** Δ free energy: measured 0, expected <= 5.61e-08 — must not exceed 5.61e-08
+- **Diagnostics:**
+  - `B_scale`: 0.804717
+  - `J_scale`: 0.875324
+  - `free_energy`: 56.0777
+
+### test_penetration_depth_converges_with_grid_refinement
+
+_the measured λ must approach κ as the grid is refined_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** L=16, kappa=2, h_values=[1, 0.5]
+- **PASS** |λ − κ| at h = 1.0: measured 0.348405, expected <= 0.7 — must not exceed 0.7
+- **PASS** |λ − κ| at h = 0.5: measured 0.105629, expected <= 0.2 — must not exceed 0.2
+- **PASS** error ratio fine/coarse: measured 0.30318, expected <= 0.75 — refinement must reduce the discretisation error
+- **Diagnostics:**
+  - `lambda_h1.0`: 2.3484
+  - `lambda_h0.5`: 2.10563
+
+### test_plaquette_vorticity_is_an_exact_integer
+
+_Σ wrap(Δθ − φ) + Φ_plaquette is exactly 2π × integer_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=20, kappa=2, Bz=0.5
+- **PASS** plaquettes carrying vorticity: measured 8, expected >= 1 — must be at least 1
+- **PASS** max |vorticity − nearest integer|: measured 2.297e-16, expected <= 1e-10 — must not exceed 1e-10
+- **Diagnostics:**
+  - `n_charged_plaquettes`: 8
+  - `vorticity_values`: [0, 1]
+
+### test_rhs_covariant_with_material_map
+
+_a spatially varying κ and an insulator mask must not break gauge covariance_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nz=6, kappa_sc=2
+- **PASS** max covariance violation: measured 4.885e-15, expected <= 1.84e-10 — must not exceed 1.84e-10
+- **Diagnostics:**
+  - `rhs_scale`: 18.4327
+
+### test_rhs_is_gauge_covariant[10x10x1]
+
+_dψ/dt must rotate with the gauge phase and dφ/dt must be invariant_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=10, Ny=10, Nz=1, kappa=2
+- **PASS** max|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)|: measured 9.930e-16, expected <= 8.15e-11 — ψ-equation must be covariant under ψ→ψe^{iχ}, φ→φ+Δχ
+- **PASS** max|dφ/dt(GX) − dφ/dt(X)|: measured 2.665e-15, expected <= 8.15e-11 — the supercurrent source and curl-curl term must be gauge invariant
+- **Diagnostics:**
+  - `rhs_scale`: 8.14607
+  - `gauge_amplitude`: 0.772115
+
+### test_rhs_is_gauge_covariant[6x7x5]
+
+_dψ/dt must rotate with the gauge phase and dφ/dt must be invariant_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=6, Ny=7, Nz=5, kappa=2
+- **PASS** max|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)|: measured 1.337e-15, expected <= 1.21e-10 — ψ-equation must be covariant under ψ→ψe^{iχ}, φ→φ+Δχ
+- **PASS** max|dφ/dt(GX) − dφ/dt(X)|: measured 4.441e-15, expected <= 1.21e-10 — the supercurrent source and curl-curl term must be gauge invariant
+- **Diagnostics:**
+  - `rhs_scale`: 12.1096
+  - `gauge_amplitude`: 0.764307
+
+### test_rhs_is_gauge_covariant[9x7x1]
+
+_dψ/dt must rotate with the gauge phase and dφ/dt must be invariant_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=9, Ny=7, Nz=1, kappa=3
+- **PASS** max|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)|: measured 1.332e-15, expected <= 1.02e-10 — ψ-equation must be covariant under ψ→ψe^{iχ}, φ→φ+Δχ
+- **PASS** max|dφ/dt(GX) − dφ/dt(X)|: measured 6.217e-15, expected <= 1.02e-10 — the supercurrent source and curl-curl term must be gauge invariant
+- **Diagnostics:**
+  - `rhs_scale`: 10.1619
+  - `gauge_amplitude`: 0.764307
+
+### test_solution_reshape_helpers_are_consistent
+
+_the 2-D view must be indexed [i, j] with the interior strides_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=11, Ny=6
+- **PASS** shape[0]: measured 10, expected 10 — |measured - expected| <= 0
+- **PASS** shape[1]: measured 5, expected 5 — |measured - expected| <= 0
+- **PASS** max|reshape − stride-indexed|: measured 0, expected <= 1e-15 — must not exceed 1e-15
+- **Diagnostics:**
+  - `shape`: [10, 5]
+
+### test_supercurrent_is_divergence_free_in_steady_state
+
+_∂(∇·A)/∂t = ∇·J_s, so a stationary gauge field forces a solenoidal current_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=14, h=0.5, kappa=2, Bz=0.12
+- **PASS** state drift between saved steps: measured 8.183e-12, expected <= 1e-06 — must not exceed 1e-06
+- **PASS** max|∇·J_s| · h / max|J_s|: measured 5.569e-14, expected <= 1e-06 — must not exceed 1e-06
+- **Diagnostics:**
+  - `J_scale`: 0.0795678
+  - `state_drift_between_saves`: 8.183e-12
+
+### test_trapezoidal_agrees_with_euler_in_the_small_dt_limit
+
+_two independent integrators of the same right-hand side must agree_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=5, Ny=4, t_stop=0.1, Bz=0.25
+- **PASS** max|X_trapezoidal − X_euler| / |X|: measured 1.563e-05, expected <= 0.001 — must not exceed 0.001
+- **Diagnostics:**
+  - `state_scale`: 1.02792
+  - `relative_difference`: 1.563e-05
+
+### test_trilayer_bfield_penetration_profile
+
+_each layer's magnetic response follows its material parameters_
+
+- **Status:** PASS
+- **Duration:** 0.000s
 - **Parameters:** Nx=4, Nz=6, Bz=0.3
+- **PASS** Bz in the bottom Nb layer / applied: measured 0.66143, expected <= 0.8 — the superconducting layers must screen
+- **PASS** Bz in the bottom Nb layer / applied: measured 0.66143, expected >= 0 — must be at least 0
+- **PASS** Bz in the top Nb layer / applied: measured 0.769987, expected <= 0.8 — the superconducting layers must screen
+- **PASS** Bz in the top Nb layer / applied: measured 0.769987, expected >= 0 — must be at least 0
+- **PASS** Bz in the SiO₂ layer / applied: measured 9.535e-08, expected <= 0.001 — KNOWN LIMITATION: κ = 0 freezes the gauge field in the insulator
 - **Diagnostics:**
-  - `bz_bottom`: 0.1984
-  - `bz_insulator`: 1.16e-07
-  - `bz_top`: 0.2310
-  - `bz_applied`: 0.3000
-  - `sc_screened`: True
-  - `sc_screening_ratio_bottom`: 0.6614
-  - `sc_screening_ratio_top`: 0.7700
-  - `insulator_penetration_ratio`: 3.85e-07
+  - `bz_profile`: [0.198429, 8.204e-08, -2.484e-08, 0.208116, 0.253876]
+  - `bz_applied`: 0.3
 
-### Trilayer z-boundary J_n
+### test_trilayer_external_z_boundary_jn
 
-- **Status:** PASS
-- **Duration:** 0.059s
-- **Parameters:** Nx=4, Nz=6, Bz=0.5
-- **Diagnostics:**
-  - `max_jn_z_lo`: 0.0000
-  - `max_jn_z_hi`: 0.0000
-
-### Trilayer κ discontinuity
-
-- **Status:** PASS
-- **Duration:** 0.006s
-- **Parameters:** Nx=4, Nz=6
-- **Diagnostics:**
-  - `sc_diag_mean`: -16.0000
-  - `ins_diag_mean`: 0.0000
-  - `expected_sc`: -16.0000
-  - `expected_ins`: 0.0000
-  - `sc_error`: 0.0000
-  - `ins_error`: 0.0000
-
-### Uniform state zero RHS
+_the z-faces of the stack are superconductor/vacuum interfaces_
 
 - **Status:** PASS
 - **Duration:** 0.000s
-- **Parameters:** Nx=6, Ny=6
+- **Parameters:** Nx=5, Ny=4, Nz=6, Bz=0.5
+- **PASS** max |J_z| on the bottom face: measured 1.637e-21, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max |J_z| on the top face: measured 2.943e-21, expected <= 1e-12 — must not exceed 1e-12
 - **Diagnostics:**
-  - `max_rhs`: 0.0000
-  - `mean_rhs`: 0.0000
+  - `bulk_Jz_scale`: 1.663e-05
 
-### Vortex entry & counting
+### test_trilayer_kappa_discontinuity
+
+_a spatially varying κ must appear in the operator coefficients exactly_
 
 - **Status:** PASS
-- **Duration:** 8.446s
-- **Parameters:** Nx=20, kappa=2.0, Bz=0.5
+- **Duration:** 0.000s
+- **Parameters:** Nx=4, Ny=5, Nz=6, kappa=2
+- **PASS** LPHI_x diagonal in the superconductor: measured -16, expected -16 — |measured - expected| <= 1e-12
+- **PASS** LPHI_x diagonal in the insulator: measured 0, expected 0 — κ = 0 there, so the curl-curl term must switch off entirely
 - **Diagnostics:**
-  - `n_vortices`: 25
-  - `expected_approx`: 127.3240
+  - `k_superconductor`: 1
+  - `k_insulator`: 2
+
+### test_uniform_state_is_an_exact_fixed_point
+
+_the Meissner ground state must not drift_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=7, Ny=6, Nz=5
+- **PASS** max|dX/dt|: measured 0, expected <= 1e-13 — must not exceed 1e-13
+- **PASS** kinetic + magnetic energy: measured 0, expected <= 1e-13 — a uniform state carries no gradient or field energy
+- **PASS** condensation energy per unit volume: measured -0.5, expected -0.5 — -|ψ|² + ½|ψ|⁴ = -½ at |ψ| = 1
+- **Diagnostics:**
+  - `free_energy_terms`: condensation=-60, kinetic=0, magnetic=0, total=-60
+
+### test_vortex_count_increases_with_the_applied_field
+
+_the mixed state admits more flux quanta as the applied field rises_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=16, kappa=2, Bz_values=[0.35, 0.5, 0.7]
+- **PASS** largest decrease in count along the sweep: measured -4, expected <= 0 — counts [0, 4, 12] at Bz [0.35, 0.5, 0.7] must not decrease
+- **PASS** increase from the lowest to the highest field: measured 12, expected >= 1 — must be at least 1
+- **PASS** count / (B·A/Φ₀) at Bz = 0.35: measured 0, expected <= 1 — screening keeps the interior field below the applied field
+- **PASS** count / (B·A/Φ₀) at Bz = 0.5: measured 0.19635, expected <= 1 — screening keeps the interior field below the applied field
+- **PASS** count / (B·A/Φ₀) at Bz = 0.7: measured 0.420749, expected <= 1 — screening keeps the interior field below the applied field
+- **PASS** mean interior Bz / applied at Bz = 0.35: measured 0.42922, expected <= 1 — the sample still screens in the mixed state
+- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.68131, expected <= 1 — the sample still screens in the mixed state
+- **PASS** mean interior Bz / applied at Bz = 0.7: measured 0.853044, expected <= 1 — the sample still screens in the mixed state
+- **Diagnostics:**
+  - `vortex_counts`: [0, 4, 12]
+  - `applied_flux_quanta`: [14.26, 20.37, 28.52]
+  - `interior_field_over_applied`: [0.4292, 0.6813, 0.853]
+
+### test_vortex_count_is_gauge_invariant
+
+_plaquette vorticity is a topological invariant of the gauge-field configuration_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=14, kappa=2, Bz=0.6
+- **PASS** vortices present (test would be vacuous otherwise): measured 8, expected >= 1 — must be at least 1
+- **PASS** vortex count after gauge change: measured 8, expected 8 — |measured - expected| <= 0
+- **PASS** max Δ(plaquette vorticity): measured 2.220e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |winding change|: measured 2.220e-16, expected <= 1e-09 — must not exceed 1e-09
+- **Diagnostics:**
+  - `n_vortices`: 8
+  - `windings`: [1, 1, 1, 1, 1, 1, 1, 1]
+
+### test_vortex_winding_sign_follows_the_applied_field[Bz=-0.5]
+
+_vortices in a uniform field are all of the same chirality as the field_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=20, kappa=2, Bz=-0.5
+- **PASS** vortices detected: measured 8, expected >= 1 — must be at least 1
+- **PASS** distinct winding values: measured 1, expected 1 — found [-1]
+- **PASS** common winding: measured -1, expected -1 — winding sign must match the sign of the applied field
+- **PASS** max |winding|: measured 1, expected 1 — singly quantised vortices at this field
+- **Diagnostics:**
+  - `n_vortices`: 8
+  - `winding_values`: [-1]
+
+### test_vortex_winding_sign_follows_the_applied_field[Bz=0.5]
+
+_vortices in a uniform field are all of the same chirality as the field_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=20, kappa=2, Bz=0.5
+- **PASS** vortices detected: measured 8, expected >= 1 — must be at least 1
+- **PASS** distinct winding values: measured 1, expected 1 — found [1]
+- **PASS** common winding: measured 1, expected 1 — winding sign must match the sign of the applied field
+- **PASS** max |winding|: measured 1, expected 1 — singly quantised vortices at this field
+- **Diagnostics:**
+  - `n_vortices`: 8
+  - `winding_values`: [1]
+
+### test_vortices_grow_from_zero_and_saturate
+
+_vortices must nucleate from the uniform state and reach a steady number_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=20, kappa=2, Bz=0.5, t_stop=60
+- **PASS** vortex count at t = 0: measured 0, expected 0 — |measured - expected| <= 0
+- **PASS** final vortex count: measured 8, expected >= 1 — must be at least 1
+- **PASS** time of first vortex entry: measured 10, expected <= 30 — must not exceed 30
+- **PASS** std/mean of the count over the final quarter: measured 0, expected <= 0.25 — the vortex population must settle rather than keep growing
+- **Diagnostics:**
+  - `times`: [0, 5, 10, 15, 20, 25, 30, 35, … (13 values)]
+  - `vortex_counts`: [0, 0, 8, 8, 8, 8, 8, 8, … (13 values)]
+  - `t_first_vortex`: 10
+
+### test_zero_field_ground_state_is_the_uniform_condensate
+
+_|ψ| = 1 minimises −|ψ|² + ½|ψ|⁴; the ground state must reach it_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=10, Ny=8, h=0.5, kappa=2
+- **PASS** min |ψ|: measured 1, expected 1 — |measured - expected| <= 0.0001
+- **PASS** max |ψ|: measured 1, expected 1 — |measured - expected| <= 0.0001
+- **PASS** max |B| in the relaxed state: measured 8.327e-17, expected <= 1e-06 — must not exceed 1e-06
+- **PASS** max |dX/dt| at the fixed point: measured 4.442e-15, expected <= 0.0001 — must not exceed 0.0001
+- **Diagnostics:**
+  - `psi_min`: 1
+  - `psi_max`: 1
