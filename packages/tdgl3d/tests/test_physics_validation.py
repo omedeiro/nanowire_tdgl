@@ -33,6 +33,7 @@ the insulator mask enter the operators.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from tdgl3d import (
     AppliedField,
     Device,
@@ -49,6 +50,7 @@ from tdgl3d.solvers.integrators import forward_euler
 
 from .physics_helpers import (
     applied_boundary,
+    cfl_limit,
     expand_state,
     zero_boundary,
 )
@@ -166,33 +168,104 @@ def test_trilayer_external_z_boundary_jn(phys_log):
         log.check_below("max |J_z| on the top face", hi_current, 1e-12)
 
 
-def test_trilayer_bfield_penetration_profile(phys_log):
-    """The Nb layers screen the applied field; the SiO₂ layer does not respond.
-
-    The insulator's ``Bz ≈ 0`` is a *solver limitation*, not physics: with
-    ``κ = 0`` the whole φ-equation degenerates there (``LPHI ∝ κ² = 0`` and
-    ``FPHI ∝ J_s ∝ ψ = 0``), so the gauge field is frozen at its initial value
-    inside the insulator and cannot carry the field that should pass straight
-    through it.  The check below pins that behaviour so a future fix — giving
-    the insulator a vacuum permeability instead of ``κ = 0`` — is visible as a
-    test failure rather than a silent change.
-    """
-    trilayer = _trilayer()
-    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=2.0)
-    bz = 0.3
-    device = Device(params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0), trilayer=trilayer)
-    idx, material = device.idx, device.material
-
-    boundary = applied_boundary(params, idx, bz=bz)
+def _relax_stack(params, idx, material, boundary, t_stop=15.0, device=None):
+    """Integrate a trilayer device at a fixed applied field and return the state."""
     _, states = forward_euler(
-        device.initial_state().data, params, idx, lambda t, X: boundary,
-        0.0, 15.0, 0.01, save_every=10**9, progress=False, material=material,
+        device.initial_state(noise_amplitude=0.0).data, params, idx,
+        lambda t, X: boundary, 0.0, t_stop, 0.5 * cfl_limit(params),
+        save_every=10**9, progress=False, material=material,
     )
-    _, px, py, pz = expand_state(states[:, -1], params, idx, boundary)
-    field = eval_bfield_full(px, py, pz, params, idx)[2]
+    return states[:, -1]
 
+
+def _layer_field_profile(state, params, idx, boundary):
+    """Bz along z at the centre of the stack, one entry per interior z-plane."""
+    _, px, py, pz = expand_state(state, params, idx, boundary)
+    field = eval_bfield_full(px, py, pz, params, idx)[2]
     nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
-    profile = np.real(field.reshape(nx_int, ny_int, nz_int)[nx_int // 2, ny_int // 2, :])
+    return np.real(field.reshape(nx_int, ny_int, nz_int)[nx_int // 2, ny_int // 2, :])
+
+
+@pytest.mark.parametrize("kappa_insulator", [0.0, 2.0])
+def test_insulator_kappa_controls_field_transmission(kappa_insulator, phys_log):
+    """κ in a non-superconducting layer decides whether it can carry a field.
+
+    The φ-equation is ``∂A/∂t = J_s − κ²∇×∇×A``.  In a layer with ``ψ = 0`` the
+    supercurrent term vanishes, so the layer relaxes towards the magnetostatic
+    solution ``∇×∇×A = 0`` at a rate set by ``κ²`` — *any* positive κ gives the
+    same steady state, only faster or slower.  Setting ``κ = 0`` removes the
+    only remaining term: the gauge field there is frozen at its initial value
+    and the layer transmits nothing.
+
+    ``Layer(kappa=0.0, is_superconductor=False)`` is therefore a modelling
+    choice with real consequences, not a neutral way of saying "not a
+    superconductor". Give an oxide the same κ as the metal unless the field is
+    meant to be blocked.
+    """
+    kappa_sc, bz = 2.0, 0.1
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=4, kappa=kappa_sc),
+        insulator=Layer(thickness_z=4, kappa=kappa_insulator, is_superconductor=False),
+        top=Layer(thickness_z=4, kappa=kappa_sc),
+    )
+    params = SimulationParameters(
+        Nx=12, Ny=12, Nz=trilayer.Nz, hx=0.5, hy=0.5, hz=0.5, kappa=kappa_sc
+    )
+    device = Device(
+        params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0), trilayer=trilayer
+    )
+    idx = device.idx
+    boundary = applied_boundary(params, idx, bz=bz)
+    state = _relax_stack(params, idx, device.material, boundary, device=device)
+    profile = _layer_field_profile(state, params, idx, boundary) / bz
+
+    ranges = trilayer.z_ranges()
+    start, stop = ranges["insulator"]
+    insulator_mean = float(np.mean(profile[max(start, 1) - 1 : stop - 1]))
+
+    name = f"test_insulator_kappa_controls_field_transmission[kappa={kappa_insulator}]"
+    with phys_log.test(
+        name,
+        {"Nz": trilayer.Nz, "kappa_sc": kappa_sc, "kappa_insulator": kappa_insulator, "Bz": bz},
+        "a κ = 0 layer freezes the gauge field; a κ > 0 layer transmits the field",
+    ) as log:
+        log["bz_profile_over_applied"] = [float(v) for v in profile]
+        log["insulator_mean_over_applied"] = insulator_mean
+        if kappa_insulator == 0.0:
+            log.check_below(
+                "Bz in the insulator / applied", abs(insulator_mean), 1e-6,
+                detail="κ = 0 leaves no term able to evolve A there",
+            )
+        else:
+            log.check_above(
+                "Bz in the insulator / applied", insulator_mean, 0.5,
+                detail="a non-superconducting layer with κ > 0 lets the field through",
+            )
+
+
+def test_trilayer_superconducting_layers_screen(phys_log):
+    """With a transmitting oxide, both Nb layers still screen the applied field.
+
+    Run with ``κ_insulator = κ_SC`` so the stack is magnetically continuous;
+    the screening then comes from the superconducting layers rather than from a
+    frozen gauge field in the middle.
+    """
+    kappa, bz = 2.0, 0.1
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=4, kappa=kappa),
+        insulator=Layer(thickness_z=4, kappa=kappa, is_superconductor=False),
+        top=Layer(thickness_z=4, kappa=kappa),
+    )
+    params = SimulationParameters(
+        Nx=16, Ny=16, Nz=trilayer.Nz, hx=0.5, hy=0.5, hz=0.5, kappa=kappa
+    )
+    device = Device(
+        params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0), trilayer=trilayer
+    )
+    idx = device.idx
+    boundary = applied_boundary(params, idx, bz=bz)
+    state = _relax_stack(params, idx, device.material, boundary, t_stop=20.0, device=device)
+    profile = _layer_field_profile(state, params, idx, boundary) / bz
 
     ranges = trilayer.z_ranges()
 
@@ -200,24 +273,22 @@ def test_trilayer_bfield_penetration_profile(phys_log):
         start, stop = ranges[name]
         return float(np.mean(profile[max(start, 1) - 1 : stop - 1]))
 
+    bottom, top = layer_mean("bottom"), layer_mean("top")
+
     with phys_log.test(
-        "test_trilayer_bfield_penetration_profile",
-        {"Nx": 4, "Nz": trilayer.Nz, "Bz": bz},
-        "each layer's magnetic response follows its material parameters",
+        "test_trilayer_superconducting_layers_screen",
+        {"Nx": 16, "Nz": trilayer.Nz, "kappa": kappa, "Bz": bz},
+        "both superconducting layers of a magnetically continuous stack screen",
     ) as log:
-        log["bz_profile"] = [float(v) for v in profile]
-        log["bz_applied"] = bz
-        for name in ("bottom", "top"):
-            log.check_below(
-                f"Bz in the {name} Nb layer / applied", layer_mean(name) / bz, 0.8,
-                detail="the superconducting layers must screen",
-            )
-            log.check_above(
-                f"Bz in the {name} Nb layer / applied", layer_mean(name) / bz, 0.0,
-            )
-        log.check_below(
-            "Bz in the SiO₂ layer / applied", abs(layer_mean("insulator")) / bz, 1e-3,
-            detail="KNOWN LIMITATION: κ = 0 freezes the gauge field in the insulator",
+        log["bz_profile_over_applied"] = [float(v) for v in profile]
+        log["bottom_over_applied"] = bottom
+        log["top_over_applied"] = top
+        log.check_below("Bz in the bottom Nb layer / applied", bottom, 0.98)
+        log.check_below("Bz in the top Nb layer / applied", top, 0.98)
+        log.check_above("Bz in the bottom Nb layer / applied", bottom, 0.0)
+        log.check_close(
+            "top/bottom screening asymmetry", top / bottom, 1.0, atol=0.15,
+            detail="the stack is symmetric about its mid-plane",
         )
 
 
