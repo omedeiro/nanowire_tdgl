@@ -26,6 +26,14 @@ from .core.parameters import SimulationParameters
 from .core.solution import Solution
 from .core.state import StateVector
 from .core.units import PHI0_WB, GLUnits
+from .physics.analytic import (
+    gl_wall_interface_value,
+    gl_wall_profile,
+    interior_node_positions,
+    london_slab_1d,
+    london_square_2d,
+    plaquette_positions,
+)
 from .physics.applied_field import AppliedField
 from .physics.free_energy import gl_free_energy, gl_free_energy_terms
 from .solvers.runner import solve
@@ -50,6 +58,12 @@ __all__ = [
     "plaquette_vorticity",
     "count_hole_flux_quanta",
     "GLUnits",
+    "gl_wall_interface_value",
+    "gl_wall_profile",
+    "interior_node_positions",
+    "london_slab_1d",
+    "london_square_2d",
+    "plaquette_positions",
     "PHI0_WB",
     "ExpulsionResult",
     "expulsion_field",

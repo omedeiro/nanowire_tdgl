@@ -38,6 +38,7 @@ SCRIPTS = [
         "hole_bc_verification_crosssection.png",
     ]),
     ("vortex_entry_dynamics", ["vortex_entry_dynamics.gif"]),
+    ("analytic_cross_sections", ["analytic_cross_sections.png"]),
 ]
 
 

@@ -40,7 +40,7 @@ tolerance allowed.
 | `test_verification_gauge.py` | ψ → ψe^{iχ}, A → A + ∇χ leaves dφ/dt, \|ψ\|, B, J_s, F and the vortex count unchanged |
 | `test_verification_conservation.py` | ∇·B = 0 and ∇·(∇×∇×A) = 0 to round-off; F is a Lyapunov functional; ∇·J_s = 0 in steady state; J_n = 0 on every face |
 | `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
-| `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt |
+| `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt; B against the exact London series and \|ψ\| against the exact pair-breaking wall, both to second order in h |
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
 | `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents |
 
@@ -402,3 +402,72 @@ a symmetry check, but a metastable branch can then only be broken by round-off,
 which delays flux entry by an amount set by floating-point precision rather than
 by the energy barrier. This study seeds a perturbation and checks the answer
 against one a thousand times smaller.
+
+---
+
+## 14. Cross-Sections Against Closed-Form Solutions
+
+![Cross-sections against exact solutions](figures/analytic_cross_sections.png)
+
+**Physical mechanism:** The coupled TDGL equations have no general closed-form
+solution, but two limits do, and between them they exercise each equation on its
+own:
+
+* **London limit.** Force `|ψ| = 1` by using a weak field, and the ψ-equation
+  drops out. What remains is `∇²B = B/λ²`. On a square with the field pinned on
+  the boundary this has an exact Fourier solution — a superposition of the two
+  one-sided problems, each a sine series in the transverse coordinate with cosh
+  decay in the longitudinal one (`tdgl3d.london_square_2d`). This tests the
+  `κ²∇×∇×` operator and the applied-field boundary condition.
+* **Pair-breaking wall.** Set the field to zero and the gauge field drops out.
+  The ψ-equation reduces to `ψ'' = -ψ + ψ³`, which against an insulator has the
+  exact solution `tanh((x - x₀)/√2)` (`tdgl3d.gl_wall_profile`). This tests the
+  covariant Laplacian, the nonlinear term and the material mask.
+
+**Neither comparison has a fitted parameter.** In the wall case the offset `x₀`
+is *derived*: the superconductor's first integral `ψ' = (1 - ψ²)/√2` and the
+insulator's relaxation `ψ = u e^{x/√τ}` must agree in value and slope at the
+interface, which gives `√τ u² + √2 u - √τ = 0` and hence `u = 0.213422`,
+`x₀ = -0.306536 ξ` at the solver's `τ = 0.1`. A disagreement is therefore a real
+disagreement, not a bad fit.
+
+**Validates:** `test_verification_analytic.py`
+
+**Parameters:** London — 16×16 ξ square, κ=2.0, Bz=0.02, relaxed 15 τ_GL.
+Wall — 24 ξ strip with a half-plane hole, zero field, relaxed 40 τ_GL. Both at
+h = 1, 0.5 and 0.25 ξ. Bottom row: the §13 micron ring at 8.2 mT.
+
+**Validation metrics:**
+
+| | h = 1 ξ | h = 0.5 ξ | h = 0.25 ξ | order in h |
+|---|---|---|---|---|
+| London, rms/B₀ | 4.12e-03 | 1.12e-03 | 3.50e-04 | **1.78** |
+| wall, rms \|ψ\| | 4.97e-02 | 1.72e-02 | 4.77e-03 | **1.69** |
+
+The residual falling with the grid at close to second order is the point: it
+identifies the disagreement as the solver's own discretisation error rather than
+a modelling difference. A constant residual, or one converging at first order,
+would indicate a bug — and did during development, twice.
+
+**Two half-cell traps.** Both models are posed on a continuum, so the comparison
+depends on where the discrete quantities actually sit, and being off by half a
+cell degrades second order to first without otherwise looking wrong:
+
+- `B` is plaquette-centred, and the boundary condition pins the whole ring of
+  plaquettes *including the ghost anchor* that the interior array does not
+  carry. The pinned-to-pinned span is `(N-1)h`, and interior entry `i-1` sits at
+  `i·h` from its low end — not at the plaquette centre measured from zero. See
+  `tdgl3d.physics.analytic.plaquette_positions`.
+- The material coefficient jumps *between* nodes, so the effective wall is at
+  the midpoint of the last insulator node and the first superconducting one.
+  Anchoring on either node costs a factor of `h`.
+
+**The bottom row is the honest part.** Applied to the real micron device,
+neither model holds exactly, and the residual plot says where each stops
+applying: the screening current suppresses ψ at the outer edge, and the oxide
+suppresses it from below, capping the plateau at 0.971 rather than the 1 the
+semi-infinite zero-field model asymptotes to. Within about 1 ξ of the hole edge,
+where neither effect dominates, the wall model holds.
+
+**Regenerating:** `python3 docs/figures/analytic_cross_sections.py` — about
+3 minutes (six relaxations plus the ring).

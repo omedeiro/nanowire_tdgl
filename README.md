@@ -42,6 +42,30 @@ survives refinement.
 | [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
 | **Fluxoid vs time** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S screening** — the Nb layers screen; the oxide transmits, provided it is given a non-zero κ. |
 
+### Checks against exact solutions
+
+Two limits of the coupled equations have closed-form solutions, and between them
+they exercise each equation on its own. Both comparisons have **no fitted
+parameters**, and both are run at three grid spacings so the residual can be
+shown to be discretisation error rather than disagreement.
+
+In the **London limit** (|ψ| = 1, so the ψ-equation drops out) a square with the
+field pinned on its boundary obeys ∇²B = B/λ², which has an exact Fourier
+solution. The solver matches it to **rms 4.1e-3 · B₀ at h = 1 ξ, falling to
+3.5e-4 at h = 0.25 ξ — observed order 1.8 in h**.
+
+At a **pair-breaking wall** (zero field, so the gauge field drops out)
+ψ'' = −ψ + ψ³ gives tanh((x − x₀)/√2), with the offset x₀ fixed by matching to
+the insulator's relaxation rather than fitted. The solver matches it to **rms
+5.0e-2 at h = 1 ξ, falling to 4.8e-3 at h = 0.25 ξ — observed order 1.7 in h**.
+The √2 is the physics being checked: the Ginzburg-Landau healing length is
+√2 ξ, not ξ.
+
+[![Cross-sections against exact solutions](docs/figures/analytic_cross_sections.png)](docs/figures/analytic_cross_sections.png)
+
+The bottom row applies the same two models to the micron ring, where neither
+holds exactly — and says where each stops applying.
+
 ### Meissner screening and vortices
 
 | | |

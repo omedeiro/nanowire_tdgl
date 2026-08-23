@@ -182,6 +182,43 @@ geometry is a different simulation at different temperatures — a 4 µm film is
 40 ξ across for Nb at T/T_c ≈ 0.86 (ξ = 100 nm) and 400 ξ across well below T_c,
 which is the difference between a minute and an intractable run.
 
+## Analytical benchmarks
+
+Two limits of the coupled equations have closed-form solutions, and each isolates
+one of them. `tdgl3d.physics.analytic` carries both, along with the coordinate
+helpers the comparisons need.
+
+* **London** — `|ψ| = 1` (weak field), so the ψ-equation drops out and the gauge
+  field obeys `∇²B = B/λ²`. On a square with the field pinned on the boundary
+  `london_square_2d` is the exact Fourier solution. Two practical notes: the
+  series converges to `B₀` on the open edges but `B₀/2` at the corners, so stay
+  a few cells clear of a corner; and the naive `cosh(ka)/cosh(kb)` overflows to
+  `nan` past about the 400th term, which is why `_cosh_ratio` exists.
+* **Pair-breaking wall** — zero field, so the gauge field drops out and
+  `ψ'' = -ψ + ψ³` gives `tanh((x - x₀)/√2)`. The offset is **not fitted**:
+  matching ψ and ψ' to the insulator's `ψ = u e^{x/√τ}` gives
+  `√τ u² + √2 u - √τ = 0`, hence `u = 0.213422` and `x₀ = -0.306536 ξ` at the
+  solver's `τ = 0.1` (`INSULATOR_RELAXATION_TIME`). The `√2` is the physics: the
+  Ginzburg-Landau healing length is `√2 ξ`, not `ξ`.
+
+**Both comparisons depend on where the discrete quantities sit, to half a cell.**
+Getting it wrong degrades the observed order from 2 to 1 while leaving the
+profile looking correct, which is a slow thing to notice:
+
+* `B` is plaquette-centred, and the boundary condition pins the whole ring of
+  plaquettes — *including the ghost anchor 0* that the interior array does not
+  carry. The pinned-to-pinned span is `(N-1)h` wide and interior entry `i-1`
+  sits at `i·h` from its low end, which is what `plaquette_positions` returns.
+  Using the plaquette centres measured from `0` displaces the profile by a full
+  cell.
+* The material coefficient jumps *between* nodes, so the effective interface is
+  the midpoint of the last insulator node and the first superconducting one.
+  Anchoring on either node costs a factor of `h`.
+
+Measured against these, the solver reaches rms `4.12e-03 · B₀` (London) and
+`4.97e-02` in `|ψ|` (wall) at `h = 1 ξ`, converging at order 1.78 and 1.69
+respectively — see `test_verification_analytic.py` and gallery §14.
+
 ## Numerical limits
 
 * Forward Euler is stable for `dt < h²/(4κ²(d-1))` — the limit is set by the
