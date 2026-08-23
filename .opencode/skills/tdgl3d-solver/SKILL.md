@@ -78,7 +78,7 @@ src/tdgl3d/              <- importable package
     parameters.py        <- SimulationParameters: Nx,Ny,Nz, hx,hy,hz, kappa, periodic
     device.py            <- Device: bundles params + field + trilayer; builds idx & material
     state.py             <- StateVector: [psi, phi_x, phi_y, phi_z] with named views
-    solution.py          <- Solution: times + states matrix, .order_parameter(), .bfield()
+    solution.py          <- Solution: times + states matrix, .psi(), .psi_squared_2d(), .bfield()
     material.py          <- Layer, Trilayer, MaterialMap, build_material_map()
   mesh/
     indices.py           <- GridIndices: 26 index arrays, interior_to_full mapping
