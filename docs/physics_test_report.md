@@ -1,8 +1,8 @@
 # Physics Verification Report
 
-**Run timestamp:** 2026-08-23T13:39:08.611173
-**Tests:** 76/76 passed, 0 failed
-**Checks:** 259/259 passed (0 failed)
+**Run timestamp:** 2026-08-23T14:26:28.320831
+**Tests:** 77/77 passed, 0 failed
+**Checks:** 274/274 passed (0 failed)
 
 Each check records the measured value, the value physics requires and the tolerance allowed, so every line below is falsifiable. Tolerances near machine precision mark exact discrete identities; the wider ones are discretisation error bounds stated up front rather than fitted to the measurement.
 
@@ -44,8 +44,8 @@ Each check records the measured value, the value physics requires and the tolera
 | **test_vortex_count_is_gauge_invariant** | | | | |
 | vortices present (test would be vacuous otherwise) | 8 | >= 1 | 1 | PASS |
 | vortex count after gauge change | 8 | 8 | 0 | PASS |
-| max Δ(plaquette vorticity) | 3.004e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|winding change\| | 1.110e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max Δ(plaquette vorticity) | 3.331e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|winding change\| | 2.220e-16 | <= 1e-09 | 1.000e-09 | PASS |
 
 ### Conservation laws and identities
 
@@ -162,16 +162,15 @@ Each check records the measured value, the value physics requires and the tolera
 
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
-| **test_bfield_matches_the_exact_london_solution[h=0.5]** | | | | |
-| min \|ψ\| (London limit is applicable) | 0.999572 | >= 0.99 | 0.99 | PASS |
-| field at the centre / B₀ | 0.0755545 | <= 0.2 | 0.2 | PASS |
-| max \|solver − model\| / B₀ | 0.0021735 | <= 0.01 | 0.01 | PASS |
-| rms \|solver − model\| / B₀ | 0.00112196 | <= 0.005 | 0.005 | PASS |
-| **test_bfield_matches_the_exact_london_solution[h=1.0]** | | | | |
-| min \|ψ\| (London limit is applicable) | 0.999627 | >= 0.99 | 0.99 | PASS |
-| field at the centre / B₀ | 0.0894936 | <= 0.2 | 0.2 | PASS |
-| max \|solver − model\| / B₀ | 0.00490852 | <= 0.01 | 0.01 | PASS |
-| rms \|solver − model\| / B₀ | 0.00411878 | <= 0.005 | 0.005 | PASS |
+| **test_bfield_matches_the_exact_london_solution** | | | | |
+| min \|ψ\| at the coarsest h (London limit is applicable) | 0.999627 | >= 0.99 | 0.99 | PASS |
+| field at the centre / B₀ | 0.0702701 | <= 0.2 | 0.2 | PASS |
+| \|B(pinned plaquette) − B_applied\| / B₀ | 5.551e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| rms \|solver − model\| / B₀ at h = 1 ξ | 0.00408256 | <= 0.005 | 0.005 | PASS |
+| rms \|solver − model\| / B₀ at h = 0.25 ξ | 3.290e-04 | <= 0.0005 | 5.000e-04 | PASS |
+| max \|solver − model\| / B₀ at h = 0.25 ξ | 4.463e-04 | <= 0.001 | 0.001 | PASS |
+| observed order in h (whole profile) | 1.81668 | >= 1.7 | 1.7 | PASS |
+| observed order in h (bulk, >1 ξ from an edge) | 1.84113 | >= 1.75 | 1.75 | PASS |
 | **test_covariant_laplacian_is_second_order_accurate** | | | | |
 | observed order of accuracy | 1.99835 | 2 | 0.15 | PASS |
 | error at h = 0.1 | 2.214e-04 | <= 0.001 | 0.001 | PASS |
@@ -195,11 +194,20 @@ Each check records the measured value, the value physics requires and the tolera
 | **test_london_series_satisfies_its_own_equation** | | | | |
 | max \|∇²B − B/λ²\| at the finer grid | 2.400e-05 | <= 0.0001 | 1.000e-04 | PASS |
 | residual ratio on halving the check grid | 4.00022 | 4 | 1 | PASS |
-| max \|B − B₀\| on an edge, 1 ξ from a corner | 0.0143936 | <= 0.02 | 0.02 | PASS |
+| max \|B − B₀\| on an edge, 1 ξ from a corner | 0.00150745 | <= 0.002 | 0.002 | PASS |
 | finite values at n_terms = 201 | 1 | 1 | 0 | PASS |
 | finite values at n_terms = 2001 | 1 | 1 | 0 | PASS |
-| edge ringing at n_terms = 2001 | 5.883e-04 | <= 0.002 | 0.002 | PASS |
+| finite values at n_terms = 8001 | 1 | 1 | 0 | PASS |
+| edge ringing at the default n_terms = 2001 | 5.883e-04 | <= 0.002 | 0.002 | PASS |
 | ringing ratio 2001/201 | 0.0734807 | <= 0.2 | 0.2 | PASS |
+| ringing ratio 8001/2001 | 0.249962 | <= 0.5 | 0.5 | PASS |
+| **test_london_slab_is_the_wide_limit_of_the_square** | | | | |
+| max \|square − slab\| at W = 4 λ | 0.1223 | >= 0.05 | 0.05 | PASS |
+| max \|square − slab\| at W = 32 λ | 2.249e-07 | <= 1e-06 | 1.000e-06 | PASS |
+| deviation ratio W = 8 λ / 4 λ | 0.239485 | <= 0.3 | 0.3 | PASS |
+| deviation ratio W = 16 λ / 8 λ | 0.0222226 | <= 0.3 | 0.3 | PASS |
+| deviation ratio W = 32 λ / 16 λ | 3.455e-04 | <= 0.3 | 0.3 | PASS |
+| edge deviation floor at W = 32 λ | 3.180e-04 | <= 0.001 | 0.001 | PASS |
 | **test_lowest_landau_level_of_covariant_laplacian[Bz=0.1]** | | | | |
 | max\|∇×A − B\| for the Landau-gauge links | 5.274e-16 | <= 1e-13 | 1.000e-13 | PASS |
 | non-Hermiticity of −(∇ − iA)² | 0 | <= 1e-13 | 1.000e-13 | PASS |
@@ -213,11 +221,19 @@ Each check records the measured value, the value physics requires and the tolera
 | rms error at h = 1 ξ | 0.0496938 | <= 0.08 | 0.08 | PASS |
 | rms error at h = 0.25 ξ | 0.00476747 | <= 0.01 | 0.01 | PASS |
 | max error at h = 0.25 ξ | 0.0162006 | <= 0.03 | 0.03 | PASS |
-| observed order in h | 1.69088 | 2 | 0.5 | PASS |
+| observed order in h | 1.69088 | >= 1.5 | 1.5 | PASS |
+| rms \|ψ′ − (1 − ψ²)/√2\| at h = 1 ξ | 0.00934297 | <= 0.02 | 0.02 | PASS |
+| rms \|ψ′ − (1 − ψ²)/√2\| at h = 0.25 ξ | 8.034e-04 | <= 0.002 | 0.002 | PASS |
+| observed order in h (first integral) | 1.76982 | >= 1.5 | 1.5 | PASS |
 | **test_penetration_depth_converges_with_grid_refinement** | | | | |
 | \|λ − κ\| at h = 1.0 | 0.348405 | <= 0.7 | 0.7 | PASS |
 | \|λ − κ\| at h = 0.5 | 0.105629 | <= 0.2 | 0.2 | PASS |
 | error ratio fine/coarse | 0.30318 | <= 0.75 | 0.75 | PASS |
+| **test_three_dimensional_solver_reproduces_the_two_dimensional_london_solution** | | | | |
+| min \|ψ\| in the 3-D run | 0.999627 | >= 0.99 | 0.99 | PASS |
+| spread of Bz across z-slices / B₀ | 2.220e-16 | <= 1e-10 | 1.000e-10 | PASS |
+| max \|B_3D − B_2D\| / B₀ | 1.706e-10 | <= 1e-08 | 1.000e-08 | PASS |
+| max \|B_3D − model\| / B₀ | 0.00490852 | <= 0.01 | 0.01 | PASS |
 | **test_trapezoidal_agrees_with_euler_in_the_small_dt_limit** | | | | |
 | max\|X_trapezoidal − X_euler\| / \|X\| | 1.563e-05 | <= 0.001 | 0.001 | PASS |
 | **test_zero_field_ground_state_is_the_uniform_condensate** | | | | |
@@ -231,16 +247,16 @@ Each check records the measured value, the value physics requires and the tolera
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
 | **test_fluxoid_equals_enclosed_vorticity_for_any_contour** | | | | |
-| max \|fluxoid − nearest integer\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|fluxoid − enclosed vorticity\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
-| \|staircase fluxoid − enclosed vorticity\| | 2.665e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − nearest integer\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − enclosed vorticity\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| \|staircase fluxoid − enclosed vorticity\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
 | **test_no_vortices_in_the_meissner_state** | | | | |
 | vortex count | 0 | 0 | 0 | PASS |
 | max \|vorticity\| anywhere | 2.209e-18 | <= 1e-09 | 1.000e-09 | PASS |
 | min \|ψ\| | 0.999159 | >= 0.95 | 0.95 | PASS |
 | **test_plaquette_vorticity_is_an_exact_integer** | | | | |
 | plaquettes carrying vorticity | 8 | >= 1 | 1 | PASS |
-| max \|vorticity − nearest integer\| | 2.120e-16 | <= 1e-10 | 1.000e-10 | PASS |
+| max \|vorticity − nearest integer\| | 2.220e-16 | <= 1e-10 | 1.000e-10 | PASS |
 | **test_vortex_count_increases_with_the_applied_field** | | | | |
 | largest decrease in count along the sweep | -4 | <= 0 | 0 | PASS |
 | increase from the lowest to the highest field | 12 | >= 1 | 1 | PASS |
@@ -486,35 +502,26 @@ _one curl stencil, one answer, on any grid shape_
 - **Diagnostics:**
   - `b_scale`: 1.3361
 
-### test_bfield_matches_the_exact_london_solution[h=0.5]
+### test_bfield_matches_the_exact_london_solution
 
 _the screened field profile matches the closed-form London solution_
 
 - **Status:** PASS
 - **Duration:** 0.000s
-- **Parameters:** length=16, h=0.5, kappa=2, Bz=0.02
-- **PASS** min |ψ| (London limit is applicable): measured 0.999572, expected >= 0.99 — the model assumes |ψ| = 1; the check is void if ψ is suppressed
-- **PASS** field at the centre / B₀: measured 0.0755545, expected <= 0.2 — the sample really is screening, so the comparison has content
-- **PASS** max |solver − model| / B₀: measured 0.0021735, expected <= 0.01 — must not exceed 0.01
-- **PASS** rms |solver − model| / B₀: measured 0.00112196, expected <= 0.005 — must not exceed 0.005
+- **Parameters:** length=16, kappa=2, Bz=0.02, h_values=[1, 0.5, 0.25]
+- **PASS** min |ψ| at the coarsest h (London limit is applicable): measured 0.999627, expected >= 0.99 — the model assumes |ψ| = 1; the check is void if ψ is suppressed
+- **PASS** field at the centre / B₀: measured 0.0702701, expected <= 0.2 — the sample really is screening, so the comparison has content
+- **PASS** |B(pinned plaquette) − B_applied| / B₀: measured 5.551e-16, expected <= 1e-12 — a Dirichlet condition: the solver is exact here, model aside
+- **PASS** rms |solver − model| / B₀ at h = 1 ξ: measured 0.00408256, expected <= 0.005 — must not exceed 0.005
+- **PASS** rms |solver − model| / B₀ at h = 0.25 ξ: measured 3.290e-04, expected <= 0.0005 — must not exceed 0.0005
+- **PASS** max |solver − model| / B₀ at h = 0.25 ξ: measured 4.463e-04, expected <= 0.001 — must not exceed 0.001
+- **PASS** observed order in h (whole profile): measured 1.81668, expected >= 1.7 — mixes the second-order bulk with the series' Gibbs floor
+- **PASS** observed order in h (bulk, >1 ξ from an edge): measured 1.84113, expected >= 1.75 — the curl-curl operator's own discretisation error
 - **Diagnostics:**
-  - `rms_error_over_B0`: 0.00112196
-  - `profile_over_B0`: [0.783351, 0.615293, 0.48506, 0.384263, 0.306361, 0.246264, 0.200011, 0.164535, … (31 values)]
-
-### test_bfield_matches_the_exact_london_solution[h=1.0]
-
-_the screened field profile matches the closed-form London solution_
-
-- **Status:** PASS
-- **Duration:** 0.000s
-- **Parameters:** length=16, h=1, kappa=2, Bz=0.02
-- **PASS** min |ψ| (London limit is applicable): measured 0.999627, expected >= 0.99 — the model assumes |ψ| = 1; the check is void if ψ is suppressed
-- **PASS** field at the centre / B₀: measured 0.0894936, expected <= 0.2 — the sample really is screening, so the comparison has content
-- **PASS** max |solver − model| / B₀: measured 0.00490852, expected <= 0.01 — must not exceed 0.01
-- **PASS** rms |solver − model| / B₀: measured 0.00411878, expected <= 0.005 — must not exceed 0.005
-- **Diagnostics:**
-  - `rms_error_over_B0`: 0.00411878
-  - `profile_over_B0`: [0.61943, 0.39059, 0.253843, 0.172957, 0.126159, 0.10068, 0.0894936, 0.0894936, … (15 values)]
+  - `rms_error_over_B0`: 1.0=0.00408256, 0.5=0.00105244, 0.25=3.290e-04
+  - `rms_bulk_error_over_B0`: 1.0=0.00429348, 0.5=0.00109372, 0.25=3.345e-04
+  - `max_error_over_B0`: 1.0=0.00490852, 0.5=0.00132821, 0.25=4.463e-04
+  - `profile_over_B0`: 1.0=[0.61943, 0.39059, 0.253843, 0.172957, 0.126159, 0.10068, 0.0894936, 0.0894936, … (15 values)], 0.5=[0.783351, 0.615293, 0.48506, 0.384263, 0.306361, 0.246264, 0.200011, 0.164535, … (31 values)], 0.25=[0.884435, 0.782637, 0.692983, 0.614041, 0.544549, 0.483392, 0.429587, 0.382264, … (63 values)]
 
 ### test_c4_symmetry_of_a_square_device
 
@@ -743,11 +750,11 @@ _the fluxoid is a topological invariant of the region, not of the path_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
-- **PASS** max |fluxoid − nearest integer|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |fluxoid − enclosed vorticity|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** |staircase fluxoid − enclosed vorticity|: measured 2.665e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − nearest integer|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − enclosed vorticity|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |staircase fluxoid − enclosed vorticity|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
-  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=1.767e-17, enclosed_vorticity=0
+  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=-8.835e-18, enclosed_vorticity=0
   - `staircase_fluxoid`: 6
   - `staircase_enclosed`: 6
 
@@ -972,21 +979,41 @@ _λ = κ in these units — the field decays as exp(-x/κ) into the bulk_
 _the analytical model must solve the equation it claims to solve_
 
 - **Status:** PASS
-- **Duration:** 0.112s
+- **Duration:** 0.494s
 - **Parameters:** width=16, lambda=2, n_grid=[200, 400]
 - **PASS** max |∇²B − B/λ²| at the finer grid: measured 2.400e-05, expected <= 0.0001 — dominated by the five-point stencil used to check it
 - **PASS** residual ratio on halving the check grid: measured 4.00022, expected 4 — O(h²) means the residual belongs to the difference stencil
-- **PASS** max |B − B₀| on an edge, 1 ξ from a corner: measured 0.0143936, expected <= 0.02 — Gibbs ringing from the truncated square wave; falls as 1/n_terms
+- **PASS** max |B − B₀| on an edge, 1 ξ from a corner: measured 0.00150745, expected <= 0.002 — Gibbs ringing from the truncated square wave; falls as 1/n_terms
 - **PASS** finite values at n_terms = 201: measured 1, expected 1 — |measured - expected| <= 0
 - **PASS** finite values at n_terms = 2001: measured 1, expected 1 — |measured - expected| <= 0
-- **PASS** edge ringing at n_terms = 2001: measured 5.883e-04, expected <= 0.002 — must not exceed 0.002
+- **PASS** finite values at n_terms = 8001: measured 1, expected 1 — |measured - expected| <= 0
+- **PASS** edge ringing at the default n_terms = 2001: measured 5.883e-04, expected <= 0.002 — this is the floor any comparison against the series inherits
 - **PASS** ringing ratio 2001/201: measured 0.0734807, expected <= 0.2 — Gibbs error at fixed distance falls like 1/n_terms
+- **PASS** ringing ratio 8001/2001: measured 0.249962, expected <= 0.5 — still falling past the default, so the default is not a plateau
 - **Diagnostics:**
   - `max_pde_residual`: 200=9.600e-05, 400=2.400e-05
-  - `max_edge_error`: 200=0.0157767, 400=0.0143936
+  - `max_edge_error`: 200=0.00157947, 400=0.00150745
   - `edge_finite_at_201_terms`: True
   - `edge_finite_at_2001_terms`: True
-  - `edge_ringing`: 201=0.0080059, 2001=5.883e-04
+  - `edge_finite_at_8001_terms`: True
+  - `edge_ringing`: 201=0.0080059, 2001=5.883e-04, 8001=1.470e-04
+
+### test_london_slab_is_the_wide_limit_of_the_square
+
+_the 1-D slab solution is the wide-square limit of the 2-D series_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** lambda=2, widths_over_lambda=[4, 8, 16, 32]
+- **PASS** max |square − slab| at W = 4 λ: measured 0.1223, expected >= 0.05 — transverse screening is a real effect at this aspect ratio
+- **PASS** max |square − slab| at W = 32 λ: measured 2.249e-07, expected <= 1e-06 — the two must agree once the square is wide enough
+- **PASS** deviation ratio W = 8 λ / 4 λ: measured 0.239485, expected <= 0.3 — monotone approach, not a coincidence at one width
+- **PASS** deviation ratio W = 16 λ / 8 λ: measured 0.0222226, expected <= 0.3 — monotone approach, not a coincidence at one width
+- **PASS** deviation ratio W = 32 λ / 16 λ: measured 3.455e-04, expected <= 0.3 — monotone approach, not a coincidence at one width
+- **PASS** edge deviation floor at W = 32 λ: measured 3.180e-04, expected <= 0.001 — Gibbs ringing, not a disagreement: it does not fall with W
+- **Diagnostics:**
+  - `core_deviation`: 4.0=0.1223, 8.0=0.029289, 16.0=6.509e-04, 32.0=2.249e-07
+  - `full_deviation`: 4.0=0.1223, 8.0=0.029289, 16.0=6.509e-04, 32.0=3.180e-04
 
 ### test_lowest_landau_level_of_covariant_laplacian[Bz=0.1]
 
@@ -1121,10 +1148,14 @@ _the order parameter heals over √2 ξ, matching the exact 1-D solution_
 - **PASS** rms error at h = 1 ξ: measured 0.0496938, expected <= 0.08 — must not exceed 0.08
 - **PASS** rms error at h = 0.25 ξ: measured 0.00476747, expected <= 0.01 — must not exceed 0.01
 - **PASS** max error at h = 0.25 ξ: measured 0.0162006, expected <= 0.03 — must not exceed 0.03
-- **PASS** observed order in h: measured 1.69088, expected 2 — a constant disagreement would show order 0
+- **PASS** observed order in h: measured 1.69088, expected >= 1.5 — the coefficient jump is first order locally, so h^1.5 is the floor
+- **PASS** rms |ψ′ − (1 − ψ²)/√2| at h = 1 ξ: measured 0.00934297, expected <= 0.02 — offset-free: no interface position enters this identity
+- **PASS** rms |ψ′ − (1 − ψ²)/√2| at h = 0.25 ξ: measured 8.034e-04, expected <= 0.002 — must not exceed 0.002
+- **PASS** observed order in h (first integral): measured 1.76982, expected >= 1.5 — the √2 healing length, checked without a fit or a position
 - **Diagnostics:**
   - `rms_error`: 1.0=0.0496938, 0.5=0.0172373, 0.25=0.00476747
   - `max_error`: 1.0=0.14913, 0.5=0.056927, 0.25=0.0162006
+  - `first_integral_residual`: 1.0=0.00934297, 0.5=0.00329477, 0.25=8.034e-04
 
 ### test_penetration_depth_converges_with_grid_refinement
 
@@ -1148,7 +1179,7 @@ _Σ wrap(Δθ − φ) + Φ_plaquette is exactly 2π × integer_
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
 - **PASS** plaquettes carrying vorticity: measured 8, expected >= 1 — must be at least 1
-- **PASS** max |vorticity − nearest integer|: measured 2.120e-16, expected <= 1e-10 — must not exceed 1e-10
+- **PASS** max |vorticity − nearest integer|: measured 2.220e-16, expected <= 1e-10 — must not exceed 1e-10
 - **Diagnostics:**
   - `n_charged_plaquettes`: 8
   - `vorticity_values`: [0, 1]
@@ -1317,6 +1348,21 @@ _the superconducting layers must be thicker than the proximity length_
   - `psi_mean_in_arms`: 0.660557
   - `psi_max_in_insulator_and_hole`: 0.103677
 
+### test_three_dimensional_solver_reproduces_the_two_dimensional_london_solution
+
+_a z-invariant problem is solved identically by the 2-D and 3-D paths_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** h=1, Bz=0.02, Nz_2d=1, Nz_3d=4, n_layers=3
+- **PASS** min |ψ| in the 3-D run: measured 0.999627, expected >= 0.99 — must be at least 0.99
+- **PASS** spread of Bz across z-slices / B₀: measured 2.220e-16, expected <= 1e-10 — nothing in the problem depends on z, so nothing in the answer may
+- **PASS** max |B_3D − B_2D| / B₀: measured 1.706e-10, expected <= 1e-08 — the same discrete equations, so the same fixed point
+- **PASS** max |B_3D − model| / B₀: measured 0.00490852, expected <= 0.01 — and the shared fixed point is the physical one
+- **Diagnostics:**
+  - `n_z_layers`: 3
+  - `layer_profiles_over_B0`: [[0.61943, 0.39059, 0.253843, 0.172957, 0.126159, 0.10068, 0.0894936, 0.0894936, … (15 values)], [0.61943, 0.39059, 0.253843, 0.172957, 0.126159, 0.10068, 0.0894936, 0.0894936, … (15 values)], [0.61943, 0.39059, 0.253843, 0.172957, 0.126159, 0.10068, 0.0894936, 0.0894936, … (15 values)]]
+
 ### test_trapezoidal_agrees_with_euler_in_the_small_dt_limit
 
 _two independent integrators of the same right-hand side must agree_
@@ -1412,8 +1458,8 @@ _plaquette vorticity is a topological invariant of the gauge-field configuration
 - **Parameters:** Nx=14, kappa=2, Bz=0.6
 - **PASS** vortices present (test would be vacuous otherwise): measured 8, expected >= 1 — must be at least 1
 - **PASS** vortex count after gauge change: measured 8, expected 8 — |measured - expected| <= 0
-- **PASS** max Δ(plaquette vorticity): measured 3.004e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |winding change|: measured 1.110e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max Δ(plaquette vorticity): measured 3.331e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |winding change|: measured 2.220e-16, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
   - `n_vortices`: 8
   - `windings`: [1, 1, 1, 1, 1, 1, 1, 1]

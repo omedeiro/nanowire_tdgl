@@ -288,14 +288,14 @@ requires, and the tolerance allowed.
 | **Post-processing** | B-field evaluation, order-parameter magnitude, vorticity |
 | **Visualization** | 2D slice plots, 3D isometric scatter plots, animated GIFs |
 | **HDF5 I/O** | Save/load solutions via h5py |
-| **Validation suite** | 260 tests carrying 259 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer |
+| **Validation suite** | 261 tests carrying 274 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer |
 
 ## Installation
 
 ```bash
 cd tdgl3d
 pip install -e ".[dev]"
-pytest          # 260 tests
+pytest          # 261 tests
 ```
 
 **Requirements:** Python ≥ 3.10, numpy ≥ 1.24, scipy ≥ 1.10, matplotlib ≥ 3.7,
@@ -468,7 +468,7 @@ tdgl3d/
 ## Test suite
 
 ```bash
-pytest                  # all 260 tests
+pytest                  # all 261 tests
 pytest -k trilayer      # just trilayer tests
 pytest -k verification  # the physics verification suites only
 pytest --cov=tdgl3d     # with coverage
@@ -485,10 +485,22 @@ cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
 ```
 
 The current run is in [`docs/physics_test_report.md`](docs/physics_test_report.md)
-(259/259 checks passing); the conventions the checks depend on — gauge, index
+(274/274 checks passing); the conventions the checks depend on — gauge, index
 ordering, node-versus-plaquette centring, the CFL limit's dimension dependence —
 are written down in
 [`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+
+## Versioning and changelog
+
+Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and
+changelogs follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each
+package is versioned independently; [`CHANGELOG.md`](CHANGELOG.md) indexes them.
+
+Both are generated from Conventional Commit messages by release-please, so the
+commit subject is the changelog entry and nothing is written by hand. The policy
+— including what counts as a breaking change when a package's output is numbers,
+where "more accurate" and "was wrong" land on opposite sides of the major/patch
+line — is in [`docs/notes/VERSIONING.md`](docs/notes/VERSIONING.md).
 
 ## MATLAB provenance
 

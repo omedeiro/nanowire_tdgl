@@ -15,17 +15,25 @@ plan.**
 | `agents/` | AI agent tool definitions and prompts (Phase 3/4) | — |
 | `docs/` | Roadmap, design notes | `docs/ROADMAP.md`, `docs/notes/` |
 | `docs/notes/PHYSICS_CONVENTIONS.md` | Units, gauge convention, exact discrete identities, index ordering | **Read before touching the solver core** |
+| `docs/notes/VERSIONING.md` | SemVer policy, Conventional Commit → Keep a Changelog mapping | Read before committing a change that moves results |
 
 ## Development workflow (applies to humans AND AI agents)
 
 1. Never commit directly to `main`. Create a feature branch.
 2. Use **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`,
    `ci:`, `chore:`; scope by package, e.g. `feat(server): ...`). Breaking
-   changes: `!` suffix. release-please derives versions/changelogs from these.
+   changes: `!` suffix. release-please derives versions/changelogs from these,
+   so the subject line *is* the changelog entry — see
+   `docs/notes/VERSIONING.md` for the type → Keep a Changelog section mapping
+   and for what counts as breaking in a package whose output is numbers (a
+   physically correct result changing to a *different* physically correct one is
+   breaking; correcting a result that was wrong is not).
 3. Every change ships with tests and doc updates where relevant.
 4. Open a PR; CI (ruff + pytest on 3.10/3.12) must pass before merge.
-5. Versioning/CHANGELOGs are automated by release-please — never hand-edit
-   version numbers or CHANGELOG files.
+5. Versioning follows **SemVer** and changelogs follow **Keep a Changelog**,
+   both automated by release-please — never hand-edit version numbers,
+   `.release-please-manifest.json`, or any package `CHANGELOG.md`. The root
+   `CHANGELOG.md` is an index, not an entry list.
 6. Keep binary artifacts (GIF/PNG/HDF5/logs) out of git; `.gitignore` covers
    them. Git history was rewritten 2026-07 to purge old artifacts.
 
