@@ -47,3 +47,4 @@ node_modules/
 .next/
 .turbo/
 .wrangler/
+.tdgl3d-run/
