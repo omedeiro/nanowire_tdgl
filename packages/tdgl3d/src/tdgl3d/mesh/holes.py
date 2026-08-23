@@ -34,13 +34,35 @@ Examples
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 
 
-def point_in_polygon(point: tuple[float, float], vertices: list[tuple[float, float]]) -> bool:
+def _distance_to_segment(
+    point: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> float:
+    """Shortest distance from *point* to the segment ``start``–``end``."""
+    px, py = point
+    ax, ay = start
+    bx, by = end
+    dx, dy = bx - ax, by - ay
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0.0:
+        return float(np.hypot(px - ax, py - ay))
+    t = ((px - ax) * dx + (py - ay) * dy) / length_squared
+    t = min(1.0, max(0.0, t))
+    return float(np.hypot(px - (ax + t * dx), py - (ay + t * dy)))
+
+
+def point_in_polygon(
+    point: tuple[float, float],
+    vertices: list[tuple[float, float]],
+    edge_tolerance: float = 0.0,
+) -> bool:
     """Test if a point is inside a polygon using ray-casting algorithm.
 
     Uses the ray-casting algorithm: casts a ray from the point to infinity
@@ -53,17 +75,30 @@ def point_in_polygon(point: tuple[float, float], vertices: list[tuple[float, flo
     vertices : list of (x, y)
         Polygon vertices in order. The polygon is automatically closed
         (no need to repeat the first vertex at the end).
+    edge_tolerance : float, default 0.0
+        Points within this distance of the polygon boundary count as inside.
+        Pass a small positive value to get the *closed* region.
 
     Returns
     -------
     bool
-        True if point is strictly inside the polygon
+        True if point is inside the polygon (or on its boundary when
+        ``edge_tolerance > 0``)
 
     Notes
     -----
     - Handles both convex and concave polygons
-    - Points exactly on edges may give inconsistent results (floating point)
     - Uses horizontal ray cast in +x direction
+
+    .. warning::
+       With ``edge_tolerance = 0`` the ray-casting rule is **half-open**: a
+       point exactly on the low-x/low-y edge counts as outside while one on the
+       high-x/high-y edge counts as inside.  That is a consistent tiling rule
+       but it is **not mirror-symmetric**, so a polygon whose edges land exactly
+       on grid nodes — the usual case, since holes are specified at round
+       coordinates — comes out shifted by half a cell.  Callers that carve
+       geometry should pass a small positive tolerance;
+       :func:`identify_hole_nodes` does so by default.
 
     References
     ----------
@@ -76,7 +111,20 @@ def point_in_polygon(point: tuple[float, float], vertices: list[tuple[float, flo
     True
     >>> point_in_polygon((15, 5), triangle)
     False
+    >>> square = [(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0)]
+    >>> point_in_polygon((3.0, 5.0), square)      # on the low edge: excluded
+    False
+    >>> point_in_polygon((3.0, 5.0), square, 1e-9)  # closed region: included
+    True
     """
+    if edge_tolerance > 0.0:
+        n_vertices = len(vertices)
+        for index in range(n_vertices):
+            start = vertices[index]
+            end = vertices[(index + 1) % n_vertices]
+            if _distance_to_segment(point, start, end) <= edge_tolerance:
+                return True
+
     x, y = point
     n = len(vertices)
     inside = False
@@ -108,6 +156,7 @@ def identify_hole_nodes(
     Nx: int,
     Ny: int,
     Nz: int,
+    edge_tolerance: Optional[float] = None,
 ) -> NDArray[np.bool_]:
     """Identify all full-grid nodes inside a polygon hole.
 
@@ -121,6 +170,11 @@ def identify_hole_nodes(
         Grid spacing in x and y directions
     Nx, Ny, Nz : int
         Grid dimensions (number of interior cells)
+    edge_tolerance : float, optional
+        Nodes within this distance of the polygon boundary are carved out.
+        Defaults to ``1e-9 × min(grid_spacing_x, grid_spacing_y)``, which takes
+        the **closed** region: a hole given as ``[3, 7]`` removes the nodes at
+        ``x = 3`` and ``x = 7`` and everything between.
 
     Returns
     -------
@@ -133,13 +187,24 @@ def identify_hole_nodes(
     - The hole is extruded vertically through z_range
     - Complexity: O((Nx+1) × (Ny+1) × n_vertices) - acceptable for typical grids
 
+    The default tolerance exists to make the carved geometry **mirror
+    symmetric**.  Bare ray casting is half-open — the low edges fall outside and
+    the high edges inside — so a hole centred in the film comes out displaced by
+    half a cell, and every symmetry of the device is broken by that much.  Pass
+    ``edge_tolerance=0.0`` to recover the raw half-open behaviour.
+
     Examples
     --------
     >>> square = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
     >>> mask = identify_hole_nodes(square, (0, 5), 1.0, 1.0, 20, 20, 10)
     >>> assert mask.shape == (21, 21, 11)
+    >>> bool(mask[5, 10, 0]) and bool(mask[15, 10, 0])  # both edges carved
+    True
     """
     hole_mask = np.zeros((Nx + 1, Ny + 1, Nz + 1), dtype=bool)
+
+    if edge_tolerance is None:
+        edge_tolerance = 1e-9 * min(grid_spacing_x, grid_spacing_y)
 
     z_min, z_max = z_range
 
@@ -149,7 +214,7 @@ def identify_hole_nodes(
             x = i * grid_spacing_x
             y = j * grid_spacing_y
 
-            if point_in_polygon((x, y), vertices):
+            if point_in_polygon((x, y), vertices, edge_tolerance):
                 # Mark all z-layers in range
                 for k in range(z_min, min(z_max + 1, Nz + 1)):
                     hole_mask[i, j, k] = True
@@ -516,10 +581,13 @@ def identify_circular_hole_nodes(
             x = i * grid_spacing_x
             y = j * grid_spacing_y
 
-            # Distance from center
+            # Distance from center.  The comparison is inclusive so that nodes
+            # landing exactly on the rim are carved on every side alike; a
+            # strict inequality is symmetric for a node-centred circle but not
+            # for one centred between nodes.
             dist = np.sqrt((x - cx)**2 + (y - cy)**2)
 
-            if dist < radius:
+            if dist <= radius * (1.0 + 1e-9):
                 for k in range(z_min, min(z_max + 1, Nz + 1)):
                     hole_mask[i, j, k] = True
 
