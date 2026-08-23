@@ -51,7 +51,15 @@ ruff check packages/
 
 # Run the solver API locally
 python3 -m uvicorn tdgl3d_server.app:app --port 8787
+
+# Run a simulation / drive the server end-to-end (diagnostics + PNG)
+python3 .claude/skills/run-nanowire-tdgl/driver.py solve
+python3 .claude/skills/run-nanowire-tdgl/driver.py api --start
 ```
+
+To launch and drive either surface, load the `run-nanowire-tdgl` skill
+(`.claude/skills/run-nanowire-tdgl/`) — it documents the driver above, the
+verified setup, and the traps (CFL, `t_on_fraction`, the two HDF5 loaders).
 
 **Critical:** Always use `python3`, never bare `python` (machine has no alias).
 
