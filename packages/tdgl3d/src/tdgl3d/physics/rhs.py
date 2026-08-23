@@ -51,6 +51,49 @@ def _expand_interior_to_full(
     return full
 
 
+def _node_coords(
+    nodes: NDArray[np.intp], params: SimulationParameters
+) -> tuple[NDArray[np.intp], NDArray[np.intp], NDArray[np.intp]]:
+    """Return ``(i, j, k)`` grid coordinates of full-grid linear indices."""
+    i = nodes % params.mj
+    j = (nodes // params.mj) % (params.Ny + 1)
+    k = nodes // params.mk if params.is_3d else np.zeros_like(nodes)
+    return i, j, k
+
+
+def _shared_edge_weight(
+    nodes: NDArray[np.intp],
+    params: SimulationParameters,
+    axis: int,
+    limit: int,
+) -> NDArray[np.float64]:
+    """Weight of the applied-field term on a *hi* boundary face.
+
+    Every plaquette on a boundary face is given the applied flux by offsetting
+    the single ghost link that closes it.  Where two *hi* faces meet, the same
+    plaquette is closed by two ghost links — one from each face — and a full
+    offset on both would give it twice the applied field (and, because that
+    plaquette is a live interior plaquette, an unbalanced curl-curl force that
+    makes its link variables drift without bound).  Splitting the offset evenly
+    between the two ghost links gives the plaquette the correct flux while
+    keeping the treatment of the two axes symmetric.
+
+    Parameters
+    ----------
+    nodes : ndarray
+        Full-grid indices of the boundary face being written to.
+    params : SimulationParameters
+    axis : int
+        Axis (0=x, 1=y, 2=z) of the *other* hi face that shares the plaquette.
+    limit : int
+        Index of the last interior node along ``axis``.
+    """
+    coords = _node_coords(nodes, params)
+    weight = np.ones(len(nodes), dtype=np.float64)
+    weight[coords[axis] == limit] = 0.5
+    return weight
+
+
 def _apply_boundary_conditions(
     x: NDArray[np.complex128],
     y1: NDArray[np.complex128],
@@ -92,10 +135,19 @@ def _apply_boundary_conditions(
         x[idx.x_face_lo_inner] += x00[idx.x_first_inner] * np.exp(-1j * y100[idx.x_face_lo_inner])
         x[idx.x_face_hi_inner] += x00[idx.x_last_inner] * np.exp(1j * y100[idx.x_last_inner])
         # Magnetic-field x BCs (eq. 37 in report)
+        wz = _shared_edge_weight(idx.x_face_hi_inner, params, 1, params.Ny - 1)
         y2[idx.x_face_lo_inner] += -u.Bz[idx.x_face_lo_inner] * hx * hy + y200[idx.x_first_inner]
-        y2[idx.x_face_hi_inner] += u.Bz[idx.x_face_hi_inner] * hx * hy + y200[idx.x_last_inner]
+        y2[idx.x_face_hi_inner] += (
+            wz * u.Bz[idx.x_face_hi_inner] * hx * hy + y200[idx.x_last_inner]
+        )
         y3[idx.x_face_lo_inner] += u.By[idx.x_face_lo_inner] * hz * hx + y300[idx.x_first_inner]
-        y3[idx.x_face_hi_inner] += -u.By[idx.x_face_hi_inner] * hz * hx + y300[idx.x_last_inner]
+        if params.is_3d:
+            wy = _shared_edge_weight(idx.x_face_hi_inner, params, 2, params.Nz - 1)
+        else:
+            wy = 1.0
+        y3[idx.x_face_hi_inner] += (
+            -wy * u.By[idx.x_face_hi_inner] * hz * hx + y300[idx.x_last_inner]
+        )
 
     # --- y boundaries -------------------------------------------------------
     if params.periodic_y:
@@ -106,10 +158,19 @@ def _apply_boundary_conditions(
     else:
         x[idx.y_face_lo_inner] += x00[idx.y_first_inner] * np.exp(-1j * y200[idx.y_face_lo_inner])
         x[idx.y_face_hi_inner] += x00[idx.y_last_inner] * np.exp(1j * y200[idx.y_last_inner])
+        wz = _shared_edge_weight(idx.y_face_hi_inner, params, 0, params.Nx - 1)
         y1[idx.y_face_lo_inner] += u.Bz[idx.y_face_lo_inner] * hx * hy + y100[idx.y_first_inner]
-        y1[idx.y_face_hi_inner] += -u.Bz[idx.y_face_hi_inner] * hx * hy + y100[idx.y_last_inner]
+        y1[idx.y_face_hi_inner] += (
+            -wz * u.Bz[idx.y_face_hi_inner] * hx * hy + y100[idx.y_last_inner]
+        )
         y3[idx.y_face_lo_inner] += -u.Bx[idx.y_face_lo_inner] * hy * hz + y300[idx.y_first_inner]
-        y3[idx.y_face_hi_inner] += u.Bx[idx.y_face_hi_inner] * hy * hz + y300[idx.y_last_inner]
+        if params.is_3d:
+            wx = _shared_edge_weight(idx.y_face_hi_inner, params, 2, params.Nz - 1)
+        else:
+            wx = 1.0
+        y3[idx.y_face_hi_inner] += (
+            wx * u.Bx[idx.y_face_hi_inner] * hy * hz + y300[idx.y_last_inner]
+        )
 
     # --- z boundaries -------------------------------------------------------
     if params.is_3d:
@@ -123,12 +184,18 @@ def _apply_boundary_conditions(
                 -1j * y300[idx.z_face_lo_inner]
             )
             x[idx.z_face_hi_inner] += x00[idx.z_last_inner] * np.exp(1j * y300[idx.z_last_inner])
+            wy = _shared_edge_weight(idx.z_face_hi_inner, params, 0, params.Nx - 1)
+            wx = _shared_edge_weight(idx.z_face_hi_inner, params, 1, params.Ny - 1)
             y1[idx.z_face_lo_inner] += (
                 -u.By[idx.z_face_lo_inner] * hz * hx + y100[idx.z_first_inner]
             )
-            y1[idx.z_face_hi_inner] += u.By[idx.z_face_hi_inner] * hz * hx + y100[idx.z_last_inner]
+            y1[idx.z_face_hi_inner] += (
+                wy * u.By[idx.z_face_hi_inner] * hz * hx + y100[idx.z_last_inner]
+            )
             y2[idx.z_face_lo_inner] += u.Bx[idx.z_face_lo_inner] * hy * hz + y200[idx.z_first_inner]
-            y2[idx.z_face_hi_inner] += -u.Bx[idx.z_face_hi_inner] * hy * hz + y200[idx.z_last_inner]
+            y2[idx.z_face_hi_inner] += (
+                -wx * u.Bx[idx.z_face_hi_inner] * hy * hz + y200[idx.z_last_inner]
+            )
 
     # NOTE: We do NOT enforce φ=0 on hole boundaries (unlike external boundaries).
     # Physical reasoning:

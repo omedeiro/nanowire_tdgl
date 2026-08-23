@@ -91,42 +91,40 @@ class TestMaterialMap:
         assert material.interior_sc_mask.shape == (len(idx.interior_to_full),)
 
     def test_kappa_values(self, material, params, trilayer):
-        """κ = 2.0 in SC planes, 0.0 in insulator plane."""
+        """κ = 2.0 in SC planes, 0.0 in insulator planes.
+
+        Layer thicknesses are given in cells, but material properties live on
+        nodes and the two interfaces are shared between layers.  Both interface
+        nodes belong to the insulator, which is what makes a stack with equal
+        superconducting thicknesses come out symmetric about its mid-plane —
+        see test_stack_is_mirror_symmetric_about_its_midplane.
+        """
         Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
         mk = (Nx + 1) * (Ny + 1)
+        ins_start, ins_end = trilayer.z_ranges()["insulator"]
 
-        # Bottom SC: k = 0, 1
-        for k in range(2):
+        for k in range(Nz + 1):
             plane = material.kappa[k * mk : (k + 1) * mk]
-            np.testing.assert_allclose(plane, 2.0)
+            expected = 0.0 if ins_start <= k <= ins_end else 2.0
+            np.testing.assert_allclose(plane, expected, err_msg=f"z-plane k={k}")
 
-        # Insulator: k = 2
-        plane = material.kappa[2 * mk : 3 * mk]
-        np.testing.assert_allclose(plane, 0.0)
-
-        # Top SC: k = 3, 4, 5
-        for k in range(3, Nz + 1):
-            plane = material.kappa[k * mk : (k + 1) * mk]
-            np.testing.assert_allclose(plane, 2.0)
-
-    def test_sc_mask_values(self, material, params):
-        """SC planes → 1.0, insulator plane → 0.0."""
-        Nx, Ny = params.Nx, params.Ny
+    def test_sc_mask_values(self, material, params, trilayer):
+        """SC planes → 1.0, insulator planes (both interfaces included) → 0.0."""
+        Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
         mk = (Nx + 1) * (Ny + 1)
+        ins_start, ins_end = trilayer.z_ranges()["insulator"]
 
-        # Bottom SC
-        for k in range(2):
+        for k in range(Nz + 1):
             plane = material.sc_mask[k * mk : (k + 1) * mk]
-            np.testing.assert_allclose(plane, 1.0)
+            expected = 0.0 if ins_start <= k <= ins_end else 1.0
+            np.testing.assert_allclose(plane, expected, err_msg=f"z-plane k={k}")
 
-        # Insulator
-        plane = material.sc_mask[2 * mk : 3 * mk]
-        np.testing.assert_allclose(plane, 0.0)
-
-        # Top SC
-        for k in range(3, params.Nz + 1):
-            plane = material.sc_mask[k * mk : (k + 1) * mk]
-            np.testing.assert_allclose(plane, 1.0)
+    def test_superconducting_planes_are_balanced(self, material, params):
+        """Equal S layers give equal superconducting node counts either side."""
+        Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
+        mk = (Nx + 1) * (Ny + 1)
+        per_plane = [float(material.sc_mask[k * mk]) for k in range(Nz + 1)]
+        assert per_plane == per_plane[::-1], f"stack not symmetric: {per_plane}"
 
     def test_Nz_mismatch_raises(self, trilayer):
         bad_params = SimulationParameters(Nx=4, Ny=4, Nz=10)

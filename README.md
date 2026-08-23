@@ -7,6 +7,94 @@ A Python package for simulating vortex and phase dynamics in three-dimensional
 Type-II superconductors using the time-dependent Ginzburg-Landau (TDGL) model
 on a structured finite-difference grid.
 
+## Gallery
+
+Every figure is produced by a standalone script in [`docs/figures/`](docs/figures/)
+and annotated with the number it is meant to demonstrate. Full descriptions and
+the physics behind each one: [`docs/PHYSICS_GALLERY.md`](docs/PHYSICS_GALLERY.md).
+
+### Flux expulsion by an S/I/S ring
+
+A 1 µm hole centred in a 4 µm S/I/S plane with 500 nm layers, at ξ = 100 nm —
+Nb near T_c, where Ginzburg-Landau applies. The device expels flux **completely**
+— no vortices anywhere, zero fluxoid through the hole — up to **9.2 ± 0.3 mT**.
+
+What limits it is not the hole. A 4 µm plane is 20 λ across and screens so well
+that only 1.7% of the applied field reaches the hole (0.07 Φ₀ through it at the
+threshold), so the ring is nowhere near its fluxoid limit; vortices penetrate the
+1.5 µm-wide arms first, and the hole does not admit a fluxoid until 10.9 mT. The
+device therefore beats the naive single-loop estimate Φ₀/A_hole = 2.07 mT by more
+than a factor of four.
+
+[![Micron-scale S/I/S ring](docs/figures/sis_micron_ring.png)](docs/figures/sis_micron_ring.png)
+
+At small scale the mechanism is the other one — the hole itself gives way. For a
+4×4 ξ hole with 3 ξ arms the ring holds the fluxoid at zero up to
+**B_exp = 0.300 ± 0.020** (in Φ₀/2πξ²), then admits flux in whole quanta, and the
+entry time diverges as the threshold is approached from above. Repeating the
+bracketing fields at half the grid spacing gives 0.27 ± 0.05 — the threshold
+survives refinement.
+
+[![S/I/S ring flux expulsion](docs/figures/sis_hole_expulsion.png)](docs/figures/sis_hole_expulsion.png)
+
+| | |
+|:--:|:--:|
+| [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
+| **Fluxoid vs time** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S screening** — the Nb layers screen; the oxide transmits, provided it is given a non-zero κ. |
+
+### Checks against exact solutions
+
+Two limits of the coupled equations have closed-form solutions, and between them
+they exercise each equation on its own. Both comparisons have **no fitted
+parameters**, and both are run at three grid spacings so the residual can be
+shown to be discretisation error rather than disagreement.
+
+In the **London limit** (|ψ| = 1, so the ψ-equation drops out) a square with the
+field pinned on its boundary obeys ∇²B = B/λ², which has an exact Fourier
+solution. The solver matches it to **rms 4.1e-3 · B₀ at h = 1 ξ, falling to
+3.3e-4 at h = 0.25 ξ — observed order 1.82 in h, 1.84 in the bulk**. On the
+pinned boundary plaquettes, where the condition is Dirichlet and the solver
+should be exact rather than approximate, it agrees with the applied field to
+**6e-16**.
+
+At a **pair-breaking wall** (zero field, so the gauge field drops out)
+ψ'' = −ψ + ψ³ gives tanh((x − x₀)/√2), with the offset x₀ fixed by matching to
+the insulator's relaxation rather than fitted. The solver matches it to **rms
+5.0e-2 at h = 1 ξ, falling to 4.8e-3 at h = 0.25 ξ — observed order 1.69 in h**.
+The √2 is the physics being checked: the Ginzburg-Landau healing length is
+√2 ξ, not ξ. Because that comparison needs an interface position, it is backed
+by the offset-free form of the same statement — the first integral
+ψ′ = (1 − ψ²)/√2 checked pointwise, which holds to **rms 8.0e-4 at h = 0.25 ξ**
+with no position, matching constant or fit anywhere in it.
+
+The 3D path is checked against the same exact solution: a problem with no
+z-dependence must be solved identically by the 2D and 3D codes, and it is — the
+field varies across z-slices by **2e-16** and differs from the 2D run by
+**2e-10**.
+
+[![Cross-sections against exact solutions](docs/figures/analytic_cross_sections.png)](docs/figures/analytic_cross_sections.png)
+
+The bottom row applies the same two models to the micron ring, where neither
+holds exactly — and says where each stops applying.
+
+### Meissner screening and vortices
+
+| | |
+|:--:|:--:|
+| [![Meissner screening](docs/figures/meissner_screening.png)](docs/figures/meissner_screening.png) | [![Vortex entry](docs/figures/vortex_entry.png)](docs/figures/vortex_entry.png) |
+| **Meissner screening** — B decays into the bulk with λ = 2.24 ξ against κ = 2.0. | **Vortex lattice** — flux front advancing from the edges at Bz = 0.6, every winding +1. |
+| [![Phase winding](docs/figures/phase_winding.png)](docs/figures/phase_winding.png) | [![Vortex entry dynamics](docs/figures/vortex_entry_dynamics.gif)](docs/figures/vortex_entry_dynamics.gif) |
+| **Phase winding** — ±2π around each core; the vorticity is integral to 1e-16. | **Nucleation dynamics** — vortices enter, interact and settle into a steady population. |
+
+### Holes, currents and numerics
+
+| | |
+|:--:|:--:|
+| [![Field in a hole](docs/figures/hole_field_penetration.png)](docs/figures/hole_field_penetration.png) | [![Supercurrent around a hole](docs/figures/supercurrent_hole.png)](docs/figures/supercurrent_hole.png) |
+| **Field in a hole** — the applied field passes through unscreened. | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
+| [![Energy dissipation](docs/figures/energy_dissipation.png)](docs/figures/energy_dissipation.png) | [![CFL instability](docs/figures/cfl_instability.png)](docs/figures/cfl_instability.png) |
+| **Free energy** — TDGL is a gradient flow, so F is non-increasing. | **Step-size limit** — stable below the CFL bound, collapse above it. |
+
 ## Overview
 
 `tdgl3d` solves the coupled TDGL equations for the superconducting order
@@ -151,6 +239,34 @@ Implemented by setting normal link variables to zero and using ghost-node reflec
 
 This writes the external field into the link variables, allowing it to diffuse into the interior and interact with supercurrents.
 
+### Verification
+
+The physics is pinned down by five suites in `packages/tdgl3d/tests/`, organised
+by principle rather than by feature:
+
+| Suite | Verifies |
+|-------|----------|
+| `test_verification_gauge.py` | local U(1) covariance of the RHS; gauge invariance of \|ψ\|, B, J_s, F and the vortex count |
+| `test_verification_conservation.py` | ∇·B = 0 and ∇·(∇×∇×A) = 0 to round-off; free energy as a Lyapunov functional; ∇·J_s = 0 in steady state |
+| `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
+| `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt |
+| `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field sign; lattice Stokes |
+
+Three numbers anchor the normalisation: **Φ₀ = 2π**, **λ = κ** (in ξ), and
+**H_c2 = 1**. An applied field above 1 leaves a normal metal, not a vortex
+lattice. The sign and index conventions the solver depends on — and which test
+fails when each is broken — are recorded in
+[`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+
+```bash
+cd packages/tdgl3d
+python3 -m pytest tests/test_verification_*.py tests/test_physics_validation.py -q
+cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
+```
+
+The report lists every check with its measured value, the value physics
+requires, and the tolerance allowed.
+
 ### Further Reading
 
 - **Original theory**: Ginzburg & Landau, *Zh. Eksp. Teor. Fiz.* **20**, 1064 (1950)
@@ -172,14 +288,14 @@ This writes the external field into the link variables, allowing it to diffuse i
 | **Post-processing** | B-field evaluation, order-parameter magnitude, vorticity |
 | **Visualization** | 2D slice plots, 3D isometric scatter plots, animated GIFs |
 | **HDF5 I/O** | Save/load solutions via h5py |
-| **Validation suite** | 101 tests — analytical checks, convergence, conservation, trilayer |
+| **Validation suite** | 261 tests carrying 274 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer |
 
 ## Installation
 
 ```bash
 cd tdgl3d
 pip install -e ".[dev]"
-pytest          # 101 tests
+pytest          # 261 tests
 ```
 
 **Requirements:** Python ≥ 3.10, numpy ≥ 1.24, scipy ≥ 1.10, matplotlib ≥ 3.7,
@@ -292,7 +408,12 @@ Solution(times, states, params, idx)     (core/solution.py)
   all operators fall back to the uniform `params.kappa`.
 - **Insulator suppression:** In `construct_FPSI`, insulator nodes get an
   extra `−ψ/τ_relax` (τ_relax = 0.1) driving ψ → 0 without hard discontinuity.
-- **CFL condition (Forward Euler):** dt < h² / (4κ²).  With h=1, κ=2: dt < 0.0625.
+- **CFL condition (Forward Euler):** dt < h² / (4κ²(d−1)), set by the stiff
+  κ²∇×∇× term.  In 2D (d=2) this is the familiar h²/(4κ²) — with h=1, κ=2,
+  dt < 0.0625.  In 3D each link variable gains a second transverse Laplacian
+  direction, the curl-curl block's spectral radius doubles and the limit halves:
+  dt < 0.03125 for the same h and κ.  A 3D run at "0.9 CFL" computed from the 2D
+  formula diverges.
 
 ## Project layout
 
@@ -347,10 +468,39 @@ tdgl3d/
 ## Test suite
 
 ```bash
-pytest                  # all 101 tests
+pytest                  # all 261 tests
 pytest -k trilayer      # just trilayer tests
+pytest -k verification  # the physics verification suites only
 pytest --cov=tdgl3d     # with coverage
 ```
+
+The `test_verification_*.py` suites record every physics check they make — the
+measured value, the value physics requires, and the tolerance allowed — so each
+one is falsifiable rather than a bare assertion. Regenerate the tabulated
+results with:
+
+```bash
+cd packages/tdgl3d && python3 -m pytest tests/test_verification_*.py -q
+cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
+```
+
+The current run is in [`docs/physics_test_report.md`](docs/physics_test_report.md)
+(274/274 checks passing); the conventions the checks depend on — gauge, index
+ordering, node-versus-plaquette centring, the CFL limit's dimension dependence —
+are written down in
+[`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+
+## Versioning and changelog
+
+Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and
+changelogs follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each
+package is versioned independently; [`CHANGELOG.md`](CHANGELOG.md) indexes them.
+
+Both are generated from Conventional Commit messages by release-please, so the
+commit subject is the changelog entry and nothing is written by hand. The policy
+— including what counts as a breaking change when a package's output is numbers,
+where "more accurate" and "was wrong" land on opposite sides of the major/patch
+line — is in [`docs/notes/VERSIONING.md`](docs/notes/VERSIONING.md).
 
 ## MATLAB provenance
 

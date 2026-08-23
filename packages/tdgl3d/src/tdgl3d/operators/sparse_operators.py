@@ -15,6 +15,12 @@ from ..core.material import MaterialMap
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
 
+#: Relaxation time with which ψ is driven to zero on non-superconducting nodes.
+#: Chosen well below the Ginzburg-Landau time scale so that the insulator reaches
+#: ψ ≈ 0 quickly without tightening the explicit stability limit, which is set by
+#: the much stiffer κ²∇×∇× term.
+INSULATOR_RELAXATION_TIME = 0.1
+
 
 def _kappa_at(m: NDArray[np.intp],
               params: SimulationParameters,
@@ -45,8 +51,8 @@ def construct_LPSI_x(
     m = idx.interior_to_full
 
     data_diag = np.full(len(m), -2.0, dtype=np.complex128)
-    data_m1 = np.exp(-1j * y[m - 1])
-    data_p1 = np.exp(1j * y[m])
+    data_m1 = np.exp(1j * y[m - 1])
+    data_p1 = np.exp(-1j * y[m])
 
     L = sp.csr_matrix((data_diag, (m, m)), shape=(N, N), dtype=np.complex128)
     L += sp.csr_matrix((data_m1, (m, m - 1)), shape=(N, N), dtype=np.complex128)
@@ -68,8 +74,8 @@ def construct_LPSI_y(
     L = sp.csr_matrix((data_diag, (m, m)), shape=(N, N), dtype=np.complex128)
 
     if params.Ny > 1:
-        data_pj = np.exp(1j * y[m])
-        data_mj = np.exp(-1j * y[m - mj])
+        data_pj = np.exp(-1j * y[m])
+        data_mj = np.exp(1j * y[m - mj])
         L += sp.csr_matrix((data_pj, (m, m + mj)), shape=(N, N), dtype=np.complex128)
         L += sp.csr_matrix((data_mj, (m, m - mj)), shape=(N, N), dtype=np.complex128)
     return L
@@ -94,8 +100,8 @@ def construct_LPSI_z(
     data_diag = np.full(len(m), -2.0, dtype=np.complex128)
     L = sp.csr_matrix((data_diag, (m, m)), shape=(N, N), dtype=np.complex128)
 
-    data_pk = np.exp(1j * y[m])
-    data_mk = np.exp(-1j * y[m - mk])
+    data_pk = np.exp(-1j * y[m])
+    data_mk = np.exp(1j * y[m - mk])
     L += sp.csr_matrix((data_pk, (m, m + mk)), shape=(N, N), dtype=np.complex128)
     L += sp.csr_matrix((data_mk, (m, m - mk)), shape=(N, N), dtype=np.complex128)
     return L
@@ -206,8 +212,8 @@ def construct_FPSI(
     """Nonlinear forcing for ψ:  sc_mask * (1 - |ψ|²) ψ  −  (1-sc_mask) * ψ/τ.
 
     In superconductor nodes this is the usual ``(1 - |ψ|²)ψ``.
-    In insulator nodes the term drives ψ → 0 on a fast relaxation time-scale
-    τ_relax (hard-coded to 0.1 for now).
+    In insulator nodes the term drives ψ → 0 on the relaxation time-scale
+    :data:`INSULATOR_RELAXATION_TIME`.
 
     Corresponds to ``construct_FPSIm.m``.  Returns a dense vector of length
     ``n_interior``.
@@ -218,8 +224,9 @@ def construct_FPSI(
 
     if material is not None:
         sc = material.interior_sc_mask
-        tau_relax = 0.1  # fast decay in insulator
-        return (sc * gl_term - (1.0 - sc) * psi_m / tau_relax).astype(np.complex128)
+        return (
+            sc * gl_term - (1.0 - sc) * psi_m / INSULATOR_RELAXATION_TIME
+        ).astype(np.complex128)
 
     return gl_term.astype(np.complex128)
 

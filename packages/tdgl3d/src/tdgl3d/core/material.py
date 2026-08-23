@@ -220,19 +220,28 @@ def build_material_map(
         "top": trilayer.top,
     }
 
-    # Fill per-node by z-plane
+    # Fill per-node by z-plane.
+    #
+    # Layer thicknesses are given in *cells*, but material properties live on
+    # *nodes*, and the two interface nodes (k = b and k = b + i) are shared
+    # between layers.  Assigning each node to the cell range [k_start, k_end)
+    # that contains it hands the lower interface to the insulator and the upper
+    # one to the top layer, which leaves the two superconducting layers with
+    # different node counts — a symmetric stack that is not symmetric.
+    #
+    # Both interfaces go to the insulator instead.  A stack with equal
+    # superconducting thicknesses then has equal superconducting node counts and
+    # is exactly mirror-symmetric about its mid-plane; the oxide occupies
+    # ``insulator.thickness_z + 1`` nodes, one per cell boundary it spans.
+    insulator_start, insulator_end = ranges["insulator"]
+
     for k in range(Nz + 1):
-        # Determine which layer this z-plane belongs to
-        # Node at k belongs to the layer whose cell range [k_start, k_end)
-        # contains k (where k_end is the node boundary).
-        layer_name = "top"  # default for last node
-        for name, (k_start, k_end) in ranges.items():
-            if k_start <= k < k_end:
-                layer_name = name
-                break
-            # The very last node (k == Nz) belongs to the top layer
-            if k == Nz:
-                layer_name = "top"
+        if k < insulator_start:
+            layer_name = "bottom"
+        elif k <= insulator_end:
+            layer_name = "insulator"
+        else:
+            layer_name = "top"
 
         layer = layers[layer_name]
 

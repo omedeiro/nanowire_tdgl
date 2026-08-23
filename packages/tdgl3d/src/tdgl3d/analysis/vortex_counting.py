@@ -12,6 +12,97 @@ if TYPE_CHECKING:
     from ..core.solution import Solution
 
 
+def _interior_slice(
+    flat: NDArray,
+    params,
+    slice_z: int,
+) -> NDArray:
+    """Reshape a flat *interior* array and take the ``slice_z`` z-plane.
+
+    The interior numbering is i-slowest / k-fastest (see
+    :mod:`tdgl3d.mesh.indices`), so the C-order reshape below is
+    ``(Nx-1, Ny-1, Nz-1)`` and the result is indexed ``[i, j]``.
+    """
+    nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1)
+    return flat.reshape(nx_int, ny_int, nz_int)[:, :, slice_z]
+
+
+def plaquette_vorticity(
+    solution: Solution,
+    slice_z: int = 0,
+    step: int = -1,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    r"""Gauge-invariant vorticity of every elementary plaquette in a z-slice.
+
+    For the link-variable discretisation the vorticity of the plaquette whose
+    corners are the interior nodes ``(i,j) → (i+1,j) → (i+1,j+1) → (i,j+1)`` is
+
+    .. math::
+        n = \frac{1}{2\pi}\Big(\sum_{\text{links}}
+            \operatorname{wrap}(\Delta\theta - \varphi) + \Phi\Big),
+
+    where :math:`\operatorname{wrap}(\cdot)` folds into :math:`(-\pi, \pi]`,
+    :math:`\varphi` is the link variable traversed in the direction of travel and
+    :math:`\Phi = h_x h_y B_z` is the flux through the plaquette.  Because the
+    bare phases cancel pairwise around a closed loop, ``n`` is an **exact
+    integer** up to floating-point round-off, and it is invariant under
+    ``ψ → ψ e^{iχ}``, ``φ → φ + Δχ``.
+
+    This is the lattice statement of fluxoid quantisation; it is the quantity
+    the continuum expression :math:`\oint(\nabla\theta - A)\cdot dl = 2\pi n`
+    converges to.
+
+    Parameters
+    ----------
+    solution : Solution
+        The simulation result.
+    slice_z : int, default 0
+        Interior z-plane index (``0 … Nz-2``).
+    step : int, default -1
+        Which saved time step to analyse.
+
+    Returns
+    -------
+    vorticity : ndarray, shape (Nx-2, Ny-2)
+        Vorticity of each plaquette; entry ``[i, j]`` is the plaquette whose
+        lower-left corner is interior node ``(i, j)``.
+    psi2_min : ndarray, shape (Nx-2, Ny-2)
+        Smallest ``|ψ|²`` among the four corners of each plaquette, for masking
+        out holes and insulator regions.
+    """
+    params = solution.params
+    n = params.n_interior
+    state = solution.states[:, step]
+
+    psi = _interior_slice(state[:n], params, slice_z)
+    phi_x = np.real(_interior_slice(state[n : 2 * n], params, slice_z))
+    phi_y = np.real(_interior_slice(state[2 * n : 3 * n], params, slice_z))
+
+    theta = np.angle(psi)
+    psi2 = np.abs(psi) ** 2
+
+    # Corner slices: 00 = (i,j), 10 = (i+1,j), 11 = (i+1,j+1), 01 = (i,j+1)
+    t00, t10, t11, t01 = theta[:-1, :-1], theta[1:, :-1], theta[1:, 1:], theta[:-1, 1:]
+    # Links traversed: +x at (i,j), +y at (i+1,j), -x at (i,j+1), -y at (i,j)
+    px_b, py_r = phi_x[:-1, :-1], phi_y[1:, :-1]
+    px_t, py_l = phi_x[:-1, 1:], phi_y[:-1, :-1]
+
+    gauge_sum = (
+        _wrap_phase(t10 - t00 - px_b)
+        + _wrap_phase(t11 - t10 - py_r)
+        + _wrap_phase(t01 - t11 + px_t)
+        + _wrap_phase(t00 - t01 + py_l)
+    )
+    flux = px_b + py_r - px_t - py_l
+
+    vorticity = (gauge_sum + flux) / (2.0 * np.pi)
+    psi2_min = np.minimum(
+        np.minimum(psi2[:-1, :-1], psi2[1:, :-1]),
+        np.minimum(psi2[1:, 1:], psi2[:-1, 1:]),
+    )
+    return vorticity, psi2_min
+
+
 def count_vortices_plaquette(
     solution: Solution,
     device: Device,
@@ -20,20 +111,17 @@ def count_vortices_plaquette(
     winding_threshold: float = 0.8,
     mask_threshold: float = 1e-6,
 ) -> tuple[int, NDArray[np.float64], NDArray[np.float64]]:
-    """Count vortices using phase winding around elementary plaquettes.
+    """Count vortices from the gauge-invariant winding around each plaquette.
 
-    For each 2×2 plaquette (elementary square) in the grid, computes the
-    phase winding by summing phase differences around the 4 edges. A vortex
-    is detected when the winding number |Δφ/(2π)| > threshold.
-
-    This method is fast and works well for isolated vortices in 2D slices.
+    Thin wrapper over :func:`plaquette_vorticity` that drops plaquettes touching
+    a hole/insulator and reports the ones carrying a topological charge.
 
     Parameters
     ----------
     solution : Solution
         The simulation result
     device : Device
-        The device (needed for material mask)
+        The device (unused; kept for backwards compatibility of the call site)
     slice_z : int, default 0
         Which z-slice to analyze (interior index 0 to Nz-2)
     step : int, default -1
@@ -46,99 +134,71 @@ def count_vortices_plaquette(
     Returns
     -------
     n_vortices : int
-        Total number of vortices (sum of |winding numbers|)
+        Number of plaquettes carrying non-zero vorticity
     vortex_positions : ndarray, shape (n_vortices, 2)
         (x, y) grid coordinates of vortex centers (plaquette centers)
     winding_numbers : ndarray, shape (n_vortices,)
-        Winding number for each vortex (+1 or -1 typically)
+        Winding number for each vortex (±1 for a singly-quantised vortex)
 
     Notes
     -----
-    The phase winding around a plaquette with corners at (i,j), (i+1,j),
-    (i+1,j+1), (i,j+1) is computed as:
-
-        Δφ = [φ(i+1,j) - φ(i,j)] + [φ(i+1,j+1) - φ(i+1,j)] +
-             [φ(i,j+1) - φ(i+1,j+1)] + [φ(i,j) - φ(i,j+1)]
-
-    wrapped to [-π, π] at each step. A vortex has Δφ ≈ ±2π.
+    The winding is computed from *gauge-invariant* link phases, so the count does
+    not change under a gauge transformation and each entry of
+    ``winding_numbers`` is an integer to machine precision.  A multiply-quantised
+    core shows up as a single entry with ``|winding| > 1``, so ``n_vortices``
+    counts cores rather than flux quanta.
     """
-    params = solution.params
+    vorticity, psi2_min = plaquette_vorticity(solution, slice_z=slice_z, step=step)
 
-    # Get phase at the specified z-slice
-    psi = solution.psi(step=step)
-    psi2 = np.abs(psi) ** 2
+    detected = (np.abs(vorticity) > winding_threshold) & (psi2_min >= mask_threshold)
+    ii, jj = np.nonzero(detected)
 
-    # Reshape to 3D grid
-    nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1)
-    psi_3d = psi.reshape(nx_int, ny_int, nz_int)
-    psi2_3d = psi2.reshape(nx_int, ny_int, nz_int)
+    n_vortices = int(ii.size)
+    if n_vortices == 0:
+        return 0, np.empty((0, 2)), np.empty(0)
 
-    # Extract the 2D slice
-    psi_slice = psi_3d[:, :, slice_z]
-    psi2_slice = psi2_3d[:, :, slice_z]
-
-    # Compute phase
-    phase = np.angle(psi_slice)  # Range [-π, π]
-
-    # Storage for detected vortices
-    vortex_list = []
-    winding_list = []
-
-    # Scan all plaquettes
-    for i in range(nx_int - 1):
-        for j in range(ny_int - 1):
-            # Four corners of plaquette: (i,j), (i+1,j), (i+1,j+1), (i,j+1)
-            corners_psi2 = [
-                psi2_slice[i, j],
-                psi2_slice[i+1, j],
-                psi2_slice[i+1, j+1],
-                psi2_slice[i, j+1],
-            ]
-
-            # Skip plaquettes in insulator/hole regions
-            if any(p < mask_threshold for p in corners_psi2):
-                continue
-
-            # Get phase at corners
-            phi = [
-                phase[i, j],
-                phase[i+1, j],
-                phase[i+1, j+1],
-                phase[i, j+1],
-            ]
-
-            # Compute phase differences around the loop (with wrapping to [-π, π])
-            # Edge 1: (i,j) → (i+1,j)
-            dphi1 = _wrap_phase(phi[1] - phi[0])
-            # Edge 2: (i+1,j) → (i+1,j+1)
-            dphi2 = _wrap_phase(phi[2] - phi[1])
-            # Edge 3: (i+1,j+1) → (i,j+1)
-            dphi3 = _wrap_phase(phi[3] - phi[2])
-            # Edge 4: (i,j+1) → (i,j)
-            dphi4 = _wrap_phase(phi[0] - phi[3])
-
-            # Total winding around plaquette
-            winding = dphi1 + dphi2 + dphi3 + dphi4
-            winding_number = winding / (2.0 * np.pi)
-
-            # Detect vortex
-            if abs(winding_number) > winding_threshold:
-                # Position at plaquette center (in grid coordinates)
-                x_center = i + 0.5
-                y_center = j + 0.5
-                vortex_list.append([x_center, y_center])
-                winding_list.append(winding_number)
-
-    n_vortices = len(vortex_list)
-
-    if n_vortices > 0:
-        vortex_positions = np.array(vortex_list)
-        winding_numbers = np.array(winding_list)
-    else:
-        vortex_positions = np.empty((0, 2))
-        winding_numbers = np.empty(0)
-
+    vortex_positions = np.column_stack([ii + 0.5, jj + 0.5]).astype(float)
+    winding_numbers = vorticity[ii, jj]
     return n_vortices, vortex_positions, winding_numbers
+
+
+def _rectilinear_lattice_loop(
+    polygon: NDArray[np.float64],
+    i_lo: int,
+    i_hi: int,
+    j_lo: int,
+    j_hi: int,
+) -> NDArray[np.intp]:
+    """Snap a polygon to a closed staircase path of unit steps on the grid.
+
+    Vertices are rounded to the nearest node and clipped to
+    ``[i_lo, i_hi] × [j_lo, j_hi]``; consecutive vertices are joined by moving
+    along x first and then along y.  Returns the ``(n_nodes, 2)`` array of
+    ``(i, j)`` node indices, with the first node repeated at the end.
+    """
+    verts = np.asarray(polygon, dtype=float)
+    if verts.ndim != 2 or verts.shape[1] != 2:
+        raise ValueError("polygon_points must have shape (n_points, 2)")
+    if len(verts) > 1 and np.allclose(verts[0], verts[-1]):
+        verts = verts[:-1]
+    if len(verts) < 3:
+        raise ValueError("polygon_points must contain at least 3 distinct vertices")
+
+    nodes = np.empty((len(verts), 2), dtype=np.intp)
+    nodes[:, 0] = np.clip(np.rint(verts[:, 0]), i_lo, i_hi)
+    nodes[:, 1] = np.clip(np.rint(verts[:, 1]), j_lo, j_hi)
+
+    path: list[tuple[int, int]] = [(int(nodes[0, 0]), int(nodes[0, 1]))]
+    for target in list(nodes[1:]) + [nodes[0]]:
+        ti, tj = int(target[0]), int(target[1])
+        ci, cj = path[-1]
+        while ci != ti:
+            ci += 1 if ti > ci else -1
+            path.append((ci, cj))
+        while cj != tj:
+            cj += 1 if tj > cj else -1
+            path.append((ci, cj))
+    return np.array(path, dtype=np.intp)
 
 
 def count_vortices_polygon(
@@ -148,26 +208,33 @@ def count_vortices_polygon(
     slice_z: int = 0,
     step: int = -1,
 ) -> float:
-    """Count vortices by computing fluxoid through a polygon.
+    r"""Fluxoid number enclosed by a closed contour, in units of Φ₀.
 
-    Computes the fluxoid Φ_f = ∮ A·dl + ∮ λ²J_s·dl around a closed polygon.
-    For a superconductor with vortices, Φ_f ≈ n·Φ₀ where n is the number
-    of enclosed vortices and Φ₀ is the flux quantum.
+    The contour is snapped to a closed staircase of unit lattice steps and the
+    fluxoid is accumulated link by link:
 
-    In dimensionless units (length in ξ, field in H_c2), Φ₀ = 2π, so the
-    returned value n = Φ_f/(2π) gives the vortex count directly.
+    .. math::
+        2\pi n = \sum_{\text{links}}
+            \operatorname{wrap}(\Delta\theta - \varphi) \; + \; \oint A\cdot dl ,
 
-    This is more robust than plaquette winding for holes and boundaries.
+    where the first sum is the gauge-invariant phase gradient (the discrete
+    :math:`\oint(\nabla\theta - A)\cdot dl`, i.e. the :math:`\lambda^2 J_s`
+    term of the continuum fluxoid) and the second is the enclosed flux
+    :math:`\sum \varphi` along the loop.  The bare phases cancel pairwise around
+    the closed path, so ``n`` is an **exact integer** to floating-point
+    round-off, independent of gauge, contour shape and field strength.
 
     Parameters
     ----------
     solution : Solution
         The simulation result
     device : Device
-        The device (needed for link variables and field)
+        The device (unused; kept for backwards compatibility of the call site)
     polygon_points : ndarray, shape (n_points, 2)
-        (x, y) coordinates of polygon vertices in grid index units.
-        Polygon should be closed (first and last point can be same or not).
+        (x, y) vertices of the contour in **full-grid node** coordinates.
+        Vertices are rounded to the nearest node and clipped to the interior
+        (``1 … Nx-1``, ``1 … Ny-1``) — the order parameter is not defined on the
+        boundary ring, so a contour must not run along it.
     slice_z : int, default 0
         Which z-slice to analyze (interior index)
     step : int, default -1
@@ -176,100 +243,59 @@ def count_vortices_polygon(
     Returns
     -------
     n_vortices : float
-        Number of vortices enclosed by polygon (can be fractional if polygon
-        doesn't fully enclose vortices or cuts through screening currents)
+        Number of flux quanta (vortices, or a trapped-flux quantum in a hole)
+        enclosed by the contour.  Integer-valued up to round-off.
 
     Notes
     -----
-    The fluxoid is:
-        Φ_f = ∮ (A + λ² J_s) · dl
+    Unlike :func:`count_hole_flux_quanta`, which integrates the *magnetic* flux
+    and is therefore not quantised, this quantity is topologically quantised: it
+    counts phase singularities enclosed by the contour whether they sit in the
+    superconductor (vortices) or in a hole (trapped fluxoid).
 
-    Using Stokes' theorem:
-        Φ_f = ∬ B · dA + ∮ λ² J_s · dl
-
-    For a vortex-free region: Φ_f = ∬ B · dA (enclosed flux)
-    For a region with vortices: Φ_f includes phase winding contribution
-
-    In our dimensionless units (ξ, H_c2), the flux quantum is Φ₀ = 2π.
+    Examples
+    --------
+    >>> polygon = np.array([[9, 9], [21, 9], [21, 21], [9, 21]])
+    >>> fluxoid = count_vortices_polygon(sol, dev, polygon)  # doctest: +SKIP
+    1.0
     """
     from ..physics.rhs import _expand_interior_to_full
 
     params = solution.params
     idx = solution.idx
     n = params.n_interior
+    mj, mk = params.mj, params.mk
 
-    # Get state at the specified step
     state = solution.states[:, step]
-    psi_int = state[:n]
-    phi_x_int = state[n:2*n]
-    phi_y_int = state[2*n:3*n]
+    psi_full = _expand_interior_to_full(state[:n], params, idx)
+    phi_x_full = np.real(_expand_interior_to_full(state[n : 2 * n], params, idx))
+    phi_y_full = np.real(_expand_interior_to_full(state[2 * n : 3 * n], params, idx))
 
-    # Expand to full grid
-    psi_full = _expand_interior_to_full(psi_int, params, idx)
-    phi_x_full = _expand_interior_to_full(phi_x_int, params, idx)
-    phi_y_full = _expand_interior_to_full(phi_y_int, params, idx)
+    k_full = (slice_z + 1) if params.is_3d else 0
+    base = mk * k_full
 
-    # Reshape to 2D or 3D depending on Nz
-    nx, ny = params.Nx + 1, params.Ny + 1
+    path = _rectilinear_lattice_loop(
+        polygon_points, i_lo=1, i_hi=params.Nx - 1, j_lo=1, j_hi=params.Ny - 1
+    )
 
-    if params.Nz == 1:
-        # 2D case: full grid is just (Nx+1) × (Ny+1)
-        psi_grid = psi_full.reshape(nx, ny)
-        phi_x_grid = phi_x_full.reshape(nx, ny)
-        phi_y_grid = phi_y_full.reshape(nx, ny)
+    theta = np.angle(psi_full)
+    total = 0.0
+    for (i0, j0), (i1, j1) in zip(path[:-1], path[1:]):
+        node0 = base + i0 + mj * j0
+        node1 = base + i1 + mj * j1
+        if i1 == i0 + 1:
+            phi = phi_x_full[node0]
+        elif i1 == i0 - 1:
+            phi = -phi_x_full[node1]
+        elif j1 == j0 + 1:
+            phi = phi_y_full[node0]
+        elif j1 == j0 - 1:
+            phi = -phi_y_full[node1]
+        else:  # pragma: no cover - _rectilinear_lattice_loop only emits unit steps
+            raise AssertionError("lattice path contains a non-unit step")
+        total += float(_wrap_phase(theta[node1] - theta[node0] - phi)) + phi
 
-        # Extract 2D slice (already 2D, just use it)
-        psi_slice = psi_grid
-    else:
-        # 3D case: full grid is (Nx+1) × (Ny+1) × (Nz+1)
-        nz = params.Nz + 1
-        psi_grid = psi_full.reshape(nx, ny, nz)
-        phi_x_grid = phi_x_full.reshape(nx, ny, nz)
-        phi_y_grid = phi_y_full.reshape(nx, ny, nz)
-
-        # Extract 2D slice (use interior+boundary nodes)
-        psi_slice = psi_grid[:, :, slice_z + 1]  # +1 because slice_z is interior index
-        phi_x_grid[:, :, slice_z + 1]
-        phi_y_grid[:, :, slice_z + 1]
-
-    # Ensure polygon is closed
-    polygon = np.array(polygon_points)
-    if not np.allclose(polygon[0], polygon[-1]):
-        polygon = np.vstack([polygon, polygon[0:1]])
-
-    # Integrate A·dl + λ²J_s·dl around polygon
-    # For simplicity, we'll integrate A·dl (link variables) and approximate J_s contribution
-
-    # This is a simplified version - for a full implementation we'd need:
-    # 1. Interpolate link variables along polygon edges
-    # 2. Compute supercurrent along polygon
-    # 3. Sum both contributions
-
-    # For now, return phase winding as proxy (matches plaquette method)
-    # Full implementation would use gauge field line integrals
-
-    # Compute phase winding around polygon (simpler approximation)
-    fluxoid = 0.0
-
-    for i in range(len(polygon) - 1):
-        p1 = polygon[i]
-        p2 = polygon[i + 1]
-
-        # Get indices (clip to valid range)
-        i1, j1 = int(np.clip(p1[0], 0, nx-1)), int(np.clip(p1[1], 0, ny-1))
-        i2, j2 = int(np.clip(p2[0], 0, nx-1)), int(np.clip(p2[1], 0, ny-1))
-
-        # Get phase difference
-        phase1 = np.angle(psi_slice[i1, j1])
-        phase2 = np.angle(psi_slice[i2, j2])
-
-        dphi = _wrap_phase(phase2 - phase1)
-        fluxoid += dphi
-
-    # Convert to vortex count (Φ₀ = 2π in dimensionless units)
-    n_vortices = fluxoid / (2.0 * np.pi)
-
-    return float(n_vortices)
+    return float(total / (2.0 * np.pi))
 
 
 def count_hole_flux_quanta(

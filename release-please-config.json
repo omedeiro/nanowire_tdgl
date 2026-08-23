@@ -1,6 +1,21 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "python",
+  "changelog-sections": [
+    { "type": "feat", "section": "Added" },
+    { "type": "fix", "section": "Fixed" },
+    { "type": "perf", "section": "Changed" },
+    { "type": "refactor", "section": "Changed" },
+    { "type": "revert", "section": "Removed" },
+    { "type": "deprecate", "section": "Deprecated" },
+    { "type": "remove", "section": "Removed" },
+    { "type": "security", "section": "Security" },
+    { "type": "build", "section": "Changed", "hidden": true },
+    { "type": "docs", "section": "Changed", "hidden": true },
+    { "type": "test", "section": "Changed", "hidden": true },
+    { "type": "ci", "section": "Changed", "hidden": true },
+    { "type": "chore", "section": "Changed", "hidden": true }
+  ],
   "packages": {
     "packages/tdgl3d": { "package-name": "tdgl3d", "component": "tdgl3d" },
     "packages/schema": { "package-name": "tdgl3d-schema", "component": "tdgl3d-schema" },

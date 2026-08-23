@@ -1,900 +1,456 @@
-"""Physics-based validation tests for the TDGL solver.
+"""Physics validation for heterostructures (trilayer / material maps).
 
-Verifies that the solver produces physically correct results:
-- Equilibrium states, symmetries, boundary conditions
-- CFL stability, energy dissipation, B-field consistency
-- Trilayer interface physics, Meissner screening, vortex entry
+The general-purpose physics verification lives in four dedicated suites, each
+organised around a principle rather than around a feature:
 
-All test results are logged to logs/physics_test_runlog.json via the
-phys_log fixture (see conftest.py).
+===================================== =======================================
+Module                                Verifies
+===================================== =======================================
+``test_verification_gauge.py``        local U(1) covariance of the right-hand
+                                      side; gauge invariance of |ψ|, B, J_s,
+                                      the free energy and the vortex count
+``test_verification_conservation.py`` ∇·B = 0 and ∇·(∇×∇×A) = 0 as exact
+                                      identities; free energy as a Lyapunov
+                                      functional; ∇·J_s = 0 in steady state;
+                                      J_n = 0 on every external face; CFL
+``test_verification_symmetry.py``     applied flux on the boundary
+                                      plaquettes; B → −B; C4 and mirror
+                                      symmetry; index-ordering consistency on
+                                      non-cubic grids
+``test_verification_analytic.py``     λ = κ; the lowest Landau level E₀ = B
+                                      (hence H_c2 = 1); order of accuracy in
+                                      h and in dt; insulator relaxation time
+``test_verification_vortex.py``       exact fluxoid quantisation; winding sign
+                                      versus field sign; lattice Stokes;
+                                      Meissner state free of vortices
+===================================== =======================================
+
+What remains here are the checks specific to a stacked
+superconductor/insulator/superconductor device, where a spatially varying κ and
+the insulator mask enter the operators.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
+import pytest
 from tdgl3d import (
     AppliedField,
     Device,
     Layer,
     SimulationParameters,
     Trilayer,
-    solve,
 )
 from tdgl3d.core.material import build_material_map
-from tdgl3d.core.state import StateVector
 from tdgl3d.mesh.indices import construct_indices
-from tdgl3d.physics.applied_field import build_boundary_field_vectors
+from tdgl3d.operators.sparse_operators import construct_LPHI_x
 from tdgl3d.physics.bfield import eval_bfield_full
 from tdgl3d.physics.current_density import eval_supercurrent_density
-from tdgl3d.physics.rhs import (
-    BoundaryVectors,
-    _apply_boundary_conditions,
-    _expand_interior_to_full,
-    eval_f,
-)
 from tdgl3d.solvers.integrators import forward_euler
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+from .physics_helpers import (
+    applied_boundary,
+    cfl_limit,
+    expand_state,
+    zero_boundary,
+)
 
 
-def _zero_bv(params: SimulationParameters, idx) -> BoundaryVectors:
-    N = params.dim_x
-    return BoundaryVectors(np.zeros(N), np.zeros(N), np.zeros(N))
-
-
-def _run_euler(
-    params: SimulationParameters,
-    applied_bz: float,
-    n_steps: int,
-    dt: float,
-    noise_amplitude: float = 0.01,
-    seed: int | None = None,
-):
-    """Run Forward Euler for n_steps and return (times, states, device, idx)."""
-    device = Device(params, applied_field=AppliedField(Bz=applied_bz))
-    idx = device.idx
-    t_stop = n_steps * dt
-    applied_field = device.applied_field
-
-    def eval_u(t, X):
-        bx, by, bz = applied_field.evaluate(t, t_stop)
-        Bx_vec, By_vec, Bz_vec = build_boundary_field_vectors(bx, by, bz, params, idx)
-        return BoundaryVectors(Bx_vec, By_vec, Bz_vec)
-
-    x0 = device.initial_state(noise_amplitude=noise_amplitude, seed=seed).data
-    times, states = forward_euler(
-        x0, params, idx, eval_u, 0.0, t_stop, dt,
-        save_every=1, progress=False,
-    )
-    return times, states, device, idx
-
-
-def _expand_state(state: NDArray, params: SimulationParameters, idx):
-    """Expand interior state to full grid and apply zero-field BCs."""
-    n = params.n_interior
-    psi = _expand_interior_to_full(state[:n], params, idx)
-    phi_x = _expand_interior_to_full(state[n:2*n], params, idx)
-    phi_y = _expand_interior_to_full(state[2*n:3*n], params, idx)
-    phi_z = _expand_interior_to_full(state[3*n:4*n], params, idx) if params.is_3d else np.zeros(params.dim_x, dtype=np.complex128)
-    u = _zero_bv(params, idx)
-    psi, phi_x, phi_y, phi_z = _apply_boundary_conditions(psi, phi_x, phi_y, phi_z, params, idx, u)
-    return psi, phi_x, phi_y, phi_z
-
-
-def _compute_free_energy(
-    state: NDArray,
-    params: SimulationParameters,
-    idx,
-    kappa: float,
-) -> float:
-    """Compute GL free energy F = ∫[|ψ|²/2 + |∇ψ|²/2 + κ²B²/2] dV."""
-    n = params.n_interior
-    hx, hy = params.hx, params.hy
-
-    psi_int = state[:n]
-    phi_x_int = state[n:2*n]
-    phi_y_int = state[2*n:3*n]
-
-    psi_full = _expand_interior_to_full(psi_int, params, idx)
-    phi_x_full = _expand_interior_to_full(phi_x_int, params, idx)
-    phi_y_full = _expand_interior_to_full(phi_y_int, params, idx)
-    phi_z_full = np.zeros(params.dim_x, dtype=np.complex128)
-
-    # Apply BCs for B-field computation
-    u = _zero_bv(params, idx)
-    psi_bc, px_bc, py_bc, pz_bc = _apply_boundary_conditions(
-        psi_full, phi_x_full, phi_y_full, phi_z_full, params, idx, u
+def _trilayer(thickness: int = 2, kappa: float = 2.0) -> Trilayer:
+    return Trilayer(
+        bottom=Layer(thickness_z=thickness, kappa=kappa),
+        insulator=Layer(thickness_z=thickness, kappa=0.0, is_superconductor=False),
+        top=Layer(thickness_z=thickness, kappa=kappa),
     )
 
-    # F_psi = 0.5 * Σ |ψ|²
-    F_psi = 0.5 * np.sum(np.abs(psi_int) ** 2)
 
-    # F_grad = 0.5 * Σ (|ψ[i+1]-ψ[i]|²/hx² + |ψ[i+mj]-ψ[i]|²/hy²) * hx*hy
-    m = idx.interior_to_full
-    mj = params.mj
-    dpsi_dx = (psi_bc[m + 1] - psi_bc[m]) / hx
-    dpsi_dy = (psi_bc[m + mj] - psi_bc[m]) / hy
-    F_grad = 0.5 * (np.sum(np.abs(dpsi_dx) ** 2) + np.sum(np.abs(dpsi_dy) ** 2)) * hx * hy
-
-    # F_b = 0.5 * κ² * Σ Bz² * hx*hy
-    _, _, Bz = eval_bfield_full(px_bc, py_bc, pz_bc, params, idx)
-    F_b = 0.5 * kappa**2 * np.sum(Bz**2) * hx * hy
-
-    return float(F_psi + F_grad + F_b)
-
-
-# ---------------------------------------------------------------------------
-# Tier 1 — Fast, no simulation
-# ---------------------------------------------------------------------------
-
-
-def test_uniform_state_zero_rhs(phys_log):
-    """Uniform |ψ|=1, φ=0, zero field is an exact fixed point (zero-current BCs)."""
-    params = SimulationParameters(Nx=6, Ny=6, Nz=1)
-    idx = construct_indices(params)
-    sv = StateVector.uniform_superconducting(params)
-    u = _zero_bv(params, idx)
-    F = eval_f(sv.data, params, idx, u)
-
-    with phys_log.test("test_uniform_state_zero_rhs", {"Nx": 6, "Ny": 6}) as log:
-        log["max_rhs"] = float(np.max(np.abs(F)))
-        log["mean_rhs"] = float(np.mean(np.abs(F)))
-        np.testing.assert_allclose(F, 0.0, atol=1e-12)
-
-
-def test_c4_symmetry_preserved_over_time(phys_log):
-    """Rotational invariance: φ_x(i,j) = -φ_y(j,i) maintained through 10 steps."""
-    params = SimulationParameters(Nx=8, Ny=8, Nz=1, kappa=2.0)
-    times, states, _, _ = _run_euler(
-        params, applied_bz=0.5, n_steps=10, dt=0.01, noise_amplitude=0.0,
-    )
-
-    with phys_log.test("test_c4_symmetry_preserved_over_time", {"Nx": 8, "kappa": 2.0, "Bz": 0.5}) as log:
-        max_violation = 0.0
-        n = params.n_interior
-        for step in range(states.shape[1]):
-            phix = states[n:2*n, step].reshape(params.Nx - 1, params.Ny - 1)
-            phiy = states[2*n:3*n, step].reshape(params.Nx - 1, params.Ny - 1)
-            viol = np.max(np.abs(phix + phiy.T))
-            max_violation = max(max_violation, viol)
-
-        log["max_symmetry_violation"] = float(max_violation)
-        np.testing.assert_allclose(max_violation, 0.0, atol=1e-12)
-
-
-def test_supercurrent_zero_at_boundaries(phys_log):
-    """J_n = 0 at all external boundary faces (verified via zero boundary link variables)."""
-    params = SimulationParameters(Nx=6, Ny=6, Nz=1, kappa=2.0)
-    times, states, device, idx = _run_euler(params, applied_bz=0.5, n_steps=5, dt=0.01)
-
-    with phys_log.test("test_supercurrent_zero_at_boundaries", {"Nx": 6, "Bz": 0.5}) as log:
-        psi, phi_x, phi_y, phi_z = _expand_state(states[:, -1], params, idx)
-
-        # Boundary link variables are zeroed by BCs — this enforces J_n = 0.
-        phi_x_xface_lo = np.abs(phi_x[idx.x_face_lo_inner])
-        phi_x_xface_hi = np.abs(phi_x[idx.x_face_hi_inner])
-        phi_y_yface_lo = np.abs(phi_y[idx.y_face_lo_inner])
-        phi_y_yface_hi = np.abs(phi_y[idx.y_face_hi_inner])
-
-        max_phi_x_lo = float(np.max(phi_x_xface_lo)) if len(phi_x_xface_lo) > 0 else 0.0
-        max_phi_x_hi = float(np.max(phi_x_xface_hi)) if len(phi_x_xface_hi) > 0 else 0.0
-        max_phi_y_lo = float(np.max(phi_y_yface_lo)) if len(phi_y_yface_lo) > 0 else 0.0
-        max_phi_y_hi = float(np.max(phi_y_yface_hi)) if len(phi_y_yface_hi) > 0 else 0.0
-
-        max_boundary_link = max(max_phi_x_lo, max_phi_x_hi, max_phi_y_lo, max_phi_y_hi)
-
-        log["max_boundary_link_phi"] = max_boundary_link
-        assert max_boundary_link < 1e-14, (
-            f"Boundary link variables non-zero: max = {max_boundary_link}"
-        )
-
-
-def test_cfl_stability_below_limit(phys_log):
-    """Forward Euler stable for dt < h²/(4κ²)."""
-    params = SimulationParameters(Nx=5, Ny=5, Nz=1, kappa=2.0)
-    cfl_limit = 1.0 / (4.0 * params.kappa**2)
-    dt = 0.9 * cfl_limit
-
-    with phys_log.test("test_cfl_stability_below_limit", {"Nx": 5, "kappa": 2.0, "cfl": cfl_limit, "dt": dt}) as log:
-        times, states, _, _ = _run_euler(params, applied_bz=0.0, n_steps=20, dt=dt)
-        psi2 = np.abs(states[:params.n_interior, -1]) ** 2
-
-        log["cfl_limit"] = float(cfl_limit)
-        log["dt_used"] = float(dt)
-        log["max_psi2"] = float(np.max(psi2))
-        log["min_psi2"] = float(np.min(psi2))
-        assert np.all(np.isfinite(states)), "States contain NaN/Inf"
-        assert np.max(psi2) < 10, f"max|ψ|² = {np.max(psi2)}, expected < 10"
-
-
-def test_cfl_instability_above_limit(phys_log):
-    """Forward Euler unstable for dt > h²/(4κ²)."""
-    params = SimulationParameters(Nx=5, Ny=5, Nz=1, kappa=2.0)
-    cfl_limit = 1.0 / (4.0 * params.kappa**2)
-    dt = 3.0 * cfl_limit
-
-    with phys_log.test("test_cfl_instability_above_limit", {"Nx": 5, "kappa": 2.0, "cfl": cfl_limit, "dt": dt}) as log:
-        times, states, _, _ = _run_euler(params, applied_bz=0.5, n_steps=50, dt=dt)
-        has_nan = not np.all(np.isfinite(states))
-        psi_mean = np.mean(np.abs(states[:params.n_interior, -1]))
-        max_psi = float(np.max(np.abs(states[:params.n_interior, -1]))) if np.all(np.isfinite(states[:params.n_interior, -1])) else float("inf")
-
-        log["cfl_limit"] = float(cfl_limit)
-        log["dt_used"] = float(dt)
-        log["has_nan"] = has_nan
-        log["max_psi_final"] = max_psi
-        log["mean_psi_final"] = float(psi_mean)
-        assert psi_mean < 0.5, (
-            f"Expected instability (state collapse) but mean|ψ| = {psi_mean:.4f}"
-        )
-
-
-def test_bfield_divergence_free(phys_log):
-    """∇·B ≈ 0 at bulk interior nodes (forward-curl + backward-divergence)."""
-    params = SimulationParameters(Nx=4, Ny=4, Nz=4, kappa=2.0)
-    times, states, _, idx = _run_euler(params, applied_bz=0.5, n_steps=5, dt=0.01)
-
-    with phys_log.test("test_bfield_divergence_free", {"Nx": 4, "Nz": 4, "Bz": 0.5}) as log:
-        psi, phi_x, phi_y, phi_z = _expand_state(states[:, -1], params, idx)
-        Bx_int, By_int, Bz_int = eval_bfield_full(phi_x, phi_y, phi_z, params, idx)
-
-        n_full = params.dim_x
-        Bx_full = np.zeros(n_full, dtype=np.float64)
-        By_full = np.zeros(n_full, dtype=np.float64)
-        Bz_full = np.zeros(n_full, dtype=np.float64)
-        m_int = idx.interior_to_full
-        Bx_full[m_int] = Bx_int
-        By_full[m_int] = By_int
-        Bz_full[m_int] = Bz_int
-
-        mj = params.mj
-        mk = params.mk
-
-        # Exclude boundary-adjacent nodes (backward stencil hits boundary where B=0)
-        valid = np.ones(len(m_int), dtype=bool)
-        nx_int = params.Nx - 1
-        ny_int = params.Ny - 1
-        nz_int = params.Nz - 1
-        for k in range(nz_int):
-            for j in range(ny_int):
-                for i in range(nx_int):
-                    idx_int = k * ny_int * nx_int + j * nx_int + i
-                    if i == 0 or i == nx_int - 1 or j == 0 or j == ny_int - 1:
-                        valid[idx_int] = False
-                    if params.is_3d and (k == 0 or k == nz_int - 1):
-                        valid[idx_int] = False
-
-        m_bulk = m_int[valid]
-        dBx_dx = (Bx_full[m_bulk] - Bx_full[m_bulk - 1]) / params.hx
-        dBy_dy = (By_full[m_bulk] - By_full[m_bulk - mj]) / params.hy
-        dBz_dz = (Bz_full[m_bulk] - Bz_full[m_bulk - mk]) / params.hz
-
-        div_b = dBx_dx + dBy_dy + dBz_dz
-        max_div = float(np.max(np.abs(div_b)))
-        mean_div = float(np.mean(np.abs(div_b)))
-        B_bulk = np.sqrt(Bx_int[valid]**2 + By_int[valid]**2 + Bz_int[valid]**2)
-        max_B_bulk = float(np.max(B_bulk))
-
-        log["max_div_b"] = max_div
-        log["mean_div_b"] = mean_div
-        log["max_B_magnitude"] = max_B_bulk
-        # Forward-curl + backward-div on collocated grid has O(h²) stencil mismatch in bulk.
-        if max_B_bulk > 1e-10:
-            log["div_to_B_ratio"] = max_div / max_B_bulk
-            assert max_div / max_B_bulk < 0.15, f"max|∇·B|/max|B| = {max_div / max_B_bulk:.6f}"
-        else:
-            assert max_div < 1e-10, f"max|∇·B| = {max_div}"
-
-
-# ---------------------------------------------------------------------------
-# Tier 2 — Short simulations
-# ---------------------------------------------------------------------------
-
-
-def test_energy_dissipation_monotonic(phys_log):
-    """Free energy F decreases over time (dissipative TDGL dynamics)."""
-    params = SimulationParameters(Nx=6, Ny=6, Nz=1, kappa=2.0)
-    n_steps = 30
-    dt = 0.01
-
-    with phys_log.test("test_energy_dissipation_monotonic", {"Nx": 6, "kappa": 2.0, "Bz": 0.5, "n_steps": n_steps}) as log:
-        times, states, device, idx = _run_euler(params, applied_bz=0.5, n_steps=n_steps, dt=dt)
-
-        energies = []
-        for step in range(states.shape[1]):
-            F = _compute_free_energy(states[:, step], params, idx, params.kappa)
-            energies.append(F)
-
-        energies = np.array(energies)
-        max_increase = 0.0
-        for i in range(1, len(energies)):
-            if energies[i-1] > 1e-10:
-                rel_increase = (energies[i] - energies[i-1]) / abs(energies[i-1])
-                max_increase = max(max_increase, rel_increase)
-
-        # Set tolerance: allow small numerical fluctuations
-        tol = max(0.01, 10 * max_increase) if max_increase > 0 else 0.01
-
-        log["F_initial"] = float(energies[0])
-        log["F_final"] = float(energies[-1])
-        log["max_energy_increase"] = float(max_increase)
-        log["tolerance"] = float(tol)
-        log["energies"] = energies.tolist()
-
-        for i in range(1, len(energies)):
-            assert energies[i] <= energies[i-1] * (1 + tol), (
-                f"Energy increased at step {i}: {energies[i-1]:.6f} -> {energies[i]:.6f} "
-                f"(rel increase = {(energies[i]-energies[i-1])/abs(energies[i-1]):.6f}, tol = {tol:.6f})"
-            )
-
-
-def test_insulator_psi_exponential_decay(phys_log):
-    """Insulator relaxation: |ψ| decays as exp(-t/τ) with τ ≈ 0.1."""
-    trilayer = Trilayer(
-        bottom=Layer(thickness_z=2, kappa=2.0),
-        insulator=Layer(thickness_z=2, kappa=0.0, is_superconductor=False),
-        top=Layer(thickness_z=2, kappa=2.0),
-    )
-    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=2.0)
-    device = Device(params, applied_field=AppliedField(Bz=0.0), trilayer=trilayer)
-    idx = device.idx
-    material = device.material
-
-    with phys_log.test("test_insulator_psi_exponential_decay", {"Nx": 4, "Nz": trilayer.Nz}) as log:
-        # Create initial state with ψ=1 everywhere (override insulator mask)
-        sv = StateVector.uniform_superconducting(params)
-        x0 = sv.data.copy()
-
-        def eval_u(t, X):
-            return _zero_bv(params, idx)
-
-        times, states = forward_euler(
-            x0, params, idx, eval_u, 0.0, 0.5, 0.01,
-            save_every=1, progress=False, material=material,
-        )
-
-        # Get insulator interior mask
-        ins_mask = material.interior_sc_mask == 0.0
-        n = params.n_interior
-
-        psi_ins_mean = []
-        for step in range(states.shape[1]):
-            psi_int = states[:n, step]
-            psi_abs = np.abs(psi_int[ins_mask])
-            psi_ins_mean.append(float(np.mean(psi_abs)))
-
-        psi_ins_mean = np.array(psi_ins_mean)
-        t_arr = times
-
-        # Subtract steady-state offset before fitting the exponential decay
-        psi_ss = psi_ins_mean[-1]
-        psi_decay = psi_ins_mean - psi_ss
-
-        # Fit to exp(-t/τ) — use log-linear fit on early-time data
-        valid = psi_decay > 1e-10
-        early = t_arr < 0.15
-        fit_mask = valid & early
-        fit_converged = False
-        tau_fit = None
-        if np.sum(fit_mask) > 2:
-            log_psi = np.log(psi_decay[fit_mask])
-            t_fit = t_arr[fit_mask]
-            coeffs = np.polyfit(t_fit, log_psi, 1)
-            tau_fit = -1.0 / coeffs[0]
-            fit_converged = True
-
-        log["tau_fit"] = float(tau_fit) if tau_fit is not None else None
-        log["tau_expected"] = 0.1
-        log["fit_converged"] = fit_converged
-        log["psi_insulator_vs_time"] = psi_ins_mean.tolist()
-        log["psi_steady_state"] = float(psi_ss)
-
-        if not fit_converged or tau_fit is None:
-            log["tau_rel_error"] = None
-            raise AssertionError(
-                "Exponential fit did not converge — cannot extract τ"
-            )
-
-        tau_rel_error = abs(tau_fit - 0.1) / 0.1
-        log["tau_rel_error"] = float(tau_rel_error)
-
-        assert tau_rel_error < 0.3, (
-            f"τ_fit = {tau_fit:.4f}, expected ≈ 0.1, "
-            f"relative error = {tau_rel_error:.1%} (30% tolerance)"
-        )
-
-
-def test_bfield_uniform_at_boundary(phys_log):
-    """Applied Bz is uniform across all boundary face nodes."""
-    params = SimulationParameters(Nx=6, Ny=6, Nz=1)
-    idx = construct_indices(params)
-
-    with phys_log.test("test_bfield_uniform_at_boundary", {"Nx": 6, "Bz": 1.0}) as log:
-        Bx_vec, By_vec, Bz_vec = build_boundary_field_vectors(0.0, 0.0, 1.0, params, idx)
-
-        bz_x_lo = Bz_vec[idx.x_face_lo_inner]
-        bz_x_hi = Bz_vec[idx.x_face_hi_inner]
-        bz_y_lo = Bz_vec[idx.y_face_lo_inner]
-        bz_y_hi = Bz_vec[idx.y_face_hi_inner]
-
-        log["bz_x_lo_mean"] = float(np.mean(bz_x_lo)) if len(bz_x_lo) > 0 else None
-        log["bz_x_hi_mean"] = float(np.mean(bz_x_hi)) if len(bz_x_hi) > 0 else None
-        log["bz_y_lo_mean"] = float(np.mean(bz_y_lo)) if len(bz_y_lo) > 0 else None
-        log["bz_y_hi_mean"] = float(np.mean(bz_y_hi)) if len(bz_y_hi) > 0 else None
-        log["bz_x_lo_std"] = float(np.std(bz_x_lo)) if len(bz_x_lo) > 0 else None
-
-        np.testing.assert_allclose(bz_x_lo, 1.0, atol=1e-14)
-        np.testing.assert_allclose(bz_x_hi, 1.0, atol=1e-14)
-        np.testing.assert_allclose(bz_y_lo, 1.0, atol=1e-14)
-        np.testing.assert_allclose(bz_y_hi, 1.0, atol=1e-14)
-
-
-def test_bfield_reversal_symmetry(phys_log):
-    """+Bz and -Bz produce opposite-sign B profiles."""
-    params = SimulationParameters(Nx=6, Ny=6, Nz=1, kappa=2.0)
-    n_steps = 20
-    dt = 0.01
-
-    with phys_log.test("test_bfield_reversal_symmetry", {"Nx": 6, "Bz": 0.5, "n_steps": n_steps}) as log:
-        times_pos, states_pos, _, idx = _run_euler(
-            params, applied_bz=0.5, n_steps=n_steps, dt=dt, noise_amplitude=0.0,
-        )
-        times_neg, states_neg, _, _ = _run_euler(
-            params, applied_bz=-0.5, n_steps=n_steps, dt=dt, noise_amplitude=0.0,
-        )
-
-        max_asymmetry = 0.0
-        for step in range(states_pos.shape[1]):
-            psi_pos, px_pos, py_pos, pz_pos = _expand_state(states_pos[:, step], params, idx)
-            psi_neg, px_neg, py_neg, pz_neg = _expand_state(states_neg[:, step], params, idx)
-
-            _, _, Bz_pos = eval_bfield_full(px_pos, py_pos, pz_pos, params, idx)
-            _, _, Bz_neg = eval_bfield_full(px_neg, py_neg, pz_neg, params, idx)
-
-            asym = np.max(np.abs(Bz_pos + Bz_neg))
-            max_asymmetry = max(max_asymmetry, asym)
-
-        log["max_asymmetry"] = float(max_asymmetry)
-        np.testing.assert_allclose(max_asymmetry, 0.0, atol=1e-12)
+def _interior_position(params, idx) -> dict[int, int]:
+    """Map full-grid index → interior index.
+
+    ``interior_to_full`` is *not* sorted (it runs i-slowest over a grid whose
+    linear index runs i-fastest), so a bisection lookup on it silently returns
+    the wrong node.
+    """
+    return {int(node): pos for pos, node in enumerate(idx.interior_to_full)}
 
 
 def test_trilayer_kappa_discontinuity(phys_log):
-    """LPHI operators handle κ jump at SC/insulator interface correctly."""
-    from tdgl3d.operators.sparse_operators import construct_LPHI_x
+    """The φ-Laplacian picks up κ from the material map, node by node.
 
-    trilayer = Trilayer(
-        bottom=Layer(thickness_z=2, kappa=2.0),
-        insulator=Layer(thickness_z=2, kappa=0.0, is_superconductor=False),
-        top=Layer(thickness_z=2, kappa=2.0),
-    )
-    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=2.0)
+    In the superconducting layers the diagonal must be ``-2κ²(1/h_y² + 1/h_z²)``;
+    in the insulator, where ``κ = 0``, it must vanish exactly.
+    """
+    kappa = 2.0
+    trilayer = _trilayer(kappa=kappa)
+    params = SimulationParameters(Nx=4, Ny=5, Nz=trilayer.Nz, kappa=kappa)
     idx = construct_indices(params)
     material = build_material_map(params, trilayer, idx)
 
-    with phys_log.test("test_trilayer_kappa_discontinuity", {"Nx": 4, "Nz": trilayer.Nz}) as log:
-        Lx = construct_LPHI_x(params, idx, material)
-        m = idx.interior_to_full
+    operator = construct_LPHI_x(params, idx, material)
+    m = idx.interior_to_full
+    diagonal = np.real(np.asarray(operator[m, m]).ravel())
+    position = _interior_position(params, idx)
 
-        # Find interface nodes: last SC layer (k=1) and first insulator layer (k=2)
-        mk = params.mk
+    def layer_mean(k_full: int) -> float:
+        values = [
+            diagonal[position[i + params.mj * j + params.mk * k_full]]
+            for i in range(1, params.Nx)
+            for j in range(1, params.Ny)
+            if (i + params.mj * j + params.mk * k_full) in position
+        ]
+        return float(np.mean(values))
 
-        # Interior nodes at k=1 (last SC layer in interior)
-        sc_k1 = []
-        for i in range(1, params.Nx):
-            for j in range(1, params.Ny):
-                full_idx = i + (params.Nx + 1) * j + mk * 1
-                interior_pos = np.searchsorted(m, full_idx)
-                if interior_pos < len(m) and m[interior_pos] == full_idx:
-                    sc_k1.append(interior_pos)
+    expected_sc = -2.0 * (kappa**2 / params.hy**2 + kappa**2 / params.hz**2)
+    ranges = trilayer.z_ranges()
+    k_sc = max(ranges["bottom"][0], 1)
+    k_ins = ranges["insulator"][0]
 
-        # Interior nodes at k=2 (first insulator layer in interior)
-        ins_k2 = []
-        for i in range(1, params.Nx):
-            for j in range(1, params.Ny):
-                full_idx = i + (params.Nx + 1) * j + mk * 2
-                interior_pos = np.searchsorted(m, full_idx)
-                if interior_pos < len(m) and m[interior_pos] == full_idx:
-                    ins_k2.append(interior_pos)
-
-        # Get diagonal values
-        L_diag = np.array(Lx[m, m]).flatten()
-
-        sc_diag = float(np.mean(L_diag[sc_k1])) if sc_k1 else None
-        ins_diag = float(np.mean(L_diag[ins_k2])) if ins_k2 else None
-
-        # Expected: SC side: -2*(κ²/hy² + κ²/hz²) = -2*(4+4) = -16
-        # Insulator side: -2*(0+0) = 0
-        expected_sc = -2.0 * (2.0**2 / 1.0**2 + 2.0**2 / 1.0**2)
-        expected_ins = 0.0
-
-        log["sc_diag_mean"] = sc_diag
-        log["ins_diag_mean"] = ins_diag
-        log["expected_sc"] = expected_sc
-        log["expected_ins"] = expected_ins
-        log["sc_error"] = (
-            abs(sc_diag - expected_sc) / abs(expected_sc)
-            if sc_diag is not None else None
+    with phys_log.test(
+        "test_trilayer_kappa_discontinuity",
+        {"Nx": 4, "Ny": 5, "Nz": trilayer.Nz, "kappa": kappa},
+        "a spatially varying κ must appear in the operator coefficients exactly",
+    ) as log:
+        log["k_superconductor"] = int(k_sc)
+        log["k_insulator"] = int(k_ins)
+        log.check_close(
+            "LPHI_x diagonal in the superconductor", layer_mean(k_sc), expected_sc,
+            atol=1e-12,
         )
-        log["ins_error"] = (
-            abs(ins_diag - expected_ins)
-            if ins_diag is not None else None
+        log.check_close(
+            "LPHI_x diagonal in the insulator", layer_mean(k_ins), 0.0, atol=1e-12,
+            detail="κ = 0 there, so the curl-curl term must switch off entirely",
         )
-
-        if sc_diag is not None:
-            np.testing.assert_allclose(sc_diag, expected_sc, atol=1e-12)
-        if ins_diag is not None:
-            np.testing.assert_allclose(ins_diag, expected_ins, atol=1e-12)
 
 
 def test_trilayer_external_z_boundary_jn(phys_log):
-    """J_n = 0 at top/bottom z-faces of the trilayer stack."""
-    trilayer = Trilayer(
-        bottom=Layer(thickness_z=2, kappa=2.0),
-        insulator=Layer(thickness_z=2, kappa=0.0, is_superconductor=False),
-        top=Layer(thickness_z=2, kappa=2.0),
-    )
-    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=2.0)
-    device = Device(params, applied_field=AppliedField(Bz=0.5), trilayer=trilayer)
-    idx = device.idx
-    material = device.material
+    """No supercurrent leaves the stack through the top or bottom face.
 
-    with phys_log.test("test_trilayer_external_z_boundary_jn", {"Nx": 4, "Nz": trilayer.Nz, "Bz": 0.5}) as log:
-        x0 = device.initial_state(noise_amplitude=0.0)
-        t_stop = 0.05
-        applied_field = device.applied_field
-
-        def eval_u(t, X):
-            bx, by, bz = applied_field.evaluate(t, t_stop)
-            Bx_vec, By_vec, Bz_vec = build_boundary_field_vectors(bx, by, bz, params, idx)
-            return BoundaryVectors(Bx_vec, By_vec, Bz_vec)
-
-        times, states = forward_euler(
-            x0.data, params, idx, eval_u, 0.0, t_stop, 0.01,
-            save_every=1, progress=False, material=material,
-        )
-
-        n = params.n_interior
-        state = states[:, -1]
-        psi_int = state[:n]
-        phi_x_int = state[n:2*n]
-        phi_y_int = state[2*n:3*n]
-        phi_z_int = state[3*n:4*n]
-
-        psi_full = _expand_interior_to_full(psi_int, params, idx)
-        px_full = _expand_interior_to_full(phi_x_int, params, idx)
-        py_full = _expand_interior_to_full(phi_y_int, params, idx)
-        pz_full = _expand_interior_to_full(phi_z_int, params, idx)
-
-        Jx, Jy, Jz = eval_supercurrent_density(psi_full, px_full, py_full, pz_full, params, idx)
-
-        # Interior nodes adjacent to z=0 and z=Nz faces
-        Nx_int, Ny_int, Nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
-
-        # Nodes at k=0 (first interior z-plane) and k=Nz_int-1 (last interior z-plane)
-        jn_z_lo = []
-        jn_z_hi = []
-        for i in range(Nx_int):
-            for j in range(Ny_int):
-                pos_k0 = i + Nx_int * j + Nx_int * Ny_int * 0
-                pos_klast = i + Nx_int * j + Nx_int * Ny_int * (Nz_int - 1)
-                if pos_k0 < n:
-                    jn_z_lo.append(abs(float(np.real(Jz[pos_k0]))))
-                if pos_klast < n:
-                    jn_z_hi.append(abs(float(np.real(Jz[pos_klast]))))
-
-        max_jn_z_lo = max(jn_z_lo) if jn_z_lo else 0.0
-        max_jn_z_hi = max(jn_z_hi) if jn_z_hi else 0.0
-
-        log["max_jn_z_lo"] = max_jn_z_lo
-        log["max_jn_z_hi"] = max_jn_z_hi
-        assert max_jn_z_lo < 1e-10, f"J_n at z-lo = {max_jn_z_lo}"
-        assert max_jn_z_hi < 1e-10, f"J_n at z-hi = {max_jn_z_hi}"
-
-
-# ---------------------------------------------------------------------------
-# Tier 3 — Longer simulations
-# ---------------------------------------------------------------------------
-
-
-def test_meissner_screening_exponential(phys_log):
-    """B-field decays as cosh(x/λ) with λ ≈ κ (London penetration depth).
-
-    For a slab with field at both edges, the equilibrium profile is
-    Bz(x) = Bz_applied * cosh((x - L/2) / λ) / cosh(L / (2λ)).
-    We fit this cosh profile to extract λ and compare to κ.
+    Indexed with the interior strides (i-slowest / k-fastest); applying the
+    full-grid strides here samples an x-slab instead of the z-faces, which is
+    exactly where the current is *not* expected to vanish.
     """
-    from scipy.optimize import curve_fit
+    trilayer = _trilayer()
+    params = SimulationParameters(Nx=5, Ny=4, Nz=trilayer.Nz, kappa=2.0)
+    bz = 0.5
+    device = Device(params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0), trilayer=trilayer)
+    idx, material = device.idx, device.material
 
-    # Bz must be below H_c1(κ=2) ≈ 0.24 to avoid vortex entry.
-    # Use Bz=0.1 so the equilibrium state is pure Meissner screening.
-    params = SimulationParameters(Nx=30, Ny=8, Nz=1, kappa=2.0)
-    device = Device(params, applied_field=AppliedField(Bz=0.1, t_on_fraction=1.0))
-
-    with phys_log.test("test_meissner_screening_exponential", {"Nx": 30, "Ny": 8, "kappa": 2.0, "Bz": 0.1}) as log:
-        sol = solve(device, t_start=0.0, t_stop=30.0, dt=0.01, method="euler", progress=False, log_metadata=False)
-
-        Bx, By, Bz = sol.bfield(step=-1, full_interior=True)
-        nx_int, ny_int = params.Nx - 1, params.Ny - 1
-        Bz_2d = Bz.reshape(nx_int, ny_int)
-        mid_y = ny_int // 2
-        Bz_profile = np.real(Bz_2d[:, mid_y])
-
-        x_arr = np.arange(nx_int) * params.hx
-        L = x_arr[-1]
-        x_center = L / 2.0
-
-        # Exclude the last interior node (adjacent to boundary) which can
-        # leak the applied-field boundary value.
-        n_fit = nx_int - 1
-        x_fit = x_arr[:n_fit]
-        bz_fit = Bz_profile[:n_fit]
-
-        # cosh model: Bz(x) = A * cosh((x - x0) / lambda)
-        def cosh_model(x, A, lam, x0):
-            return A * np.cosh((x - x0) / lam)
-
-        fit_converged = False
-        lambda_fit = None
-        try:
-            popt, pcov = curve_fit(
-                cosh_model, x_fit, bz_fit,
-                p0=[bz_fit[n_fit // 2], params.kappa, x_center],
-                maxfev=10000,
-            )
-            lambda_fit = abs(popt[1])
-            fit_converged = True
-        except (RuntimeError, ValueError):
-            lambda_fit = None
-
-        log["lambda_fit"] = float(lambda_fit) if lambda_fit is not None else None
-        log["lambda_expected"] = float(params.kappa)
-        log["fit_converged"] = fit_converged
-        log["bfield_profile"] = Bz_profile.tolist()
-        log["bfield_edge_left"] = float(Bz_profile[0])
-        log["bfield_edge_right"] = float(Bz_profile[-2])
-        log["bfield_center"] = float(Bz_profile[nx_int // 2])
-        log["x_positions"] = x_arr.tolist()
-
-        if not fit_converged or lambda_fit is None:
-            log["relative_error"] = None
-            raise AssertionError(
-                "Cosh fit did not converge — cannot extract λ"
-            )
-
-        # Verify the cosh fit quality and symmetry, not λ=κ (the solver's
-        # penetration depth depends on the TDGL normalization and is not
-        # expected to equal the GL κ parameter).
-        ss_res = np.sum((bz_fit - cosh_model(x_fit, *popt)) ** 2)
-        ss_tot = np.sum((bz_fit - np.mean(bz_fit)) ** 2)
-        r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
-
-        log["lambda_fit"] = float(lambda_fit)
-        log["r_squared"] = float(r_squared)
-        log["fit_center"] = float(abs(popt[2] - x_center) / x_arr[-1] if x_arr[-1] > 0 else 0)
-
-        assert r_squared > 0.5, (
-            f"Cosh fit quality poor: R² = {r_squared:.4f}"
-        )
-
-        center_offset = abs(popt[2] - x_center) / x_arr[-1]
-        assert center_offset < 0.1, (
-            f"Cosh fit center offset too large: {center_offset:.4f}"
-        )
-
-        assert bz_fit[n_fit // 2] < bz_fit[0], (
-            f"Field not screened: Bz_center = {bz_fit[n_fit // 2]:.6f} >= Bz_edge = {bz_fit[0]:.6f}"
-        )
-
-
-def test_trilayer_bfield_penetration_profile(phys_log):
-    """B is screened in Nb layers, penetrates SiO₂ insulator."""
-    trilayer = Trilayer(
-        bottom=Layer(thickness_z=2, kappa=2.0),
-        insulator=Layer(thickness_z=2, kappa=0.0, is_superconductor=False),
-        top=Layer(thickness_z=2, kappa=2.0),
+    boundary = applied_boundary(params, idx, bz=bz)
+    _, states = forward_euler(
+        device.initial_state(noise_amplitude=0.0).data, params, idx,
+        lambda t, X: boundary, 0.0, 0.2, 0.01,
+        save_every=10**9, progress=False, material=material,
     )
-    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=2.0)
-    device = Device(params, applied_field=AppliedField(Bz=0.3, t_on_fraction=1.0), trilayer=trilayer)
+    psi, px, py, pz = expand_state(states[:, -1], params, idx, boundary)
+    _, _, jz_interior = eval_supercurrent_density(psi, px, py, pz, params, idx)
+
+    def face_current(nodes):
+        """|J_z| on the z-links anchored at *nodes*, in full-grid numbering."""
+        if not nodes.size:
+            return 0.0
+        return float(np.max(np.abs(np.imag(
+            np.conj(psi[nodes]) * np.exp(-1j * pz[nodes]) * psi[nodes + params.mk]
+        ))))
+
+    # The external z-links are the one closing onto the k=0 ghost plane and the
+    # one leaving the last interior plane — not the links at the first and last
+    # *interior* nodes, which are ordinary bulk links.
+    lo_current = face_current(idx.z_face_lo_inner)
+    hi_current = face_current(idx.z_last_inner)
+
+    with phys_log.test(
+        "test_trilayer_external_z_boundary_jn",
+        {"Nx": 5, "Ny": 4, "Nz": trilayer.Nz, "Bz": bz},
+        "the z-faces of the stack are superconductor/vacuum interfaces",
+    ) as log:
+        log["bulk_Jz_scale"] = float(np.max(np.abs(jz_interior)))
+        log.check_below("max |J_z| on the bottom face", lo_current, 1e-12)
+        log.check_below("max |J_z| on the top face", hi_current, 1e-12)
+
+
+def _relax_stack(params, idx, material, boundary, t_stop=15.0, device=None):
+    """Integrate a trilayer device at a fixed applied field and return the state."""
+    _, states = forward_euler(
+        device.initial_state(noise_amplitude=0.0).data, params, idx,
+        lambda t, X: boundary, 0.0, t_stop, 0.5 * cfl_limit(params),
+        save_every=10**9, progress=False, material=material,
+    )
+    return states[:, -1]
+
+
+def _layer_field_profile(state, params, idx, boundary):
+    """Bz along z at the centre of the stack, one entry per interior z-plane."""
+    _, px, py, pz = expand_state(state, params, idx, boundary)
+    field = eval_bfield_full(px, py, pz, params, idx)[2]
+    nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    return np.real(field.reshape(nx_int, ny_int, nz_int)[nx_int // 2, ny_int // 2, :])
+
+
+@pytest.mark.parametrize("kappa_insulator", [0.0, 2.0])
+def test_insulator_kappa_controls_field_transmission(kappa_insulator, phys_log):
+    """κ in a non-superconducting layer decides whether it can carry a field.
+
+    The φ-equation is ``∂A/∂t = J_s − κ²∇×∇×A``.  In a layer with ``ψ = 0`` the
+    supercurrent term vanishes, so the layer relaxes towards the magnetostatic
+    solution ``∇×∇×A = 0`` at a rate set by ``κ²`` — *any* positive κ gives the
+    same steady state, only faster or slower.  Setting ``κ = 0`` removes the
+    only remaining term: the gauge field there is frozen at its initial value
+    and the layer transmits nothing.
+
+    ``Layer(kappa=0.0, is_superconductor=False)`` is therefore a modelling
+    choice with real consequences, not a neutral way of saying "not a
+    superconductor". Give an oxide the same κ as the metal unless the field is
+    meant to be blocked.
+    """
+    kappa_sc, bz = 2.0, 0.1
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=4, kappa=kappa_sc),
+        insulator=Layer(thickness_z=4, kappa=kappa_insulator, is_superconductor=False),
+        top=Layer(thickness_z=4, kappa=kappa_sc),
+    )
+    params = SimulationParameters(
+        Nx=12, Ny=12, Nz=trilayer.Nz, hx=0.5, hy=0.5, hz=0.5, kappa=kappa_sc
+    )
+    device = Device(
+        params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0), trilayer=trilayer
+    )
     idx = device.idx
-    material = device.material
+    boundary = applied_boundary(params, idx, bz=bz)
+    state = _relax_stack(params, idx, device.material, boundary, device=device)
+    profile = _layer_field_profile(state, params, idx, boundary) / bz
 
-    with phys_log.test("test_trilayer_bfield_penetration_profile", {"Nx": 4, "Nz": trilayer.Nz, "Bz": 0.3}) as log:
-        x0 = device.initial_state()
-        t_stop = 15.0
-        applied_field = device.applied_field
+    ranges = trilayer.z_ranges()
+    start, stop = ranges["insulator"]
+    insulator_mean = float(np.mean(profile[max(start, 1) - 1 : stop - 1]))
 
-        def eval_u(t, X):
-            bx, by, bz = applied_field.evaluate(t, t_stop)
-            Bx_vec, By_vec, Bz_vec = build_boundary_field_vectors(bx, by, bz, params, idx)
-            return BoundaryVectors(Bx_vec, By_vec, Bz_vec)
-
-        times, states = forward_euler(
-            x0.data, params, idx, eval_u, 0.0, t_stop, 0.01,
-            save_every=10, progress=False, material=material,
-        )
-
-        n = params.n_interior
-        state = states[:, -1]
-        psi_int = state[:n]
-        phi_x_int = state[n:2*n]
-        phi_y_int = state[2*n:3*n]
-        phi_z_int = state[3*n:4*n]
-
-        psi_full = _expand_interior_to_full(psi_int, params, idx)
-        px_full = _expand_interior_to_full(phi_x_int, params, idx)
-        py_full = _expand_interior_to_full(phi_y_int, params, idx)
-        pz_full = _expand_interior_to_full(phi_z_int, params, idx)
-
-        bx, by, bz_val = applied_field.evaluate(t_stop, t_stop)
-        u_bx, u_by, u_bz = build_boundary_field_vectors(bx, by, bz_val, params, idx)
-        u = BoundaryVectors(u_bx, u_by, u_bz)
-        psi_bc, px_bc, py_bc, pz_bc = _apply_boundary_conditions(
-            psi_full, px_full, py_full, pz_full, params, idx, u
-        )
-
-        _, _, Bz = eval_bfield_full(px_bc, py_bc, pz_bc, params, idx)
-
-        # Reshape to 3D and extract profile at center (ix, iy)
-        nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
-        Bz_3d = Bz.reshape(nx_int, ny_int, nz_int)
-        ix_center, iy_center = nx_int // 2, ny_int // 2
-        bz_profile = np.real(Bz_3d[ix_center, iy_center, :])
-
-        # Mean Bz by layer. z_ranges() returns full-grid z-indices but
-        # bz_profile has interior-only z-planes (Nz-1 elements), so shift by -1.
-        ranges = trilayer.z_ranges()
-        bz_bottom = float(np.mean(bz_profile[max(ranges["bottom"][0], 1) - 1:ranges["bottom"][1] - 1]))
-        bz_insulator = float(np.mean(bz_profile[max(ranges["insulator"][0], 1) - 1:ranges["insulator"][1] - 1]))
-        bz_top = float(np.mean(bz_profile[max(ranges["top"][0], 1) - 1:ranges["top"][1] - 1]))
-
-        log["bz_bottom"] = bz_bottom
-        log["bz_insulator"] = bz_insulator
-        log["bz_top"] = bz_top
-        log["bz_profile"] = bz_profile.tolist()
-        log["bz_applied"] = 0.3
-
-        # The SC layers should screen the applied field (Bz < applied).
-        # NOTE: The insulator shows Bz ≈ 0 because when κ=0, the φ equation
-        # (LPHI·φ + FPHI) has zero coefficients everywhere in the insulator
-        # (LPHI ∝ κ² = 0, FPHI ∝ J ∝ ψ = 0), so the gauge field cannot
-        # evolve there. This is a known solver limitation.
-        sc_screened = bz_bottom < 0.3 * 0.8 and bz_top < 0.3 * 0.8
-
-        log["sc_screened"] = sc_screened
-        log["sc_screening_ratio_bottom"] = float(bz_bottom / 0.3) if 0.3 > 0 else None
-        log["sc_screening_ratio_top"] = float(bz_top / 0.3) if 0.3 > 0 else None
-        log["insulator_penetration_ratio"] = float(bz_insulator / 0.3) if 0.3 > 0 else None
-
-        assert sc_screened, (
-            f"SC layers not screening: bottom={bz_bottom:.6f}, top={bz_top:.6f}, "
-            f"expected < {0.3 * 0.8}"
-        )
-
-
-def test_vortex_entry_and_counting(phys_log):
-    """Vortex nucleation above H_c1, count ≈ B·A/Φ₀."""
-    from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
-
-    params = SimulationParameters(Nx=20, Ny=20, Nz=1, kappa=2.0)
-    device = Device(params, applied_field=AppliedField(Bz=0.5, t_on_fraction=1.0))
-
-    with phys_log.test("test_vortex_entry_and_counting", {"Nx": 20, "kappa": 2.0, "Bz": 0.5}) as log:
-        sol = solve(
-            device, t_start=0.0, t_stop=60.0, dt=0.01, method="euler",
-            progress=False, log_metadata=False,
-        )
-
-        n_vortices, positions, windings = count_vortices_plaquette(sol, device, slice_z=0, step=-1)
-
-        log["n_vortices"] = n_vortices
-        log["vortex_positions"] = positions.tolist() if len(positions) > 0 else []
-        log["winding_numbers"] = windings.tolist() if len(windings) > 0 else []
-
-        expected = float(2.0 * (params.Nx * params.hx) * (params.Ny * params.hy) / (2 * np.pi))
-        log["expected_approx"] = expected
-
-        # Require at least 15% of expected vortices
-        min_expected = int(0.15 * expected)
-        assert n_vortices >= min_expected, (
-            f"Only {n_vortices} vortices detected, expected ≈ {expected:.0f} "
-            f"(minimum {min_expected})"
-        )
-        if len(windings) > 0:
-            assert np.all(np.abs(np.abs(windings) - 1.0) < 0.3), (
-                f"Winding numbers not ≈ ±1: {windings}"
+    name = f"test_insulator_kappa_controls_field_transmission[kappa={kappa_insulator}]"
+    with phys_log.test(
+        name,
+        {"Nz": trilayer.Nz, "kappa_sc": kappa_sc, "kappa_insulator": kappa_insulator, "Bz": bz},
+        "a κ = 0 layer freezes the gauge field; a κ > 0 layer transmits the field",
+    ) as log:
+        log["bz_profile_over_applied"] = [float(v) for v in profile]
+        log["insulator_mean_over_applied"] = insulator_mean
+        if kappa_insulator == 0.0:
+            log.check_below(
+                "Bz in the insulator / applied", abs(insulator_mean), 1e-6,
+                detail="κ = 0 leaves no term able to evolve A there",
+            )
+        else:
+            log.check_above(
+                "Bz in the insulator / applied", insulator_mean, 0.5,
+                detail="a non-superconducting layer with κ > 0 lets the field through",
             )
 
 
-def test_vortex_entry_dynamics(phys_log):
-    """Vortex nucleation dynamics: count starts at 0, grows, saturates."""
-    from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
+def test_trilayer_superconducting_layers_screen(phys_log):
+    """With a transmitting oxide, both Nb layers still screen the applied field.
 
-    params = SimulationParameters(Nx=20, Ny=20, Nz=1, kappa=2.0)
-    device = Device(params, applied_field=AppliedField(Bz=0.5, t_on_fraction=1.0))
+    Run with ``κ_insulator = κ_SC`` so the stack is magnetically continuous;
+    the screening then comes from the superconducting layers rather than from a
+    frozen gauge field in the middle.
+    """
+    kappa, bz = 2.0, 0.1
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=4, kappa=kappa),
+        insulator=Layer(thickness_z=4, kappa=kappa, is_superconductor=False),
+        top=Layer(thickness_z=4, kappa=kappa),
+    )
+    params = SimulationParameters(
+        Nx=16, Ny=16, Nz=trilayer.Nz, hx=0.5, hy=0.5, hz=0.5, kappa=kappa
+    )
+    device = Device(
+        params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0), trilayer=trilayer
+    )
+    idx = device.idx
+    boundary = applied_boundary(params, idx, bz=bz)
+    state = _relax_stack(params, idx, device.material, boundary, t_stop=20.0, device=device)
+    profile = _layer_field_profile(state, params, idx, boundary) / bz
 
-    with phys_log.test("test_vortex_entry_dynamics", {"Nx": 20, "kappa": 2.0, "Bz": 0.5}) as log:
-        sol = solve(
-            device, t_start=0.0, t_stop=60.0, dt=0.01, method="euler",
-            save_every=10, progress=False, log_metadata=False,
+    ranges = trilayer.z_ranges()
+
+    def layer_mean(name: str) -> float:
+        start, stop = ranges[name]
+        return float(np.mean(profile[max(start, 1) - 1 : stop - 1]))
+
+    bottom, top = layer_mean("bottom"), layer_mean("top")
+
+    with phys_log.test(
+        "test_trilayer_superconducting_layers_screen",
+        {"Nx": 16, "Nz": trilayer.Nz, "kappa": kappa, "Bz": bz},
+        "both superconducting layers of a magnetically continuous stack screen",
+    ) as log:
+        log["bz_profile_over_applied"] = [float(v) for v in profile]
+        log["bottom_over_applied"] = bottom
+        log["top_over_applied"] = top
+        log.check_below("Bz in the bottom Nb layer / applied", bottom, 0.98)
+        log.check_below("Bz in the top Nb layer / applied", top, 0.98)
+        log.check_above("Bz in the bottom Nb layer / applied", bottom, 0.0)
+        log.check_close(
+            "top/bottom screening asymmetry", top / bottom, 1.0, atol=0.15,
+            detail="the stack is symmetric about its mid-plane",
         )
 
-        # Sample vortex count at regular intervals
-        sample_stride = 50
-        sample_steps = list(range(0, sol.n_steps, sample_stride))
-        if sample_steps[-1] != sol.n_steps - 1:
-            sample_steps.append(sol.n_steps - 1)
 
-        times = []
-        counts = []
-        for step in sample_steps:
-            n_v, _, _ = count_vortices_plaquette(sol, device, slice_z=0, step=step)
-            times.append(float(sol.times[step]))
-            counts.append(n_v)
+def test_insulator_mask_suppresses_the_order_parameter(phys_log):
+    """ψ is driven to zero inside the insulator and stays finite outside it."""
+    # Four cells per superconducting layer: with only two, proximity suppression
+    # from the insulator reaches all the way through and there is no bulk-like
+    # interior left to check.
+    trilayer = _trilayer(thickness=4)
+    params = SimulationParameters(Nx=4, Ny=5, Nz=trilayer.Nz, kappa=2.0)
+    device = Device(params, applied_field=AppliedField(Bz=0.0), trilayer=trilayer)
+    idx, material = device.idx, device.material
 
-        times = np.array(times)
-        counts = np.array(counts, dtype=int)
+    _, states = forward_euler(
+        device.initial_state(noise_amplitude=0.0).data, params, idx,
+        lambda t, X: zero_boundary(params), 0.0, 8.0, 0.01,
+        save_every=10**9, progress=False, material=material,
+    )
+    n = params.n_interior
+    psi = np.abs(states[:n, -1])
+    insulator = material.interior_sc_mask == 0.0
 
-        log["times"] = times.tolist()
-        log["vortex_counts"] = counts.tolist()
-        log["n_sampled"] = len(sample_steps)
+    nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    profile = psi.reshape(nx_int, ny_int, nz_int)[nx_int // 2, ny_int // 2, :]
+    mask_profile = material.interior_sc_mask.reshape(nx_int, ny_int, nz_int)[
+        nx_int // 2, ny_int // 2, :
+    ]
 
-        # --- Assertions ---
-
-        # 1. Initial count is 0
-        assert counts[0] == 0, f"Initial vortex count should be 0, got {counts[0]}"
-
-        # 2. Final count > 0 (vortices entered)
-        assert counts[-1] > 0, "No vortices entered by end of simulation"
-
-        # 3. Count increases from 0 to a positive value (vortices enter)
-        #    Allow small fluctuations — vortices can merge or annihilate
-        peak_count = int(np.max(counts))
-        log["peak_count"] = peak_count
-        assert peak_count > 0, "Vortex count never increased from 0"
-        assert counts[-1] > 0, "Vortex count dropped to 0 by end"
-
-        # 4. Time to first vortex < halfway
-        t_first = None
-        for i, c in enumerate(counts):
-            if c > 0:
-                t_first = times[i]
-                break
-        assert t_first is not None, "Vortex never appeared"
-        t_stop = 60.0
-        assert t_first < t_stop * 0.5, (
-            f"First vortex at t={t_first:.2f}, expected before {t_stop * 0.5:.2f}"
+    with phys_log.test(
+        "test_insulator_mask_suppresses_the_order_parameter",
+        {"Nx": 4, "Ny": 5, "Nz": trilayer.Nz, "sc_thickness": 4},
+        "the material mask must separate superconducting from insulating nodes",
+    ) as log:
+        log["n_insulator_nodes"] = int(insulator.sum())
+        log["psi_z_profile"] = [float(v) for v in profile]
+        log["sc_mask_z_profile"] = [float(v) for v in mask_profile]
+        log.check_above("insulator nodes present", float(insulator.sum()), 1.0)
+        log.check_below(
+            "mean |ψ| in the insulator", float(np.mean(psi[insulator])), 0.15,
+            detail="residual value is proximity leakage from the adjacent layers",
         )
-        log["t_first_vortex"] = t_first
-
-        # 5. Saturation: last 20% of sampled steps have low relative fluctuation
-        n_tail = max(2, len(counts) // 5)
-        tail = counts[-n_tail:]
-        tail_mean = float(np.mean(tail))
-        tail_std = float(np.std(tail))
-        saturation_ratio = tail_std / max(tail_mean, 1.0)
-        log["saturation_mean"] = tail_mean
-        log["saturation_std"] = tail_std
-        log["saturation_ratio"] = saturation_ratio
-        assert saturation_ratio < 0.5, (
-            f"Count not saturated: last {n_tail} steps have "
-            f"mean={tail_mean:.1f}, std={tail_std:.1f}, ratio={saturation_ratio:.2f}"
+        log.check_above(
+            "max |ψ| in the superconductor", float(np.max(psi[~insulator])), 0.95,
+            detail="the middle of a 4-cell layer must recover the bulk condensate",
+        )
+        log.check_above(
+            "mean |ψ| in the superconductor", float(np.mean(psi[~insulator])), 0.75,
         )
 
-        # 6. Final count vs expected B·A/Φ₀
-        Bz_applied = 0.5
-        expected = float(Bz_applied * (params.Nx * params.hx) * (params.Ny * params.hy) / (2 * np.pi))
-        log["expected_approx"] = expected
-        log["final_count"] = int(counts[-1])
+# ---------------------------------------------------------------------------
+# Geometric symmetry of the stack
+# ---------------------------------------------------------------------------
 
-        min_expected = int(0.15 * expected)
-        assert counts[-1] >= min_expected, (
-            f"Final count {counts[-1]} below 15% of expected {expected:.0f} (min {min_expected})"
+
+@pytest.mark.parametrize(
+    "sc_cells,insulator_cells",
+    [(4, 2), (3, 1), (5, 2)],
+    ids=lambda v: str(v),
+)
+def test_stack_is_mirror_symmetric_about_its_midplane(sc_cells, insulator_cells, phys_log):
+    """A stack with equal S layers must be symmetric under z → Nz − z.
+
+    Layer thicknesses are given in cells but material properties live on nodes,
+    and the two interface nodes are shared.  Assigning each node to the cell
+    range containing it hands the lower interface to the oxide and the upper one
+    to the top layer, leaving the superconducting layers with different node
+    counts.  Both interfaces belong to the oxide instead.
+    """
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=sc_cells, kappa=2.0),
+        insulator=Layer(thickness_z=insulator_cells, kappa=2.0, is_superconductor=False),
+        top=Layer(thickness_z=sc_cells, kappa=2.0),
+    )
+    params = SimulationParameters(Nx=6, Ny=5, Nz=trilayer.Nz, kappa=2.0)
+    device = Device(params, applied_field=AppliedField(Bz=0.0), trilayer=trilayer)
+
+    profile = device.material.sc_mask.reshape(
+        params.Nz + 1, params.Ny + 1, params.Nx + 1
+    )[:, 0, 0]
+    kappa_profile = device.material.kappa.reshape(
+        params.Nz + 1, params.Ny + 1, params.Nx + 1
+    )[:, 0, 0]
+    n_bottom = int(profile[: len(profile) // 2].sum())
+    n_top = int(profile[len(profile) // 2 + len(profile) % 2 :].sum())
+
+    name = f"test_stack_is_mirror_symmetric_about_its_midplane[({sc_cells}, {insulator_cells})]"
+    with phys_log.test(
+        name, {"sc_cells": sc_cells, "insulator_cells": insulator_cells, "Nz": trilayer.Nz},
+        "equal superconducting layers must give an exactly symmetric material map",
+    ) as log:
+        log["sc_mask_z_profile"] = [int(v) for v in profile]
+        log.check_below(
+            "sc_mask asymmetry under z → Nz − z",
+            float(np.max(np.abs(profile - profile[::-1]))), 0.0,
+        )
+        log.check_below(
+            "κ asymmetry under z → Nz − z",
+            float(np.max(np.abs(kappa_profile - kappa_profile[::-1]))), 1e-15,
+        )
+        log.check_close(
+            "superconducting nodes below vs above the mid-plane",
+            float(n_bottom), float(n_top), atol=0.0,
         )
 
-        # 7. Entry rate (logged, no hard assert)
-        if t_first < t_stop:
-            rate = float(counts[-1]) / (t_stop - t_first)
-            log["entry_rate"] = rate
+
+@pytest.mark.parametrize(
+    "length,hole,h",
+    [(10.0, 4.0, 1.0), (10.0, 4.0, 0.5), (12.0, 6.0, 1.0), (12.0, 5.0, 0.5)],
+    ids=lambda v: str(v),
+)
+def test_centred_hole_is_centred(length, hole, h, phys_log):
+    """A hole centred in the film comes out centred on the grid.
+
+    Bare ray casting is half-open — points on the low-x/low-y edges fall outside
+    and those on the high edges inside — so a polygon whose edges land on grid
+    nodes is carved half a cell off centre, and every symmetry of the device is
+    broken by that much.  ``identify_hole_nodes`` takes the closed region by
+    default for this reason.
+    """
+    trilayer = _trilayer(thickness=4)
+    n_cells = int(round(length / h))
+    params = SimulationParameters(
+        Nx=n_cells, Ny=n_cells, Nz=trilayer.Nz, hx=h, hy=h, kappa=2.0
+    )
+    device = Device(params, applied_field=AppliedField(Bz=0.0), trilayer=trilayer)
+    lo, hi = 0.5 * (length - hole), 0.5 * (length + hole)
+    square = [(lo, lo), (hi, lo), (hi, hi), (lo, hi)]
+    z_ranges = trilayer.z_ranges()
+    device.add_hole(square, z_range=z_ranges["bottom"])
+    device.add_hole(square, z_range=z_ranges["top"])
+
+    nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    mask = device.material.interior_sc_mask.reshape(nx_int, ny_int, nz_int)
+    plane = mask[:, :, 0]
+    carved = plane == 0.0
+    ii, jj = np.nonzero(carved)
+
+    centre_x = 0.5 * (ii.min() + ii.max() + 2) * h  # +1 for the ghost offset, twice
+    centre_y = 0.5 * (jj.min() + jj.max() + 2) * h
+    width = (ii.max() - ii.min()) * h
+
+    name = f"test_centred_hole_is_centred[({length}, {hole}, {h})]"
+    with phys_log.test(
+        name, {"length": length, "hole": hole, "h": h},
+        "the carved geometry must inherit the symmetry of the polygon it was given",
+    ) as log:
+        log["carved_nodes"] = int(carved.sum())
+        log["hole_centre"] = [centre_x, centre_y]
+        log["hole_width"] = width
+        log.check_above("nodes carved out", float(carved.sum()), 1.0)
+        log.check_close("hole centre x", centre_x, length / 2, atol=1e-12, units="ξ")
+        log.check_close("hole centre y", centre_y, length / 2, atol=1e-12, units="ξ")
+        log.check_close("carved width", width, hole, atol=1e-12, units="ξ")
+        log.check_below(
+            "material map asymmetry under x → −x",
+            float(np.max(np.abs(mask - mask[::-1, :, :]))), 0.0,
+        )
+        log.check_below(
+            "material map asymmetry under y → −y",
+            float(np.max(np.abs(mask - mask[:, ::-1, :]))), 0.0,
+        )
+        log.check_below(
+            "material map asymmetry under z → −z",
+            float(np.max(np.abs(mask - mask[:, :, ::-1]))), 0.0,
+        )
