@@ -53,7 +53,9 @@ def newton_gcr(
     err_dx = 0.0
 
     for k in range(1, max_iter + 1):
-        dx = tgcr_matrix_free(eval_f, x, -f, tol=tol_gcr, eps_mf=eps_mf)
+        # ``f`` is already f(x) at the current iterate, which is exactly the
+        # value GCR needs at its linearisation point.
+        dx = tgcr_matrix_free(eval_f, x, -f, tol=tol_gcr, eps_mf=eps_mf, f_base=f)
         if dx.size == 0:
             if verbose:
                 print(f"  Newton iter {k}: GCR did not converge")
@@ -93,13 +95,17 @@ def newton_gcr_trap(
     where γ = x_n + (dt/2) f(x_n).
     """
     x = np.array(x0, dtype=np.complex128)
+    # f(x) at the current iterate.  Each pass through the loop below ends by
+    # evaluating it at the updated x, so the next pass reuses that value
+    # instead of recomputing the same thing.
+    f = eval_f(x)
 
     for k in range(1, max_iter + 1):
-        f = eval_f(x)
         g = x - (dt / 2.0) * f - gamma
-        errf = np.linalg.norm(g, np.inf)
 
-        dx = tgcr_matrix_free_trap(eval_f, x, -g, dt, tol=tol_gcr, eps_mf=eps_mf)
+        dx = tgcr_matrix_free_trap(
+            eval_f, x, -g, dt, tol=tol_gcr, eps_mf=eps_mf, f_base=f
+        )
         if dx.size == 0:
             if verbose:
                 print(f"  Newton-Trap iter {k}: GCR did not converge")

@@ -18,6 +18,7 @@ def tgcr_matrix_free(
     tol: float = 1e-4,
     max_iter: int | None = None,
     eps_mf: float = 1e-4,
+    f_base: NDArray[np.complexfloating] | None = None,
 ) -> NDArray[np.complex128]:
     """Solve ``J δx = b`` where ``J = ∂f/∂x`` using matrix-free directional
     derivatives of *eval_f* evaluated at *x_lin*.
@@ -36,6 +37,11 @@ def tgcr_matrix_free(
         Maximum Krylov iterations (defaults to ``max(N, 0.2*N)``).
     eps_mf : float
         Perturbation scale for finite-difference directional derivative.
+    f_base : ndarray, optional
+        ``eval_f(x_lin)``, if the caller already has it.  The linearisation
+        point does not move during the Krylov solve, so this value is the same
+        in every iteration; passing it in removes one right-hand-side
+        evaluation per iteration, which is half of them.
 
     Returns
     -------
@@ -43,6 +49,8 @@ def tgcr_matrix_free(
         Approximate solution, or empty array on failure.
     """
     N = len(b)
+    if f_base is None:
+        f_base = eval_f(x_lin)
     if max_iter is None:
         max_iter = max(N, int(round(0.2 * N)))
 
@@ -64,7 +72,6 @@ def tgcr_matrix_free(
         # Matrix-free A*p via finite differences
         epsilon = eps_mf * (1.0 + np.linalg.norm(x_lin)) / np.linalg.norm(pk)
         f_pert = eval_f(x_lin + epsilon * pk)
-        f_base = eval_f(x_lin)
         Apk = (f_pert - f_base) / epsilon
 
         # Orthogonalise against previous directions
@@ -101,13 +108,20 @@ def tgcr_matrix_free_trap(
     tol: float = 1e-4,
     max_iter: int | None = None,
     eps_mf: float = 1e-4,
+    f_base: NDArray[np.complexfloating] | None = None,
 ) -> NDArray[np.complex128]:
     """TGCR for the trapezoidal implicit system ``(I - dt/2 J) δx = b``.
 
     The matrix-vector product is approximated as:
         A·p ≈ p - (dt/2) * (f(x+εp) - f(x)) / ε
+
+    ``f(x)`` at the linearisation point is constant for the whole solve; pass
+    it as *f_base* (Newton already has it) to avoid recomputing it once per
+    Krylov iteration.
     """
     N = len(b)
+    if f_base is None:
+        f_base = eval_f(x_lin)
     if max_iter is None:
         max_iter = max(N, int(round(0.2 * N)))
 
@@ -128,7 +142,6 @@ def tgcr_matrix_free_trap(
 
         epsilon = eps_mf * (1.0 + np.linalg.norm(x_lin)) / np.linalg.norm(pk)
         f_pert = eval_f(x_lin + epsilon * pk)
-        f_base = eval_f(x_lin)
         Jv = (f_pert - f_base) / epsilon
         Apk = pk - (dt / 2.0) * Jv  # (I - dt/2 J) * p
 

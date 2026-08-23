@@ -16,16 +16,14 @@ from ..core.material import MaterialMap
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
 from ..operators.sparse_operators import (
+    apply_LPHI_x,
+    apply_LPHI_y,
+    apply_LPHI_z,
+    apply_LPSI,
     construct_FPHI_x,
     construct_FPHI_y,
     construct_FPHI_z,
     construct_FPSI,
-    construct_LPHI_x,
-    construct_LPHI_y,
-    construct_LPHI_z,
-    construct_LPSI_x,
-    construct_LPSI_y,
-    construct_LPSI_z,
 )
 
 
@@ -245,7 +243,6 @@ def eval_f(
         Time derivative dX/dt.
     """
     n = params.n_interior
-    hx, hy, hz = params.hx, params.hy, params.hz
 
     # Unpack interior values
     psi_int = X[:n]
@@ -262,40 +259,25 @@ def eval_f(
     # Apply BCs (modifies in place)
     x, y1, y2, y3 = _apply_boundary_conditions(x, y1, y2, y3, params, idx, u)
 
-    # Build operators
-    LPSIX = construct_LPSI_x(y1, params, idx)
-    LPSIY = construct_LPSI_y(y2, params, idx)
-    LPSIZ = construct_LPSI_z(y3, params, idx)
-
-    LPHIX = construct_LPHI_x(params, idx, material)
-    LPHIY = construct_LPHI_y(params, idx, material)
-    LPHIZ = construct_LPHI_z(params, idx, material)
+    # Apply the operators.  These are the matrix-free equivalents of building
+    # ``construct_LPSI_*`` / ``construct_LPHI_*``, slicing out the interior
+    # rows and multiplying — the assembly and the row slice dominated the cost
+    # and produced the same sparsity pattern on every call.
+    # dψ/dt.  ``apply_LPSI`` hands back the on-site Peierls factors it had to
+    # form anyway; the φ forcings need the same three arrays.
+    lpsi, (fx, fy, fz) = apply_LPSI(x, y1, y2, y3, params, idx)
 
     FPSI = construct_FPSI(x, params, idx, material)
-    FPHIX = construct_FPHI_x(x, y1, y2, y3, params, idx, material)
-    FPHIY = construct_FPHI_y(x, y1, y2, y3, params, idx, material)
-    FPHIZ = construct_FPHI_z(x, y1, y2, y3, params, idx, material)
+    FPHIX = construct_FPHI_x(x, y1, y2, y3, params, idx, material, link_factor=fx)
+    FPHIY = construct_FPHI_y(x, y1, y2, y3, params, idx, material, link_factor=fy)
+    FPHIZ = construct_FPHI_z(x, y1, y2, y3, params, idx, material, link_factor=fz)
 
-    # Extract interior rows from the Laplacians
-    LPSIX_int = LPSIX[idx.interior_to_full, :]
-    LPSIY_int = LPSIY[idx.interior_to_full, :]
-    LPSIZ_int = LPSIZ[idx.interior_to_full, :]
-
-    LPHIX_int = LPHIX[idx.interior_to_full, :]
-    LPHIY_int = LPHIY[idx.interior_to_full, :]
-    LPHIZ_int = LPHIZ[idx.interior_to_full, :]
-
-    # Remove all-zero rows (boundary equations)
-    # In the Python version we already extracted interior rows, so skip this step
-    # (the MATLAB code removes zero rows because the full matrix has them)
-
-    # dψ/dt
-    dPsidt = (LPSIX_int / hx**2 + LPSIY_int / hy**2 + LPSIZ_int / hz**2) @ x + FPSI
+    dPsidt = lpsi + FPSI
 
     # dφ/dt
-    dPhidtX = LPHIX_int @ y1 + FPHIX
-    dPhidtY = LPHIY_int @ y2 + FPHIY
-    dPhidtZ = LPHIZ_int @ y3 + FPHIZ
+    dPhidtX = apply_LPHI_x(y1, params, idx, material) + FPHIX
+    dPhidtY = apply_LPHI_y(y2, params, idx, material) + FPHIY
+    dPhidtZ = apply_LPHI_z(y3, params, idx, material) + FPHIZ
 
     # NOTE: We do NOT enforce dφ/dt=0 on hole boundaries.
     # Physical reasoning (same as in _apply_boundary_conditions):

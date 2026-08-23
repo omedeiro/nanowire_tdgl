@@ -159,6 +159,42 @@ class GridIndices:
     hole_y_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
     hole_z_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
 
+    # -- Cached neighbour stencil (built on first use) ----------------------
+    # ``interior_to_full`` shifted by each of the six stencil offsets.  The
+    # operators need these on every right-hand-side evaluation, and forming
+    # them costs a full pass over ``n_interior`` each time; a device is solved
+    # for thousands of steps, so they are built once and kept.
+    _stencil: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def neighbours(self, params: SimulationParameters) -> dict:
+        """Return the cached ``{offset_name: index array}`` stencil.
+
+        Keys are ``m`` (the interior nodes themselves), ``xm``/``xp``
+        (``m∓1``), ``ym``/``yp`` (``m∓mj``) and, in 3-D, ``zm``/``zp``
+        (``m∓mk``).  All are full-grid linear indices in interior ordering,
+        so ``vec[stencil["xp"]]`` gathers the +x neighbour of every interior
+        node in one shot.
+        """
+        if not self._stencil:
+            m = self.interior_to_full
+            mj, mk = params.mj, params.mk
+            st = {
+                "m": m,
+                "xm": m - 1,
+                "xp": m + 1,
+                "ym": m - mj,
+                "yp": m + mj,
+            }
+            if params.is_3d:
+                st["zm"] = m - mk
+                st["zp"] = m + mk
+            self._stencil = st
+        return self._stencil
+
+    def clear_stencil(self) -> None:
+        """Drop the cached neighbour stencil (call after mutating indices)."""
+        self._stencil = {}
+
     def define_hole_polygon(
         self,
         vertices: list[tuple[float, float]],

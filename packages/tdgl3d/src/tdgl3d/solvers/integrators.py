@@ -30,6 +30,43 @@ def _make_eval_f(
     return f
 
 
+class _History:
+    """Growable ``(n_state, n_saved)`` store for the saved states.
+
+    The obvious implementation — append copies to a list, then
+    ``np.column_stack`` — holds every frame twice at the moment the run
+    finishes, because the stack allocates the whole output before the list is
+    released.  On a large 3-D grid a single frame is hundreds of megabytes and
+    that doubling is what runs the machine out of memory, right at the end of
+    a run that had otherwise succeeded.
+
+    Writing frames straight into a preallocated column block and growing it
+    geometrically keeps one copy of the history, plus at most one growth
+    reallocation.
+    """
+
+    __slots__ = ("_buf", "_n", "times")
+
+    def __init__(self, n_state: int, capacity: int) -> None:
+        self._buf = np.empty((n_state, max(capacity, 1)), dtype=np.complex128)
+        self._n = 0
+        self.times: list[float] = []
+
+    def append(self, t: float, X: NDArray) -> None:
+        if self._n == self._buf.shape[1]:
+            self._buf = np.concatenate(
+                [self._buf, np.empty_like(self._buf[:, : max(self._n, 1)])], axis=1
+            )
+        self._buf[:, self._n] = X
+        self._n += 1
+        self.times.append(t)
+
+    def finish(self) -> tuple[NDArray, NDArray]:
+        # A slice of the buffer is a view, so this returns the frames without
+        # copying them when the capacity estimate was exact.
+        return np.array(self.times), self._buf[:, : self._n]
+
+
 def forward_euler(
     x0: NDArray[np.complexfloating],
     params: SimulationParameters,
@@ -68,8 +105,8 @@ def forward_euler(
     n_steps = int(np.ceil((t_stop - t_start) / dt))
     X = np.array(x0, dtype=np.complex128)
 
-    times_list = [t_start]
-    history_list = [X.copy()]
+    hist = _History(X.size, n_steps // max(save_every, 1) + 2)
+    hist.append(t_start, X)
 
     t = t_start
     rng = tqdm(range(n_steps), desc="Forward Euler", disable=not progress)
@@ -81,10 +118,9 @@ def forward_euler(
         t += dt_actual
 
         if (step + 1) % save_every == 0 or step == n_steps - 1:
-            times_list.append(t)
-            history_list.append(X.copy())
+            hist.append(t, X)
 
-    return np.array(times_list), np.column_stack(history_list)
+    return hist.finish()
 
 
 def trapezoidal(
@@ -139,8 +175,9 @@ def trapezoidal(
     t = t_start
     current_dt = dt
 
-    times_list = [t]
-    history_list = [X.copy()]
+    n_steps_est = int(np.ceil((t_stop - t_start) / dt)) if dt > 0 else 1
+    hist = _History(X.size, n_steps_est // max(save_every, 1) + 2)
+    hist.append(t, X)
     step = 0
 
     pbar = tqdm(total=t_stop - t_start, desc="Trapezoidal", disable=not progress, unit="t")
@@ -176,8 +213,7 @@ def trapezoidal(
             pbar.update(dt_actual)
 
             if step % save_every == 0:
-                times_list.append(t)
-                history_list.append(X.copy())
+                hist.append(t, X)
 
             # Restore dt if it was reduced
             current_dt = dt
@@ -197,8 +233,7 @@ def trapezoidal(
     pbar.close()
 
     # Always include final state
-    if times_list[-1] < t:
-        times_list.append(t)
-        history_list.append(X.copy())
+    if hist.times[-1] < t:
+        hist.append(t, X)
 
-    return np.array(times_list), np.column_stack(history_list)
+    return hist.finish()

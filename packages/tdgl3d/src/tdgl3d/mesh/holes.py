@@ -208,18 +208,92 @@ def identify_hole_nodes(
 
     z_min, z_max = z_range
 
-    # Test each node in the x-y plane
-    for i in range(Nx + 1):
-        for j in range(Ny + 1):
-            x = i * grid_spacing_x
-            y = j * grid_spacing_y
+    xs = np.arange(Nx + 1, dtype=np.float64) * grid_spacing_x
+    ys = np.arange(Ny + 1, dtype=np.float64) * grid_spacing_y
+    plane = _points_in_polygon_grid(xs, ys, vertices, edge_tolerance)
 
-            if point_in_polygon((x, y), vertices, edge_tolerance):
-                # Mark all z-layers in range
-                for k in range(z_min, min(z_max + 1, Nz + 1)):
-                    hole_mask[i, j, k] = True
+    k_hi = min(z_max + 1, Nz + 1)
+    if k_hi > z_min:
+        hole_mask[:, :, z_min:k_hi] = plane[:, :, None]
 
     return hole_mask
+
+
+def _points_in_polygon_grid(
+    xs: NDArray[np.float64],
+    ys: NDArray[np.float64],
+    vertices: list[tuple[float, float]],
+    edge_tolerance: float,
+) -> NDArray[np.bool_]:
+    """Vectorised :func:`point_in_polygon` over the outer product ``xs × ys``.
+
+    Returns a ``(len(xs), len(ys))`` boolean mask.  Same ray-casting rule and
+    same edge tolerance as the scalar function, evaluated one polygon edge at a
+    time over the whole grid instead of one grid node at a time over the whole
+    polygon — which is what made carving a hole into a large film cost minutes.
+    """
+    x = xs[:, None]
+    y = ys[None, :]
+    inside = np.zeros((xs.size, ys.size), dtype=bool)
+
+    n = len(vertices)
+    for index in range(n):
+        p1x, p1y = vertices[index]
+        p2x, p2y = vertices[(index + 1) % n]
+
+        crosses = (
+            (y > min(p1y, p2y)) & (y <= max(p1y, p2y)) & (x <= max(p1x, p2x))
+        )
+        if p1y != p2y:
+            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+            crosses &= (p1x == p2x) | (x <= xinters)
+        else:
+            # A horizontal edge can never satisfy both y-tests, so this branch
+            # contributes nothing; keeping it explicit mirrors the scalar code.
+            crosses &= p1x == p2x
+        inside ^= crosses
+
+    if edge_tolerance > 0.0:
+        for index in range(n):
+            ax, ay = vertices[index]
+            bx, by = vertices[(index + 1) % n]
+            dx, dy = bx - ax, by - ay
+            length_squared = dx * dx + dy * dy
+            if length_squared == 0.0:
+                dist = np.hypot(x - ax, y - ay)
+            else:
+                t = ((x - ax) * dx + (y - ay) * dy) / length_squared
+                t = np.clip(t, 0.0, 1.0)
+                dist = np.hypot(x - (ax + t * dx), y - (ay + t * dy))
+            inside |= dist <= edge_tolerance
+
+    return inside
+
+
+def _links_from_mask(
+    crossing: NDArray[np.bool_],
+    axis_order: tuple[int, int, int],
+    mj: int,
+    mk: int,
+    is_3d: bool,
+) -> NDArray[np.int64]:
+    """Linear indices of the ``True`` entries of *crossing*, in loop order.
+
+    *crossing* is indexed ``[i, j, k]``.  ``axis_order`` gives the nesting of
+    the loops the scalar implementation used (outermost first), so that the
+    returned order matches it exactly.
+    """
+    if not crossing.any():
+        return np.array([], dtype=np.int64)
+    found = np.nonzero(crossing.transpose(axis_order))
+    coords = [None, None, None]
+    for position, axis in enumerate(axis_order):
+        coords[axis] = found[position]
+    i, j, k = coords
+    m = j.astype(np.int64) * mj + i
+    if is_3d:
+        m += k.astype(np.int64) * mk
+    return m
 
 
 def identify_boundary_links(
@@ -266,60 +340,31 @@ def identify_boundary_links(
     Nx -= 1  # Convert to number of cells
     Ny -= 1
     Nz -= 1
+    mj = Nx + 1
+    mk = (Nx + 1) * (Ny + 1)
 
-    boundary_links = []
-
+    # A link crosses the boundary when its two endpoints disagree, which is one
+    # shifted XOR of the mask against itself.  The scalar loops these replace
+    # ran over every node of the grid in Python.
     if direction == 'x':
-        # x-direction links connect (i, j, k) to (i+1, j, k)
-        for k in range(Nz + 1):
-            for j in range(Ny + 1):
-                for i in range(Nx):  # i goes to Nx-1 (link exists between i and i+1)
-                    inside_left = hole_mask[i, j, k]
-                    inside_right = hole_mask[i + 1, j, k]
+        crossing = np.zeros_like(hole_mask)
+        crossing[:Nx, :, :] = hole_mask[:Nx, :, :] ^ hole_mask[1:, :, :]
+        # scalar loop nesting was k, j, i
+        return _links_from_mask(crossing, (2, 1, 0), mj, mk, is_3d)
 
-                    # Boundary link if exactly one endpoint is inside
-                    if inside_left != inside_right:
-                        # Linear index for node (i, j, k)
-                        if is_3d:
-                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
-                        else:
-                            m = j * (Nx + 1) + i
-                        boundary_links.append(m)
+    if direction == 'y':
+        crossing = np.zeros_like(hole_mask)
+        crossing[:, :Ny, :] = hole_mask[:, :Ny, :] ^ hole_mask[:, 1:, :]
+        # scalar loop nesting was k, i, j
+        return _links_from_mask(crossing, (2, 0, 1), mj, mk, is_3d)
 
-    elif direction == 'y':
-        # y-direction links connect (i, j, k) to (i, j+1, k)
-        for k in range(Nz + 1):
-            for i in range(Nx + 1):
-                for j in range(Ny):  # j goes to Ny-1
-                    inside_bottom = hole_mask[i, j, k]
-                    inside_top = hole_mask[i, j + 1, k]
+    if direction == 'z':
+        crossing = np.zeros_like(hole_mask)
+        crossing[:, :, :Nz] = hole_mask[:, :, :Nz] ^ hole_mask[:, :, 1:]
+        # scalar loop nesting was i, j, k
+        return _links_from_mask(crossing, (0, 1, 2), mj, mk, is_3d)
 
-                    if inside_bottom != inside_top:
-                        if is_3d:
-                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
-                        else:
-                            m = j * (Nx + 1) + i
-                        boundary_links.append(m)
-
-    elif direction == 'z':
-        # z-direction links connect (i, j, k) to (i, j, k+1)
-        for i in range(Nx + 1):
-            for j in range(Ny + 1):
-                for k in range(Nz):  # k goes to Nz-1
-                    inside_below = hole_mask[i, j, k]
-                    inside_above = hole_mask[i, j, k + 1]
-
-                    if inside_below != inside_above:
-                        if is_3d:
-                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
-                        else:
-                            m = j * (Nx + 1) + i
-                        boundary_links.append(m)
-
-    else:
-        raise ValueError(f"Invalid direction '{direction}'. Use 'x', 'y', or 'z'.")
-
-    return np.array(boundary_links, dtype=np.int64)
+    raise ValueError(f"Invalid direction '{direction}'. Use 'x', 'y', or 'z'.")
 
 
 def identify_normal_boundary_links(
@@ -405,136 +450,60 @@ def identify_normal_boundary_links(
     Nx -= 1  # Convert to number of cells
     Ny -= 1
     Nz -= 1
+    mj = Nx + 1
+    mk = (Nx + 1) * (Ny + 1)
 
-    normal_links = []
+    def _normal(axis: int, n_links: int) -> NDArray[np.bool_]:
+        """Boundary-crossing links along *axis* with no crossing neighbour.
+
+        ``crossing[..., i, ...]`` is the link from index ``i`` to ``i+1`` along
+        *axis*; valid links are ``i < n_links``.  A link is tangential when the
+        link before or after it along the same axis also crosses, so the normal
+        ones are those whose two axis-neighbours are both non-crossing.
+        """
+        lo = [slice(None)] * 3
+        hi = [slice(None)] * 3
+        lo[axis] = slice(0, n_links)
+        hi[axis] = slice(1, n_links + 1)
+        crossing = np.zeros_like(hole_mask)
+        crossing[tuple(lo)] = hole_mask[tuple(lo)] ^ hole_mask[tuple(hi)]
+
+        prev_lo = [slice(None)] * 3
+        prev_hi = [slice(None)] * 3
+        prev_lo[axis] = slice(1, n_links)      # link i, for i >= 1
+        prev_hi[axis] = slice(0, n_links - 1)  # its neighbour, link i-1
+        next_lo = [slice(None)] * 3
+        next_hi = [slice(None)] * 3
+        next_lo[axis] = slice(0, n_links - 1)  # link i, for i <= n_links - 2
+        next_hi[axis] = slice(1, n_links)      # its neighbour, link i+1
+
+        has_neighbour = np.zeros_like(hole_mask)
+        if n_links > 1:
+            has_neighbour[tuple(prev_lo)] |= crossing[tuple(prev_hi)]
+            has_neighbour[tuple(next_lo)] |= crossing[tuple(next_hi)]
+        return crossing & ~has_neighbour
 
     if direction == 'x':
-        # x-links connect (i, j, k) → (i+1, j, k)
-        # Link is TANGENTIAL if it's part of a boundary chain in x-direction
-        # Link is NORMAL if it's an isolated crossing (not connected to boundary chain in x)
+        normal = _normal(0, Nx)
+        if not is_3d:
+            normal[:, :, 1:] = False
+        # scalar loop nesting was k, j, i
+        return _links_from_mask(normal, (2, 1, 0), mj, mk, is_3d)
 
-        for k in range(Nz + 1 if is_3d else 1):
-            for j in range(Ny + 1):
-                for i in range(Nx):  # x-links from i to i+1
-                    inside_left = hole_mask[i, j, k]
-                    inside_right = hole_mask[i + 1, j, k]
+    if direction == 'y':
+        normal = _normal(1, Ny)
+        if not is_3d:
+            normal[:, :, 1:] = False
+        # scalar loop nesting was k, i, j
+        return _links_from_mask(normal, (2, 0, 1), mj, mk, is_3d)
 
-                    # Only consider boundary-crossing links
-                    if inside_left == inside_right:
-                        continue  # Not a boundary link
+    if direction == 'z':
+        normal = _normal(2, Nz)
+        # the scalar z branch always used 3-D linear indices
+        # scalar loop nesting was i, j, k
+        return _links_from_mask(normal, (0, 1, 2), mj, mk, True)
 
-                    # Check if neighboring x-links (same j, k; different i) are ALSO boundaries
-                    # If this link is part of a chain in x-direction → TANGENTIAL
-                    # If this link is isolated in x-direction → NORMAL
-
-                    has_boundary_neighbor_x = False
-
-                    # Check x-link at (i-1, j, k) [link from i-1 to i]
-                    if i > 0:
-                        inside_left_prev = hole_mask[i - 1, j, k]
-                        inside_right_prev = hole_mask[i, j, k]
-                        if inside_left_prev != inside_right_prev:
-                            has_boundary_neighbor_x = True
-
-                    # Check x-link at (i+1, j, k) [link from i+1 to i+2]
-                    if i < Nx - 1:
-                        inside_left_next = hole_mask[i + 1, j, k]
-                        inside_right_next = hole_mask[i + 2, j, k]
-                        if inside_left_next != inside_right_next:
-                            has_boundary_neighbor_x = True
-
-                    # If NO boundary neighbors in x → this x-link is NORMAL to boundary
-                    # If YES boundary neighbors in x → this x-link is TANGENTIAL (part of chain)
-                    if not has_boundary_neighbor_x:
-                        if is_3d:
-                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
-                        else:
-                            m = j * (Nx + 1) + i
-                        normal_links.append(m)
-
-    elif direction == 'y':
-        # y-links connect (i, j, k) → (i, j+1, k)
-        # Link is TANGENTIAL if it's part of a boundary chain in y-direction
-        # Link is NORMAL if it's an isolated crossing (not connected to boundary chain in y)
-
-        for k in range(Nz + 1 if is_3d else 1):
-            for i in range(Nx + 1):
-                for j in range(Ny):  # y-links from j to j+1
-                    inside_bottom = hole_mask[i, j, k]
-                    inside_top = hole_mask[i, j + 1, k]
-
-                    # Only consider boundary-crossing links
-                    if inside_bottom == inside_top:
-                        continue
-
-                    # Check if neighboring y-links (same i, k; different j) are ALSO boundaries
-                    has_boundary_neighbor_y = False
-
-                    # Check y-link at (i, j-1, k) [link from j-1 to j]
-                    if j > 0:
-                        inside_bottom_prev = hole_mask[i, j - 1, k]
-                        inside_top_prev = hole_mask[i, j, k]
-                        if inside_bottom_prev != inside_top_prev:
-                            has_boundary_neighbor_y = True
-
-                    # Check y-link at (i, j+1, k) [link from j+1 to j+2]
-                    if j < Ny - 1:
-                        inside_bottom_next = hole_mask[i, j + 1, k]
-                        inside_top_next = hole_mask[i, j + 2, k]
-                        if inside_bottom_next != inside_top_next:
-                            has_boundary_neighbor_y = True
-
-                    # If NO boundary neighbors in y → this y-link is NORMAL
-                    # If YES boundary neighbors in y → this y-link is TANGENTIAL (part of chain)
-                    if not has_boundary_neighbor_y:
-                        if is_3d:
-                            m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
-                        else:
-                            m = j * (Nx + 1) + i
-                        normal_links.append(m)
-
-    elif direction == 'z':
-        # z-links connect (i, j, k) → (i, j, k+1)
-        # Link is TANGENTIAL if it's part of a boundary chain in z-direction
-        # Link is NORMAL if it's an isolated crossing (not connected to boundary chain in z)
-
-        for i in range(Nx + 1):
-            for j in range(Ny + 1):
-                for k in range(Nz):  # z-links from k to k+1
-                    inside_below = hole_mask[i, j, k]
-                    inside_above = hole_mask[i, j, k + 1]
-
-                    # Only consider boundary-crossing links
-                    if inside_below == inside_above:
-                        continue
-
-                    # Check if neighboring z-links (same i, j; different k) are ALSO boundaries
-                    has_boundary_neighbor_z = False
-
-                    # Check z-link at (i, j, k-1) [link from k-1 to k]
-                    if k > 0:
-                        inside_below_prev = hole_mask[i, j, k - 1]
-                        inside_above_prev = hole_mask[i, j, k]
-                        if inside_below_prev != inside_above_prev:
-                            has_boundary_neighbor_z = True
-
-                    # Check z-link at (i, j, k+1) [link from k+1 to k+2]
-                    if k < Nz - 1:
-                        inside_below_next = hole_mask[i, j, k + 1]
-                        inside_above_next = hole_mask[i, j, k + 2]
-                        if inside_below_next != inside_above_next:
-                            has_boundary_neighbor_z = True
-
-                    # If NO boundary neighbors in z → this z-link is NORMAL to boundary
-                    # If YES boundary neighbors in z → this z-link is TANGENTIAL (part of chain)
-                    if not has_boundary_neighbor_z:
-                        m = k * (Nx + 1) * (Ny + 1) + j * (Nx + 1) + i
-                        normal_links.append(m)
-
-    else:
-        raise ValueError(f"Invalid direction '{direction}'. Use 'x', 'y', or 'z'.")
-
-    return np.array(normal_links, dtype=np.int64)
+    raise ValueError(f"Invalid direction '{direction}'. Use 'x', 'y', or 'z'.")
 
 
 def identify_circular_hole_nodes(
@@ -576,19 +545,18 @@ def identify_circular_hole_nodes(
     cx, cy = center
     z_min, z_max = z_range
 
-    for i in range(Nx + 1):
-        for j in range(Ny + 1):
-            x = i * grid_spacing_x
-            y = j * grid_spacing_y
+    x = np.arange(Nx + 1, dtype=np.float64)[:, None] * grid_spacing_x
+    y = np.arange(Ny + 1, dtype=np.float64)[None, :] * grid_spacing_y
 
-            # Distance from center.  The comparison is inclusive so that nodes
-            # landing exactly on the rim are carved on every side alike; a
-            # strict inequality is symmetric for a node-centred circle but not
-            # for one centred between nodes.
-            dist = np.sqrt((x - cx)**2 + (y - cy)**2)
+    # Distance from center.  The comparison is inclusive so that nodes
+    # landing exactly on the rim are carved on every side alike; a
+    # strict inequality is symmetric for a node-centred circle but not
+    # for one centred between nodes.
+    dist = np.sqrt((x - cx)**2 + (y - cy)**2)
+    plane = dist <= radius * (1.0 + 1e-9)
 
-            if dist <= radius * (1.0 + 1e-9):
-                for k in range(z_min, min(z_max + 1, Nz + 1)):
-                    hole_mask[i, j, k] = True
+    k_hi = min(z_max + 1, Nz + 1)
+    if k_hi > z_min:
+        hole_mask[:, :, z_min:k_hi] = plane[:, :, None]
 
     return hole_mask
