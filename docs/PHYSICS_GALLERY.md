@@ -332,10 +332,13 @@ can carry. A vortex then crosses an arm and `n` steps to a non-zero integer.
   approached from above — critical slowing down at a stability boundary.
 - Bottom: |ψ|² either side of the threshold, on the refined grid.
 
-**Validation metrics:** B_exp = 0.250 ± 0.030 at h = 1 ξ and 0.270 ± 0.050 at
+**Validation metrics:** B_exp = 0.300 ± 0.020 at h = 1 ξ and 0.270 ± 0.050 at
 h = 0.5 ξ — the brackets overlap, so the threshold is not a coarse-grid
-artefact. B_exp·A_hole/Φ₀ = 0.64: the ring admits its first quantum at roughly
+artefact. B_exp·A_hole/Φ₀ = 0.76: the ring admits its first quantum at roughly
 the field whose flux through the hole is one Φ₀.
+
+**See also:** §13 runs the same device at micron scale, where the plane screens
+so well that the hole stops being the limiting element.
 
 **Two modelling traps this figure exists to avoid:**
 1. The oxide must be given a **non-zero κ**. With `kappa=0.0` the φ-equation
@@ -353,3 +356,49 @@ C4-symmetric and the run starts from a noiseless state, so the possible entry
 points are degenerate and quanta arrive in symmetry-related pairs. That is a
 property of the idealised geometry, not of the quantisation.
 
+---
+
+## 13. Micron-Scale S/I/S Ring — 1 µm Hole in a 4 µm Plane
+
+![Micron-scale S/I/S ring](figures/sis_micron_ring.png)
+
+**Physical mechanism:** The device of §12 at a realistic size, specified in SI
+and converted through `tdgl3d.GLUnits`. At ξ = 100 nm — Nb (ξ₀ ≈ 38 nm) at
+T/T_c ≈ 0.86, inside the Ginzburg-Landau regime — a 4 µm plane is 40 ξ across,
+a 1 µm hole is 10 ξ, 500 nm layers are 5 ξ, and one unit of the solver's field
+is 32.9 mT.
+
+**Parameters:** 4×4 µm plane, 1×1 µm hole, S(500 nm)/I(200 nm)/S(500 nm),
+κ=2.0, h=100 nm, 40×40×12 grid, hold time 60 τ_GL, seeded perturbation 1e-3.
+
+**Validation metrics:** complete expulsion — zero vortices anywhere *and* zero
+fluxoid through the hole — up to **8.89 mT**, first failure at **9.54 mT**, so
+**B_exp = 9.21 ± 0.33 mT**. Repeating the bracketing fields with a perturbation
+a thousand times smaller gives the same bracket, so the threshold is where the
+barrier vanishes rather than where the seed happens to be large enough.
+
+**The result does not scale from the small ring.** Three things separate them:
+
+| | small ring (§12) | this device |
+|---|---|---|
+| plane width in λ | 5 λ | 20 λ |
+| field reaching the hole | most of the applied field | 1.7% of it |
+| flux through the hole at threshold | ~0.8 Φ₀ | 0.07 Φ₀ |
+| what fails first | the hole (fluxoid) | the plane (vortices in the arms) |
+
+The plane screens so effectively that the hole never approaches its fluxoid
+limit; vortices penetrate the 1.5 µm-wide arms first, arranged in a
+C4-symmetric ring around the hole (bottom right), and the hole does not admit a
+fluxoid until 10.86 mT. The device beats the naive single-loop estimate
+Φ₀/A_hole = 2.07 mT by more than a factor of four for exactly that reason.
+
+**Regenerating:** `python3 docs/figures/sis_micron_ring.py` — about 13 minutes
+(twelve field points at ~65 s each). Not part of the regenerate-everything loop
+above.
+
+**A note on seeding.** A C4-symmetric device started from a noiseless state
+relaxes to an *exact* fixed point (residual ~1e-14). That is the right state for
+a symmetry check, but a metastable branch can then only be broken by round-off,
+which delays flux entry by an amount set by floating-point precision rather than
+by the energy barrier. This study seeds a perturbation and checks the answer
+against one a thousand times smaller.

@@ -15,12 +15,25 @@ the physics behind each one: [`docs/PHYSICS_GALLERY.md`](docs/PHYSICS_GALLERY.md
 
 ### Flux expulsion by an S/I/S ring
 
-How much field a hole through both superconducting layers can keep out before a
-flux quantum gets in. The ring holds the enclosed fluxoid at zero up to
-**B_exp = 0.25 ± 0.03** (in Φ₀/2πξ², for a 4×4 ξ hole with 3 ξ arms), then admits
-flux in whole quanta; the entry time diverges as the threshold is approached from
-above. Repeating the two bracketing fields at half the grid spacing gives
-0.27 ± 0.05 — the threshold survives refinement.
+A 1 µm hole centred in a 4 µm S/I/S plane with 500 nm layers, at ξ = 100 nm —
+Nb near T_c, where Ginzburg-Landau applies. The device expels flux **completely**
+— no vortices anywhere, zero fluxoid through the hole — up to **9.2 ± 0.3 mT**.
+
+What limits it is not the hole. A 4 µm plane is 20 λ across and screens so well
+that only 1.7% of the applied field reaches the hole (0.07 Φ₀ through it at the
+threshold), so the ring is nowhere near its fluxoid limit; vortices penetrate the
+1.5 µm-wide arms first, and the hole does not admit a fluxoid until 10.9 mT. The
+device therefore beats the naive single-loop estimate Φ₀/A_hole = 2.07 mT by more
+than a factor of four.
+
+[![Micron-scale S/I/S ring](docs/figures/sis_micron_ring.png)](docs/figures/sis_micron_ring.png)
+
+At small scale the mechanism is the other one — the hole itself gives way. For a
+4×4 ξ hole with 3 ξ arms the ring holds the fluxoid at zero up to
+**B_exp = 0.300 ± 0.020** (in Φ₀/2πξ²), then admits flux in whole quanta, and the
+entry time diverges as the threshold is approached from above. Repeating the
+bracketing fields at half the grid spacing gives 0.27 ± 0.05 — the threshold
+survives refinement.
 
 [![S/I/S ring flux expulsion](docs/figures/sis_hole_expulsion.png)](docs/figures/sis_hole_expulsion.png)
 

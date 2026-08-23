@@ -139,6 +139,49 @@ guarded by the type system:
   |ψ| ≈ 0.99 in their middle. `test_the_ring_is_superconducting` is the cheap
   guard; run it before trusting anything downstream.
 
+## Geometry: two conventions that quietly break symmetry
+
+Both of these produced a device that looked symmetric in every summary number
+while being asymmetric at the 1e-3 level in the fields.
+
+* **Ray casting is half-open.** `point_in_polygon` counts a point on the
+  low-x/low-y edge as outside and one on the high-x/high-y edge as inside — a
+  consistent tiling rule, but not a mirror-symmetric one. Holes are normally
+  specified at round coordinates, so their edges land exactly on grid nodes and
+  the carved region comes out shifted by half a cell: a hole given as `[3, 7]`
+  removed nodes 4…7, centred at 5.5 in a film centred at 5.
+  `identify_hole_nodes` now takes the **closed** region by default
+  (`edge_tolerance`), so `[3, 7]` removes nodes 3…7 (`test_centred_hole_is_centred`).
+* **Layer thicknesses are in cells; materials live on nodes.** The two
+  interfaces of an S/I/S stack are shared between layers. Assigning each node to
+  the cell range `[k_start, k_end)` containing it gives the lower interface to
+  the oxide and the upper one to the top layer, so the top layer ends up with
+  one more superconducting node than the bottom. Both interfaces belong to the
+  oxide instead; equal superconducting thicknesses then give equal node counts
+  and the stack is exactly symmetric about its mid-plane
+  (`test_stack_is_mirror_symmetric_about_its_midplane`). The oxide occupies
+  `insulator.thickness_z + 1` nodes as a result.
+
+With both fixed, a relaxed S/I/S ring started from a noiseless state is
+symmetric under x → −x, y → −y, z → −z and a 90° rotation to ~1e-16
+(`test_the_relaxed_ring_is_symmetric`).
+
+Note that a noiseless symmetric device relaxes to an **exact** fixed point
+(residual ~1e-14). That is the right state for a symmetry check, but it means a
+metastable branch can only be broken by round-off, which delays flux entry by an
+amount set by floating-point precision rather than by the energy barrier. Seed a
+perturbation when measuring an entry threshold, and check the answer against a
+much smaller one.
+
+## SI units
+
+`tdgl3d.GLUnits` converts between SI and solver units. It needs ξ **at the
+temperature of interest**, not ξ₀: Ginzburg-Landau is a near-T_c theory and
+ξ(T) = ξ₀/√(1 − T/T_c) diverges there, while κ = λ/ξ does not. The same physical
+geometry is a different simulation at different temperatures — a 4 µm film is
+40 ξ across for Nb at T/T_c ≈ 0.86 (ξ = 100 nm) and 400 ξ across well below T_c,
+which is the difference between a minute and an intractable run.
+
 ## Numerical limits
 
 * Forward Euler is stable for `dt < h²/(4κ²(d-1))` — the limit is set by the

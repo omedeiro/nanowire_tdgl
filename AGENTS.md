@@ -93,5 +93,11 @@ Two rules for adding checks there:
 - Superconducting layers thinner than ~2 ξ are fully pair-broken by an adjacent
   insulator (|ψ| ~ 1e-4) while still producing plausible-looking output. Check
   `max |ψ|` before trusting anything phase-derived.
+- Devices given in SI go through `tdgl3d.GLUnits`, which needs ξ **at the
+  temperature of interest** — the same geometry is a different simulation at a
+  different temperature. See "SI units" in `docs/notes/PHYSICS_CONVENTIONS.md`.
+- A noiseless symmetric device relaxes to an exact fixed point, so a metastable
+  branch can only be broken by round-off. Seed a perturbation when measuring an
+  entry threshold, and check the answer against a much smaller one.
 - The ghost-ring corner plaquette at `(0, 0)` carries zero applied flux; it does
   not enter the dynamics (see `docs/notes/PHYSICS_CONVENTIONS.md`).
