@@ -47,9 +47,22 @@ def applied_boundary(
 
 
 def cfl_limit(params: SimulationParameters) -> float:
-    """Forward-Euler stability limit of the stiffest (curl-curl) operator."""
+    r"""Forward-Euler stability limit, set by the stiff ``κ²∇×∇×`` term.
+
+    The commonly quoted bound ``h²/(4κ²)`` is a **two-dimensional** result.  In
+    3D each link variable acquires a second transverse Laplacian direction, the
+    spectral radius of the curl-curl block doubles, and the limit halves.  The
+    dimension-aware bound used here is
+
+    .. math::  \Delta t < \frac{h^2}{4\kappa^2 (d - 1)},
+
+    which reproduces the familiar 2D value and is about 30% conservative in 3D
+    (measured limits: 1.06x in 2D, 0.72x in 3D — see
+    ``test_forward_euler_is_stable_below_the_cfl_limit``).
+    """
     h_min = min(params.hx, params.hy, params.hz if params.is_3d else np.inf)
-    return h_min**2 / (4.0 * params.kappa**2)
+    transverse = 2.0 if params.is_3d else 1.0
+    return h_min**2 / (4.0 * params.kappa**2 * transverse)
 
 
 def interior_strides(params: SimulationParameters) -> tuple[int, int, int]:

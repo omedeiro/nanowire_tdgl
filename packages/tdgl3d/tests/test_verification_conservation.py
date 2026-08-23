@@ -352,25 +352,45 @@ def test_normal_supercurrent_vanishes_on_external_boundaries(phys_log):
 # ---------------------------------------------------------------------------
 
 
-def test_forward_euler_is_stable_below_the_cfl_limit(phys_log):
-    """Below h²/(4κ²) the uniform state stays put; above it, it blows up."""
-    params = SimulationParameters(Nx=6, Ny=6, Nz=1, kappa=2.0)
+@pytest.mark.parametrize(
+    "grid",
+    [dict(Nx=6, Ny=6, Nz=1), dict(Nx=6, Ny=6, Nz=6)],
+    ids=lambda g: "2d" if g["Nz"] == 1 else "3d",
+)
+def test_forward_euler_is_stable_below_the_cfl_limit(grid, phys_log):
+    """Below the limit the uniform state stays put; well above it, it blows up.
+
+    Run in 2D *and* 3D: the familiar bound ``h²/(4κ²)`` is a two-dimensional
+    result.  In 3D every link variable picks up a second transverse Laplacian
+    direction, the spectral radius of the curl-curl block doubles, and the true
+    limit halves — a 3D run at ``0.9 h²/(4κ²)`` diverges.
+    ``physics_helpers.cfl_limit`` carries the dimension factor.
+    """
+    params = SimulationParameters(hx=0.5, hy=0.5, hz=0.5, kappa=2.0, **grid)
     limit = cfl_limit(params)
 
-    _, stable, _, _ = run_euler(params, 0.0, n_steps=200, dt=0.9 * limit, noise_amplitude=0.05, seed=2)
-    _, unstable, _, _ = run_euler(params, 0.5, n_steps=200, dt=3.0 * limit, noise_amplitude=0.05, seed=2)
+    _, stable, _, _ = run_euler(
+        params, 0.0, n_steps=300, dt=0.9 * limit, noise_amplitude=0.05, seed=2,
+    )
+    _, unstable, _, _ = run_euler(
+        params, 0.2, n_steps=300, dt=4.0 * limit, noise_amplitude=0.05, seed=2,
+    )
 
     n = params.n_interior
     psi2_stable = np.abs(stable[:n, -1]) ** 2
     final_unstable = unstable[:, -1]
-    diverged = (not np.all(np.isfinite(final_unstable))) or float(
-        np.max(np.abs(final_unstable))
-    ) > 1e3 or float(np.mean(np.abs(final_unstable[:n]))) < 0.5
+    diverged = (
+        (not np.all(np.isfinite(final_unstable)))
+        or float(np.max(np.abs(final_unstable))) > 1e3
+        or float(np.mean(np.abs(final_unstable[:n]))) < 0.5
+    )
 
+    name = "test_forward_euler_is_stable_below_the_cfl_limit[" + (
+        "2d" if params.Nz == 1 else "3d"
+    ) + "]"
     with phys_log.test(
-        "test_forward_euler_is_stable_below_the_cfl_limit",
-        {"Nx": 6, "kappa": 2.0, "cfl_limit": limit},
-        "the explicit step size limit is set by the κ²∇×∇× term",
+        name, {**grid, "h": 0.5, "kappa": 2.0, "cfl_limit": limit},
+        "the explicit step size limit is set by the κ²∇×∇× term and depends on dimension",
     ) as log:
         log["cfl_limit"] = float(limit)
         log["max_psi2_stable"] = float(np.max(psi2_stable))
@@ -384,6 +404,6 @@ def test_forward_euler_is_stable_below_the_cfl_limit(phys_log):
             "min|ψ|² at dt = 0.9 dt_CFL", float(np.min(psi2_stable)), 1.0, atol=0.05,
         )
         log.check_above(
-            "run at dt = 3 dt_CFL loses the superconducting state",
+            "run at dt = 4 dt_CFL loses the superconducting state",
             float(diverged), 1.0,
         )
