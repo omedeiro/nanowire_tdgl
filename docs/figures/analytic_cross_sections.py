@@ -107,6 +107,10 @@ def london_case(h: float, length: float = 16.0, bz: float = 0.02, t_stop: float 
         "h": h, "x": xs, "width": width, "b0": bz,
         "sim": simulated, "model": model,
         "error": simulated - model, "psi_min": psi_min,
+        # Distance to the nearer pinned edge.  Within about a cell of it the
+        # residual is the truncated series' own Gibbs ringing, which does not
+        # shrink with the grid; the bulk is where the solver is being measured.
+        "depth": np.minimum(xs, width - xs),
     }
 
 
@@ -229,6 +233,9 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     ring = ring_case(units, t_stop=ring_t)
 
     london_order, london_rms = _order(spacings, [c["error"] / c["b0"] for c in london])
+    london_bulk_order, london_bulk_rms = _order(
+        spacings, [c["error"][c["depth"] > 1.0] / c["b0"] for c in london]
+    )
     wall_order, wall_rms = _order(spacings, [c["error"] for c in walls])
 
     fig, axes = plt.subplots(3, 2, figsize=(13, 13.5))
@@ -265,7 +272,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         0.03, 0.03,
         "rms error / B₀\n"
         + "\n".join(f"  h = {h:<5g} {r:.2e}" for h, r in zip(spacings, london_rms))
-        + f"\norder in h: {london_order:.2f}",
+        + f"\norder in h: {london_order:.2f}"
+        + f"\nbulk only (>1 ξ from an edge): {london_bulk_order:.2f}",
         transform=ax.transAxes, fontsize=7.5, fontfamily="monospace",
         verticalalignment="bottom",
         bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="gray", alpha=0.9),
@@ -377,7 +385,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         print(f"  h = {case['h']:<5g} rms/B₀ = {rms:.3e}  "
               f"max/B₀ = {np.max(np.abs(case['error'])) / case['b0']:.3e}  "
               f"min|ψ| = {case['psi_min']:.4f}")
-    print(f"  observed order in h: {london_order:.2f}")
+    print(f"  observed order in h: {london_order:.2f} "
+          f"(bulk only: {london_bulk_order:.2f})")
     print("Pair-breaking wall (|ψ| across a hole edge):")
     for case, rms in zip(walls, wall_rms):
         print(f"  h = {case['h']:<5g} rms = {rms:.3e}  "

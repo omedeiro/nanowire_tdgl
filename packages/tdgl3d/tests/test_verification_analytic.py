@@ -33,6 +33,7 @@ from tdgl3d.physics.analytic import (
     gl_wall_interface_value,
     gl_wall_profile,
     london_domain_width,
+    london_slab_1d,
     london_square_2d,
     plaquette_positions,
 )
@@ -454,6 +455,38 @@ def test_zero_field_ground_state_is_the_uniform_condensate(phys_log):
 # ---------------------------------------------------------------------------
 
 
+def _relaxed_london_profile(h, length=16.0, bz=0.02, kappa=2.0, nz=1, t_stop=15.0):
+    """Relax a square film in a weak field; return the mid-line Bz on each z-slice.
+
+    Returns ``(params, xs, width, profiles)`` where ``profiles`` has shape
+    ``(n_z_layers, Nx-1)``.  In 2D there is one layer.
+    """
+    n_cells = int(round(length / h))
+    params = SimulationParameters(
+        Nx=n_cells, Ny=n_cells, Nz=nz, hx=h, hy=h, hz=h, kappa=kappa,
+    )
+    dt = 0.9 * cfl_limit(params)
+    _, states, _, idx = run_euler(
+        params, bz, n_steps=int(round(t_stop / dt)), dt=dt,
+        noise_amplitude=0.0, save_every=10**9,
+    )
+    state = states[:, -1]
+    _, px, py, pz = expand_state(state, params, idx, applied_boundary(params, idx, bz=bz))
+    nx_int, ny_int = params.Nx - 1, params.Ny - 1
+    field = eval_bfield_full(px, py, pz, params, idx)[2]
+    n_layers = max(params.Nz - 1, 1)
+    field = field.reshape(nx_int, ny_int, n_layers)
+    mid = ny_int // 2
+    profiles = np.ascontiguousarray(field[:, mid, :].T) / bz
+    return (
+        params,
+        plaquette_positions(params, "x"),
+        london_domain_width(params, "x"),
+        profiles,
+        float(np.abs(state[: params.n_interior]).min()),
+    )
+
+
 def test_london_series_satisfies_its_own_equation(phys_log):
     """The analytical model is checked before the solver is checked against it.
 
@@ -508,7 +541,7 @@ def test_london_series_satisfies_its_own_equation(phys_log):
             detail="O(h²) means the residual belongs to the difference stencil",
         )
         log.check_below(
-            "max |B − B₀| on an edge, 1 ξ from a corner", edge_error[400], 2e-2,
+            "max |B − B₀| on an edge, 1 ξ from a corner", edge_error[400], 2e-3,
             detail="Gibbs ringing from the truncated square wave; falls as 1/n_terms",
         )
 
@@ -519,7 +552,7 @@ def test_london_series_satisfies_its_own_equation(phys_log):
         ys = np.linspace(0.0, width, 801)
         away = (ys >= 2.0) & (ys <= width - 2.0)
         ringing = {}
-        for n_terms in (201, 2001):
+        for n_terms in (201, 2001, 8001):
             edge = london_square_2d(
                 np.zeros_like(ys), ys, width, lam, b0, n_terms=n_terms
             )
@@ -531,63 +564,198 @@ def test_london_series_satisfies_its_own_equation(phys_log):
             ringing[n_terms] = float(np.max(np.abs(edge[away] - b0)))
         log["edge_ringing"] = {str(k): v for k, v in ringing.items()}
         log.check_below(
-            "edge ringing at n_terms = 2001", ringing[2001], 2e-3,
+            "edge ringing at the default n_terms = 2001", ringing[2001], 2e-3,
+            detail="this is the floor any comparison against the series inherits",
         )
         log.check_below(
             "ringing ratio 2001/201", ringing[2001] / ringing[201], 0.2,
             detail="Gibbs error at fixed distance falls like 1/n_terms",
         )
+        log.check_below(
+            "ringing ratio 8001/2001", ringing[8001] / ringing[2001], 0.5,
+            detail="still falling past the default, so the default is not a plateau",
+        )
 
 
-@pytest.mark.parametrize("h", [1.0, 0.5])
-def test_bfield_matches_the_exact_london_solution(h, phys_log):
+def test_bfield_matches_the_exact_london_solution(phys_log):
     """Bz across a square film reproduces the exact London solution.
 
-    At weak field ``|ψ| ≈ 1``, the ψ-equation drops out and the gauge field
-    obeys ``∇²B = B/λ²`` with ``B = B_applied`` on the boundary — which has a
-    closed-form Fourier solution.  This is the cleanest available check on the
-    ``κ²∇×∇×`` operator together with the applied-field boundary condition.
-    """
-    length, bz = 16.0, 0.02
-    n_cells = int(round(length / h))
-    params = SimulationParameters(Nx=n_cells, Ny=n_cells, Nz=1, hx=h, hy=h, kappa=2.0)
-    dt = 0.9 * cfl_limit(params)
-    n_steps = int(round(15.0 / dt))
-    _, states, _, idx = run_euler(
-        params, bz, n_steps=n_steps, dt=dt, noise_amplitude=0.0, save_every=10**9,
-    )
-    _, px, py, pz = expand_state(states[:, -1], params, idx, applied_boundary(params, idx, bz=bz))
-    nx_int, ny_int = params.Nx - 1, params.Ny - 1
-    field = eval_bfield_full(px, py, pz, params, idx)[2].reshape(nx_int, ny_int)
+    At weak field ``|ψ| ≈ 1``, the ψ-equation drops out and the gauge field obeys
+    ``∇²B = B/λ²`` with ``B = B_applied`` on the boundary — which has a closed-form
+    Fourier solution.  This is the cleanest available check on the ``κ²∇×∇×``
+    operator together with the applied-field boundary condition.
 
-    xs = plaquette_positions(params, "x")
-    width = london_domain_width(params, "x")
-    mid = ny_int // 2
-    simulated = field[:, mid]
-    model = london_square_2d(xs, np.full_like(xs, xs[mid]), width, lam=params.kappa, b0=bz)
-    error = (simulated - model) / bz
-    psi_min = float(np.abs(states[: params.n_interior, -1]).min())
+    The error is split into two populations rather than reported as one number,
+    because they converge at different rates and averaging them hides both:
+
+    * **the bulk**, where the scheme is second order and the comparison measures
+      the discretisation error of the curl-curl operator;
+    * **the ring of pinned boundary plaquettes**, where the solver is exact by
+      construction (it is a Dirichlet condition) and the residual is the
+      *series'* own Gibbs ringing — which does not shrink with ``h`` and, at the
+      old 201-term default, capped the apparent order at 1.1.
+
+    The pinned plaquette is therefore checked against the applied field directly,
+    with no model in the way.
+    """
+    spacings = (1.0, 0.5, 0.25)
+    bz = 0.02
+    rms_all, rms_bulk, worst, pinned, psi_min, profile = {}, {}, {}, {}, {}, {}
+
+    for h in spacings:
+        params, xs, width, profiles, psi_min[h] = _relaxed_london_profile(h, bz=bz)
+        simulated = profiles[0]
+        model = london_square_2d(
+            xs, np.full_like(xs, xs[len(xs) // 2]), width, lam=params.kappa, b0=1.0
+        )
+        error = simulated - model
+        # Distance to the nearer pinned edge of the plaquette span.  The span
+        # runs 0 … width and the array carries the pinned plaquette at `width`
+        # but not the one at 0, so this is deliberately one-sided.
+        depth = np.minimum(xs, width - xs)
+        rms_all[h] = float(np.sqrt(np.mean(error**2)))
+        rms_bulk[h] = float(np.sqrt(np.mean(error[depth > 1.0] ** 2)))
+        worst[h] = float(np.max(np.abs(error)))
+        # The last entry is the pinned plaquette: compare it with the boundary
+        # condition itself, which involves no model and should be exact.
+        pinned[h] = float(abs(simulated[-1] - 1.0))
+        profile[h] = [float(v) for v in simulated]
+        centre = float(simulated[len(xs) // 2])
+
+    order_all = float(np.polyfit(np.log(spacings), np.log([rms_all[h] for h in spacings]), 1)[0])
+    order_bulk = float(np.polyfit(np.log(spacings), np.log([rms_bulk[h] for h in spacings]), 1)[0])
 
     with phys_log.test(
-        f"test_bfield_matches_the_exact_london_solution[h={h}]",
-        {"length": length, "h": h, "kappa": 2.0, "Bz": bz},
+        "test_bfield_matches_the_exact_london_solution",
+        {"length": 16.0, "kappa": 2.0, "Bz": bz, "h_values": list(spacings)},
         "the screened field profile matches the closed-form London solution",
     ) as log:
-        log["rms_error_over_B0"] = float(np.sqrt(np.mean(error**2)))
-        log["profile_over_B0"] = [float(v) for v in simulated / bz]
+        log["rms_error_over_B0"] = {str(h): rms_all[h] for h in spacings}
+        log["rms_bulk_error_over_B0"] = {str(h): rms_bulk[h] for h in spacings}
+        log["max_error_over_B0"] = {str(h): worst[h] for h in spacings}
+        log["profile_over_B0"] = {str(h): profile[h] for h in spacings}
         log.check_above(
-            "min |ψ| (London limit is applicable)", psi_min, 0.99,
+            "min |ψ| at the coarsest h (London limit is applicable)", psi_min[1.0], 0.99,
             detail="the model assumes |ψ| = 1; the check is void if ψ is suppressed",
         )
         log.check_below(
-            "field at the centre / B₀", float(simulated[nx_int // 2] / bz), 0.2,
+            "field at the centre / B₀", centre, 0.2,
             detail="the sample really is screening, so the comparison has content",
         )
         log.check_below(
-            "max |solver − model| / B₀", float(np.max(np.abs(error))), 0.01,
+            "|B(pinned plaquette) − B_applied| / B₀", max(pinned.values()), 1e-12,
+            detail="a Dirichlet condition: the solver is exact here, model aside",
+        )
+        log.check_below("rms |solver − model| / B₀ at h = 1 ξ", rms_all[1.0], 5e-3)
+        log.check_below("rms |solver − model| / B₀ at h = 0.25 ξ", rms_all[0.25], 5e-4)
+        log.check_below("max |solver − model| / B₀ at h = 0.25 ξ", worst[0.25], 1e-3)
+        log.check_above(
+            "observed order in h (whole profile)", order_all, 1.7,
+            detail="mixes the second-order bulk with the series' Gibbs floor",
+        )
+        log.check_above(
+            "observed order in h (bulk, >1 ξ from an edge)", order_bulk, 1.75,
+            detail="the curl-curl operator's own discretisation error",
+        )
+
+
+def test_london_slab_is_the_wide_limit_of_the_square(phys_log):
+    """``london_slab_1d`` is what ``london_square_2d`` becomes on a wide square.
+
+    The slab solution is the transverse-infinite limit, so on the mid-line of a
+    square it should be measurably wrong at small ``W/λ`` and approached as the
+    square widens.  A limit that is never reached, and one that is already exact
+    at small width, would each mean one of the two is not what it claims.
+
+    The comparison is made on the central half of the mid-line.  Near the edges
+    the truncated series carries Gibbs ringing that the slab solution does not,
+    and that residual saturates at ``~3e-4`` however wide the square gets — it is
+    the series' own floor, and it is recorded here rather than averaged in.
+    """
+    lam = 2.0
+    widths = (8.0, 16.0, 32.0, 64.0)
+    core, edge = {}, {}
+    for width in widths:
+        xs = np.linspace(0.0, width, 801)
+        square = london_square_2d(xs, np.full_like(xs, 0.5 * width), width, lam, 1.0)
+        slab = london_slab_1d(xs, width, lam, 1.0)
+        deviation = np.abs(square - slab)
+        middle = (xs >= 0.25 * width) & (xs <= 0.75 * width)
+        core[width] = float(deviation[middle].max())
+        edge[width] = float(deviation.max())
+
+    with phys_log.test(
+        "test_london_slab_is_the_wide_limit_of_the_square",
+        {"lambda": lam, "widths_over_lambda": [w / lam for w in widths]},
+        "the 1-D slab solution is the wide-square limit of the 2-D series",
+    ) as log:
+        log["core_deviation"] = {str(w / lam): core[w] for w in widths}
+        log["full_deviation"] = {str(w / lam): edge[w] for w in widths}
+        log.check_above(
+            "max |square − slab| at W = 4 λ", core[8.0], 0.05,
+            detail="transverse screening is a real effect at this aspect ratio",
         )
         log.check_below(
-            "rms |solver − model| / B₀", float(np.sqrt(np.mean(error**2))), 5e-3,
+            "max |square − slab| at W = 32 λ", core[64.0], 1e-6,
+            detail="the two must agree once the square is wide enough",
+        )
+        for wide, narrow in ((16.0, 8.0), (32.0, 16.0), (64.0, 32.0)):
+            log.check_below(
+                f"deviation ratio W = {wide / lam:g} λ / {narrow / lam:g} λ",
+                core[wide] / core[narrow], 0.3,
+                detail="monotone approach, not a coincidence at one width",
+            )
+        log.check_below(
+            "edge deviation floor at W = 32 λ", edge[64.0], 1e-3,
+            detail="Gibbs ringing, not a disagreement: it does not fall with W",
+        )
+
+
+def test_three_dimensional_solver_reproduces_the_two_dimensional_london_solution(phys_log):
+    """A z-invariant problem must give the 2-D answer on every z-slice.
+
+    With a uniform ``Bz`` and no z-dependence anywhere in the geometry or the
+    boundary condition, the exact solution is independent of z and the 3-D
+    discrete equations reduce term-for-term to the 2-D ones: ``∂²/∂z²`` annihilates
+    a z-invariant field and ``φ_z`` is driven only by ``J_{s,z} = 0``.  The two runs
+    should therefore agree to solver precision, not merely to discretisation
+    error.
+
+    This is the check that the 3-D index path — where a stride bug once made
+    ``eval_bfield`` read the interior array with full-grid strides — is wired
+    correctly, and it costs one small extra run.
+    """
+    h, bz = 1.0, 0.02
+    params2, xs, width, flat, _ = _relaxed_london_profile(h, bz=bz, nz=1)
+    params3, xs3, width3, layers, psi_min = _relaxed_london_profile(h, bz=bz, nz=4)
+
+    assert np.allclose(xs, xs3) and width == width3
+    spread = float(np.max(np.abs(layers - layers.mean(axis=0, keepdims=True))))
+    against_2d = float(np.max(np.abs(layers - flat[0])))
+    model = london_square_2d(
+        xs, np.full_like(xs, xs[len(xs) // 2]), width, lam=params3.kappa, b0=1.0
+    )
+    against_model = float(np.max(np.abs(layers.mean(axis=0) - model)))
+
+    with phys_log.test(
+        "test_three_dimensional_solver_reproduces_the_two_dimensional_london_solution",
+        {"h": h, "Bz": bz, "Nz_2d": 1, "Nz_3d": 4, "n_layers": int(layers.shape[0])},
+        "a z-invariant problem is solved identically by the 2-D and 3-D paths",
+    ) as log:
+        log["n_z_layers"] = int(layers.shape[0])
+        log["layer_profiles_over_B0"] = [[float(v) for v in row] for row in layers]
+        log.check_above("min |ψ| in the 3-D run", psi_min, 0.99)
+        log.check_below(
+            "spread of Bz across z-slices / B₀", spread, 1e-10,
+            detail="nothing in the problem depends on z, so nothing in the answer may",
+        )
+        log.check_below(
+            "max |B_3D − B_2D| / B₀", against_2d, 1e-8,
+            detail="the same discrete equations, so the same fixed point",
+        )
+        log.check_below(
+            "max |B_3D − model| / B₀", against_model, 1e-2,
+            detail="and the shared fixed point is the physical one",
         )
 
 
@@ -603,10 +771,24 @@ def test_order_parameter_matches_the_exact_wall_solution(phys_log):
 
     The error is measured at three spacings: a fixed disagreement and a
     discretisation error look identical at one.
+
+    Two things are checked, and the second is the stronger one:
+
+    * the **profile** against ``tanh``, which needs the interface position and so
+      inherits a half-cell convention;
+    * the **first integral** ``ψ′ = (1 − ψ²)/√2`` pointwise, which contains no
+      position, no matching constant and no fit at all.  A profile displaced by
+      a fraction of a cell still satisfies it; a wrong healing length does not.
+
+    Neither reaches a clean second order, and that is expected rather than
+    tolerated: the material coefficient jumps *between* nodes, which is a
+    first-order feature locally, so an error averaged over a window holding
+    ``O(1)`` such points out of ``O(1/h)`` scales as ``h^1.5`` at worst.
     """
     length, wall, kappa = 24.0, 8.0, 2.0
     spacings = (1.0, 0.5, 0.25)
-    rms, worst = {}, {}
+    sqrt2 = np.sqrt(2.0)
+    rms, worst, first_integral = {}, {}, {}
 
     for h in spacings:
         n_cells = int(round(length / h))
@@ -637,9 +819,21 @@ def test_order_parameter_matches_the_exact_wall_solution(phys_log):
         rms[h] = float(np.sqrt(np.mean(error**2)))
         worst[h] = float(np.max(np.abs(error)))
 
-    order = float(
-        np.polyfit(np.log(spacings), np.log([rms[h] for h in spacings]), 1)[0]
-    )
+        # ψ′ = (1 − ψ²)/√2 on superconducting nodes with superconducting
+        # neighbours, so the centred difference never straddles the interface.
+        derivative = (profile[2:] - profile[:-2]) / (2.0 * h)
+        inner_psi, inner_off = profile[1:-1], offsets[1:-1]
+        residual = derivative - (1.0 - inner_psi**2) / sqrt2
+        interior_sc = is_sc[1:-1] & is_sc[:-2] & is_sc[2:] & (inner_off <= 8.0)
+        first_integral[h] = float(np.sqrt(np.mean(residual[interior_sc] ** 2)))
+
+    def observed_order(values):
+        return float(
+            np.polyfit(np.log(spacings), np.log([values[h] for h in spacings]), 1)[0]
+        )
+
+    order = observed_order(rms)
+    order_first_integral = observed_order(first_integral)
 
     with phys_log.test(
         "test_order_parameter_matches_the_exact_wall_solution",
@@ -649,6 +843,7 @@ def test_order_parameter_matches_the_exact_wall_solution(phys_log):
     ) as log:
         log["rms_error"] = {str(h): rms[h] for h in spacings}
         log["max_error"] = {str(h): worst[h] for h in spacings}
+        log["first_integral_residual"] = {str(h): first_integral[h] for h in spacings}
         log.check_close(
             "|ψ| at the interface from matching", gl_wall_interface_value(), 0.2134,
             atol=1e-4, detail="positive root of √τ u² + √2 u − √τ = 0",
@@ -656,7 +851,18 @@ def test_order_parameter_matches_the_exact_wall_solution(phys_log):
         log.check_below("rms error at h = 1 ξ", rms[1.0], 0.08)
         log.check_below("rms error at h = 0.25 ξ", rms[0.25], 0.01)
         log.check_below("max error at h = 0.25 ξ", worst[0.25], 0.03)
-        log.check_close(
-            "observed order in h", order, 2.0, atol=0.5,
-            detail="a constant disagreement would show order 0",
+        log.check_above(
+            "observed order in h", order, 1.5,
+            detail="the coefficient jump is first order locally, so h^1.5 is the floor",
+        )
+        log.check_below(
+            "rms |ψ′ − (1 − ψ²)/√2| at h = 1 ξ", first_integral[1.0], 0.02,
+            detail="offset-free: no interface position enters this identity",
+        )
+        log.check_below(
+            "rms |ψ′ − (1 − ψ²)/√2| at h = 0.25 ξ", first_integral[0.25], 2e-3,
+        )
+        log.check_above(
+            "observed order in h (first integral)", order_first_integral, 1.5,
+            detail="the √2 healing length, checked without a fit or a position",
         )

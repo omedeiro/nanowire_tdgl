@@ -215,9 +215,38 @@ profile looking correct, which is a slow thing to notice:
   the midpoint of the last insulator node and the first superconducting one.
   Anchoring on either node costs a factor of `h`.
 
-Measured against these, the solver reaches rms `4.12e-03 · B₀` (London) and
-`4.97e-02` in `|ψ|` (wall) at `h = 1 ξ`, converging at order 1.78 and 1.69
-respectively — see `test_verification_analytic.py` and gallery §14.
+**A closed-form reference has its own error, and it can be the larger one.** The
+truncated series' Gibbs ringing does not shrink with `h`, so once it is used as
+the reference for a convergence study it becomes the accuracy floor. At the
+original 201-term default it capped the observed order of the max error at 1.14;
+at 2001 it is 1.73. Before reading a convergence order as a statement about the
+solver, check that the model is the more accurate of the two.
+
+Where the boundary condition is Dirichlet the solver is *exact*, not
+approximate, and should be checked that way — against the applied field itself
+rather than against the series. The pinned boundary plaquettes agree to 6e-16.
+
+Measured against these, the solver reaches rms `4.08e-03 · B₀` (London) and
+`4.97e-02` in `|ψ|` (wall) at `h = 1 ξ`, converging at order 1.82 and 1.69
+respectively. Neither reaches a clean 2, for reasons that are understood rather
+than tolerated: the London residual mixes a second-order bulk with the series'
+floor, and the wall's coefficient jump is a first-order feature locally, which
+bounds an rms over a window holding `O(1)` such points at `h^1.5`. Because the
+wall comparison needs an interface position at all, it is backed by the
+offset-free form of the same physics — the first integral `ψ' = (1 - ψ²)/√2`
+checked pointwise, which involves no position, matching constant or fit and
+holds to rms `8.03e-04` at `h = 0.25 ξ`.
+
+**A z-invariant problem is the cheapest 3-D check there is.** With no
+z-dependence in the geometry or the boundary condition, the 3-D discrete
+equations reduce term-for-term to the 2-D ones — `∂²/∂z²` annihilates a
+z-invariant field and `φ_z` is driven only by `J_{s,z} = 0` — so the two paths
+must reach the *same fixed point*, to solver precision rather than to
+discretisation error. Measured: 2.2e-16 spread across z-slices, 1.7e-10 against
+the 2-D run. This is what catches an index-ordering bug in the 3-D path, which
+is otherwise expensive to see.
+
+See `test_verification_analytic.py` and gallery §14.
 
 ## Numerical limits
 

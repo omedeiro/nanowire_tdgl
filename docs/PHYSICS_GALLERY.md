@@ -441,13 +441,39 @@ h = 1, 0.5 and 0.25 ξ. Bottom row: the §13 micron ring at 8.2 mT.
 
 | | h = 1 ξ | h = 0.5 ξ | h = 0.25 ξ | order in h |
 |---|---|---|---|---|
-| London, rms/B₀ | 4.12e-03 | 1.12e-03 | 3.50e-04 | **1.78** |
+| London, rms/B₀ | 4.08e-03 | 1.05e-03 | 3.29e-04 | **1.82** |
+| London, rms/B₀, bulk only | 4.29e-03 | 1.09e-03 | 3.34e-04 | **1.84** |
 | wall, rms \|ψ\| | 4.97e-02 | 1.72e-02 | 4.77e-03 | **1.69** |
+| wall, rms \|ψ′ − (1−ψ²)/√2\| | 9.34e-03 | 3.30e-03 | 8.03e-04 | **1.77** |
 
 The residual falling with the grid at close to second order is the point: it
 identifies the disagreement as the solver's own discretisation error rather than
 a modelling difference. A constant residual, or one converging at first order,
 would indicate a bug — and did during development, twice.
+
+**Neither reaches a clean 2, and the reason differs between them.** In the
+London case the ring of pinned boundary plaquettes is where the solver is
+*exact* — it is a Dirichlet condition, and it agrees with the applied field to
+6e-16 — so the residual there is the truncated series' own Gibbs ringing, which
+does not shrink with `h`. At the original 201-term default that floor capped the
+apparent order of the max error at **1.14**; raising the default to 2001 terms
+recovers **1.73**, and the bulk rms order rises to 1.84. The model, not the
+solver, was the limiting factor.
+
+In the wall case the material coefficient jumps *between* nodes, which is a
+first-order feature locally, so an error averaged over a window holding `O(1)`
+such points out of `O(1/h)` cannot do better than `h^1.5`. Excluding the
+interface does not help — the local error there translates the whole profile —
+which is why the offset-free first integral is checked as well.
+
+**The 3-D path is checked against the same solution.** A problem with no
+z-dependence anywhere must be solved identically by the 2-D and 3-D codes: the
+3-D discrete equations reduce term-for-term, since `∂²/∂z²` annihilates a
+z-invariant field and `φ_z` is driven only by `J_{s,z} = 0`. Measured: the field
+varies across z-slices by **2.2e-16** and differs from the 2-D run by
+**1.7e-10** — agreement to solver precision, not merely to discretisation error.
+This is the check that would have caught the interior-array stride bug in
+`eval_bfield` immediately.
 
 **Two half-cell traps.** Both models are posed on a continuum, so the comparison
 depends on where the discrete quantities actually sit, and being off by half a

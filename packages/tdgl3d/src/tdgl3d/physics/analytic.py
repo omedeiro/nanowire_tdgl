@@ -135,7 +135,7 @@ def london_square_2d(
     width: float,
     lam: float,
     b0: float = 1.0,
-    n_terms: int = 201,
+    n_terms: int = 2001,
 ) -> NDArray[np.float64]:
     """Exact solution of ``∇²B = B/λ²`` on ``[0, W]²`` with ``B = b0`` on ∂Ω.
 
@@ -159,7 +159,7 @@ def london_square_2d(
         Penetration depth.  In solver units this is ``κ``.
     b0 : float, default 1.0
         Field on the boundary.
-    n_terms : int, default 201
+    n_terms : int, default 2001
         Highest term kept.  Only odd terms contribute.
 
     Notes
@@ -167,6 +167,15 @@ def london_square_2d(
     The series converges to ``b0`` on the open edges but to ``b0/2`` at the
     corners, where the two one-sided problems each contribute a jump; stay a few
     cells away from a corner when comparing.
+
+    **The default is high on purpose.**  The truncated series carries Gibbs
+    ringing near the edges that does *not* shrink with the grid, so when it is
+    used as a reference for a convergence study it becomes the accuracy floor.
+    At 201 terms the ringing is ~1.4% of ``b0`` one ξ from a corner, enough to
+    cap the observed order of a solver comparison at 1.1 instead of the true
+    1.7; at 2001 it is ~6e-4.  Cost is linear in ``n_terms`` and the whole
+    series is a handful of vectorised operations, so paying for the terms is
+    cheaper than misreading the result.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)

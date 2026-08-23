@@ -52,14 +52,25 @@ shown to be discretisation error rather than disagreement.
 In the **London limit** (|ψ| = 1, so the ψ-equation drops out) a square with the
 field pinned on its boundary obeys ∇²B = B/λ², which has an exact Fourier
 solution. The solver matches it to **rms 4.1e-3 · B₀ at h = 1 ξ, falling to
-3.5e-4 at h = 0.25 ξ — observed order 1.8 in h**.
+3.3e-4 at h = 0.25 ξ — observed order 1.82 in h, 1.84 in the bulk**. On the
+pinned boundary plaquettes, where the condition is Dirichlet and the solver
+should be exact rather than approximate, it agrees with the applied field to
+**6e-16**.
 
 At a **pair-breaking wall** (zero field, so the gauge field drops out)
 ψ'' = −ψ + ψ³ gives tanh((x − x₀)/√2), with the offset x₀ fixed by matching to
 the insulator's relaxation rather than fitted. The solver matches it to **rms
-5.0e-2 at h = 1 ξ, falling to 4.8e-3 at h = 0.25 ξ — observed order 1.7 in h**.
+5.0e-2 at h = 1 ξ, falling to 4.8e-3 at h = 0.25 ξ — observed order 1.69 in h**.
 The √2 is the physics being checked: the Ginzburg-Landau healing length is
-√2 ξ, not ξ.
+√2 ξ, not ξ. Because that comparison needs an interface position, it is backed
+by the offset-free form of the same statement — the first integral
+ψ′ = (1 − ψ²)/√2 checked pointwise, which holds to **rms 8.0e-4 at h = 0.25 ξ**
+with no position, matching constant or fit anywhere in it.
+
+The 3D path is checked against the same exact solution: a problem with no
+z-dependence must be solved identically by the 2D and 3D codes, and it is — the
+field varies across z-slices by **2e-16** and differs from the 2D run by
+**2e-10**.
 
 [![Cross-sections against exact solutions](docs/figures/analytic_cross_sections.png)](docs/figures/analytic_cross_sections.png)
 
