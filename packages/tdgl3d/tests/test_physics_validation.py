@@ -337,3 +337,120 @@ def test_insulator_mask_suppresses_the_order_parameter(phys_log):
         log.check_above(
             "mean |ψ| in the superconductor", float(np.mean(psi[~insulator])), 0.75,
         )
+
+# ---------------------------------------------------------------------------
+# Geometric symmetry of the stack
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sc_cells,insulator_cells",
+    [(4, 2), (3, 1), (5, 2)],
+    ids=lambda v: str(v),
+)
+def test_stack_is_mirror_symmetric_about_its_midplane(sc_cells, insulator_cells, phys_log):
+    """A stack with equal S layers must be symmetric under z → Nz − z.
+
+    Layer thicknesses are given in cells but material properties live on nodes,
+    and the two interface nodes are shared.  Assigning each node to the cell
+    range containing it hands the lower interface to the oxide and the upper one
+    to the top layer, leaving the superconducting layers with different node
+    counts.  Both interfaces belong to the oxide instead.
+    """
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=sc_cells, kappa=2.0),
+        insulator=Layer(thickness_z=insulator_cells, kappa=2.0, is_superconductor=False),
+        top=Layer(thickness_z=sc_cells, kappa=2.0),
+    )
+    params = SimulationParameters(Nx=6, Ny=5, Nz=trilayer.Nz, kappa=2.0)
+    device = Device(params, applied_field=AppliedField(Bz=0.0), trilayer=trilayer)
+
+    profile = device.material.sc_mask.reshape(
+        params.Nz + 1, params.Ny + 1, params.Nx + 1
+    )[:, 0, 0]
+    kappa_profile = device.material.kappa.reshape(
+        params.Nz + 1, params.Ny + 1, params.Nx + 1
+    )[:, 0, 0]
+    n_bottom = int(profile[: len(profile) // 2].sum())
+    n_top = int(profile[len(profile) // 2 + len(profile) % 2 :].sum())
+
+    name = f"test_stack_is_mirror_symmetric_about_its_midplane[({sc_cells}, {insulator_cells})]"
+    with phys_log.test(
+        name, {"sc_cells": sc_cells, "insulator_cells": insulator_cells, "Nz": trilayer.Nz},
+        "equal superconducting layers must give an exactly symmetric material map",
+    ) as log:
+        log["sc_mask_z_profile"] = [int(v) for v in profile]
+        log.check_below(
+            "sc_mask asymmetry under z → Nz − z",
+            float(np.max(np.abs(profile - profile[::-1]))), 0.0,
+        )
+        log.check_below(
+            "κ asymmetry under z → Nz − z",
+            float(np.max(np.abs(kappa_profile - kappa_profile[::-1]))), 1e-15,
+        )
+        log.check_close(
+            "superconducting nodes below vs above the mid-plane",
+            float(n_bottom), float(n_top), atol=0.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "length,hole,h",
+    [(10.0, 4.0, 1.0), (10.0, 4.0, 0.5), (12.0, 6.0, 1.0), (12.0, 5.0, 0.5)],
+    ids=lambda v: str(v),
+)
+def test_centred_hole_is_centred(length, hole, h, phys_log):
+    """A hole centred in the film comes out centred on the grid.
+
+    Bare ray casting is half-open — points on the low-x/low-y edges fall outside
+    and those on the high edges inside — so a polygon whose edges land on grid
+    nodes is carved half a cell off centre, and every symmetry of the device is
+    broken by that much.  ``identify_hole_nodes`` takes the closed region by
+    default for this reason.
+    """
+    trilayer = _trilayer(thickness=4)
+    n_cells = int(round(length / h))
+    params = SimulationParameters(
+        Nx=n_cells, Ny=n_cells, Nz=trilayer.Nz, hx=h, hy=h, kappa=2.0
+    )
+    device = Device(params, applied_field=AppliedField(Bz=0.0), trilayer=trilayer)
+    lo, hi = 0.5 * (length - hole), 0.5 * (length + hole)
+    square = [(lo, lo), (hi, lo), (hi, hi), (lo, hi)]
+    z_ranges = trilayer.z_ranges()
+    device.add_hole(square, z_range=z_ranges["bottom"])
+    device.add_hole(square, z_range=z_ranges["top"])
+
+    nx_int, ny_int, nz_int = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    mask = device.material.interior_sc_mask.reshape(nx_int, ny_int, nz_int)
+    plane = mask[:, :, 0]
+    carved = plane == 0.0
+    ii, jj = np.nonzero(carved)
+
+    centre_x = 0.5 * (ii.min() + ii.max() + 2) * h  # +1 for the ghost offset, twice
+    centre_y = 0.5 * (jj.min() + jj.max() + 2) * h
+    width = (ii.max() - ii.min()) * h
+
+    name = f"test_centred_hole_is_centred[({length}, {hole}, {h})]"
+    with phys_log.test(
+        name, {"length": length, "hole": hole, "h": h},
+        "the carved geometry must inherit the symmetry of the polygon it was given",
+    ) as log:
+        log["carved_nodes"] = int(carved.sum())
+        log["hole_centre"] = [centre_x, centre_y]
+        log["hole_width"] = width
+        log.check_above("nodes carved out", float(carved.sum()), 1.0)
+        log.check_close("hole centre x", centre_x, length / 2, atol=1e-12, units="ξ")
+        log.check_close("hole centre y", centre_y, length / 2, atol=1e-12, units="ξ")
+        log.check_close("carved width", width, hole, atol=1e-12, units="ξ")
+        log.check_below(
+            "material map asymmetry under x → −x",
+            float(np.max(np.abs(mask - mask[::-1, :, :]))), 0.0,
+        )
+        log.check_below(
+            "material map asymmetry under y → −y",
+            float(np.max(np.abs(mask - mask[:, ::-1, :]))), 0.0,
+        )
+        log.check_below(
+            "material map asymmetry under z → −z",
+            float(np.max(np.abs(mask - mask[:, :, ::-1]))), 0.0,
+        )

@@ -39,10 +39,11 @@ from tdgl3d.analysis.expulsion import (
     rectangular_contour,
 )
 from tdgl3d.core.solution import Solution
+from tdgl3d.physics.bfield import eval_bfield_full
 from tdgl3d.physics.rhs import eval_f
 from tdgl3d.solvers.integrators import forward_euler
 
-from .physics_helpers import applied_boundary, cfl_limit
+from .physics_helpers import applied_boundary, cfl_limit, expand_state
 
 PHI0 = 2.0 * np.pi
 
@@ -161,6 +162,66 @@ def test_the_ring_is_superconducting(phys_log):
         log.check_below(
             "max |ψ| in the oxide and the hole", float(psi[~superconducting].max()), 0.25,
         )
+
+
+def test_the_relaxed_ring_is_symmetric(phys_log):
+    """A centred square hole in a symmetric stack gives a symmetric solution.
+
+    The device is invariant under x → −x, y → −y, z → −z and a 90° rotation, so
+    |ψ| and Bz must be too — to round-off, since the run starts from a noiseless
+    state.  Two geometric conventions used to break this at the 1e-3 level and
+    both were invisible in the fields alone:
+
+    * ray casting is half-open, so a hole given as ``[3, 7]`` carved nodes 4…7
+      and sat half a cell off centre;
+    * layer thicknesses are in cells but materials live on nodes, and assigning
+      each node to the cell range containing it gave the top layer one more
+      superconducting node than the bottom.
+
+    Node-centred ``ψ`` reflects onto itself; plaquette-centred ``Bz`` needs its
+    last anchor dropped first (see ``docs/notes/PHYSICS_CONVENTIONS.md``).
+    """
+    applied_bz = 0.05
+    params, device, _, solution, _, _, _, boundary = ring_run(applied_bz)
+    nx, ny, nz = params.Nx - 1, params.Ny - 1, params.Nz - 1
+
+    psi = np.abs(solution.psi(step=-1)).reshape(nx, ny, nz)
+    _, phi_x, phi_y, phi_z = expand_state(solution.states[:, -1], params, device.idx, boundary)
+    field = eval_bfield_full(phi_x, phi_y, phi_z, params, device.idx)[2].reshape(nx, ny, nz)
+    field_core = field[:-1, :-1, :]
+
+    psi_scale = float(psi.max())
+    field_scale = float(np.abs(field_core).max())
+
+    with phys_log.test(
+        "test_the_relaxed_ring_is_symmetric",
+        {"hole": 4.0, "arm": ARM, "kappa": KAPPA, "Bz": applied_bz},
+        "the solution must inherit every symmetry of the device",
+    ) as log:
+        log["psi_scale"] = psi_scale
+        log["Bz_scale"] = field_scale
+        log.check_above("|ψ| scale (non-trivial)", psi_scale, 0.5)
+        log.check_above("Bz scale (non-trivial)", field_scale, 1e-3)
+        for label, mirrored in (
+            ("x → −x", psi[::-1]),
+            ("y → −y", psi[:, ::-1]),
+            ("z → −z", psi[:, :, ::-1]),
+            ("90° rotation", np.rot90(psi, axes=(0, 1))),
+        ):
+            log.check_below(
+                f"max |ψ| asymmetry under {label}",
+                float(np.max(np.abs(psi - mirrored))), 1e-12,
+            )
+        for label, mirrored in (
+            ("x → −x", field_core[::-1]),
+            ("y → −y", field_core[:, ::-1]),
+            ("z → −z", field_core[:, :, ::-1]),
+            ("90° rotation", np.rot90(field_core, axes=(0, 1))),
+        ):
+            log.check_below(
+                f"max Bz asymmetry under {label}",
+                float(np.max(np.abs(field_core - mirrored))), 1e-12 * field_scale,
+            )
 
 
 # ---------------------------------------------------------------------------
