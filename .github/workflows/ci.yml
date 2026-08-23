@@ -49,6 +49,11 @@ jobs:
           printf '{"schemaVersion": 1, "label": "coverage", "message": "%s%%", "color": "%s"}\n' "$PCT" "$COLOR" > /tmp/coverage-badge.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # The test step above wrote coverage.json into the repo root, where it
+          # is untracked, and the badges branch tracks a file of the same name --
+          # so switching branches would clobber it and git refuses.  The value is
+          # already captured in /tmp, so drop the working copy first.
+          rm -f coverage.json
           # Fetch straight into a local branch.  actions/checkout leaves a
           # single-branch clone whose refspec only covers the checked-out
           # branch, so `git checkout badges` cannot resolve the remote-tracking
