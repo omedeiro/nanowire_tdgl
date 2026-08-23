@@ -1,8 +1,8 @@
 # Physics Verification Report
 
-**Run timestamp:** 2026-08-23T00:30:30.162759
-**Tests:** 64/64 passed, 0 failed
-**Checks:** 192/192 passed (0 failed)
+**Run timestamp:** 2026-08-23T13:39:08.611173
+**Tests:** 76/76 passed, 0 failed
+**Checks:** 259/259 passed (0 failed)
 
 Each check records the measured value, the value physics requires and the tolerance allowed, so every line below is falsifiable. Tolerances near machine precision mark exact discrete identities; the wider ones are discretisation error bounds stated up front rather than fitted to the measurement.
 
@@ -31,7 +31,7 @@ Each check records the measured value, the value physics requires and the tolera
 | max ΔJ_s | 2.220e-16 | <= 1e-11 | 1.000e-11 | PASS |
 | Δ free energy | 0 | <= 5.61e-08 | 5.608e-08 | PASS |
 | **test_rhs_covariant_with_material_map** | | | | |
-| max covariance violation | 4.885e-15 | <= 1.84e-10 | 1.843e-10 | PASS |
+| max covariance violation | 2.512e-15 | <= 1.84e-10 | 1.843e-10 | PASS |
 | **test_rhs_is_gauge_covariant[10x10x1]** | | | | |
 | max\|dψ/dt(Gψ) − e^{iχ} dψ/dt(ψ)\| | 9.930e-16 | <= 8.15e-11 | 8.146e-11 | PASS |
 | max\|dφ/dt(GX) − dφ/dt(X)\| | 2.665e-15 | <= 8.15e-11 | 8.146e-11 | PASS |
@@ -44,8 +44,8 @@ Each check records the measured value, the value physics requires and the tolera
 | **test_vortex_count_is_gauge_invariant** | | | | |
 | vortices present (test would be vacuous otherwise) | 8 | >= 1 | 1 | PASS |
 | vortex count after gauge change | 8 | 8 | 0 | PASS |
-| max Δ(plaquette vorticity) | 2.297e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|winding change\| | 2.220e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max Δ(plaquette vorticity) | 3.004e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|winding change\| | 1.110e-16 | <= 1e-09 | 1.000e-09 | PASS |
 
 ### Conservation laws and identities
 
@@ -162,6 +162,16 @@ Each check records the measured value, the value physics requires and the tolera
 
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
+| **test_bfield_matches_the_exact_london_solution[h=0.5]** | | | | |
+| min \|ψ\| (London limit is applicable) | 0.999572 | >= 0.99 | 0.99 | PASS |
+| field at the centre / B₀ | 0.0755545 | <= 0.2 | 0.2 | PASS |
+| max \|solver − model\| / B₀ | 0.0021735 | <= 0.01 | 0.01 | PASS |
+| rms \|solver − model\| / B₀ | 0.00112196 | <= 0.005 | 0.005 | PASS |
+| **test_bfield_matches_the_exact_london_solution[h=1.0]** | | | | |
+| min \|ψ\| (London limit is applicable) | 0.999627 | >= 0.99 | 0.99 | PASS |
+| field at the centre / B₀ | 0.0894936 | <= 0.2 | 0.2 | PASS |
+| max \|solver − model\| / B₀ | 0.00490852 | <= 0.01 | 0.01 | PASS |
+| rms \|solver − model\| / B₀ | 0.00411878 | <= 0.005 | 0.005 | PASS |
 | **test_covariant_laplacian_is_second_order_accurate** | | | | |
 | observed order of accuracy | 1.99835 | 2 | 0.15 | PASS |
 | error at h = 0.1 | 2.214e-04 | <= 0.001 | 0.001 | PASS |
@@ -172,8 +182,8 @@ Each check records the measured value, the value physics requires and the tolera
 | Richardson error at the smallest dt | 1.854e-05 | <= 0.001 | 0.001 | PASS |
 | **test_insulator_order_parameter_decays_with_the_stated_time_constant** | | | | |
 | points used in the fit | 30 | >= 5 | 5 | PASS |
-| fitted τ | 0.090997 | 0.1 | 0.02 | PASS |
-| residual \|ψ\| in the insulator | 0.0776087 | <= 0.15 | 0.15 | PASS |
+| fitted τ | 0.0929158 | 0.1 | 0.02 | PASS |
+| residual \|ψ\| in the insulator | 0.0532326 | <= 0.15 | 0.15 | PASS |
 | **test_london_penetration_depth_equals_kappa[kappa=1.5]** | | | | |
 | state drift (equilibrium reached) | 3.696e-08 | <= 1e-06 | 1.000e-06 | PASS |
 | min \|ψ\| (still Meissner, no vortices) | 0.999794 | >= 0.9 | 0.9 | PASS |
@@ -182,6 +192,14 @@ Each check records the measured value, the value physics requires and the tolera
 | state drift (equilibrium reached) | 1.009e-07 | <= 1e-06 | 1.000e-06 | PASS |
 | min \|ψ\| (still Meissner, no vortices) | 0.998855 | >= 0.9 | 0.9 | PASS |
 | λ from the screening profile | 3.13849 | 3 | 0.3 | PASS |
+| **test_london_series_satisfies_its_own_equation** | | | | |
+| max \|∇²B − B/λ²\| at the finer grid | 2.400e-05 | <= 0.0001 | 1.000e-04 | PASS |
+| residual ratio on halving the check grid | 4.00022 | 4 | 1 | PASS |
+| max \|B − B₀\| on an edge, 1 ξ from a corner | 0.0143936 | <= 0.02 | 0.02 | PASS |
+| finite values at n_terms = 201 | 1 | 1 | 0 | PASS |
+| finite values at n_terms = 2001 | 1 | 1 | 0 | PASS |
+| edge ringing at n_terms = 2001 | 5.883e-04 | <= 0.002 | 0.002 | PASS |
+| ringing ratio 2001/201 | 0.0734807 | <= 0.2 | 0.2 | PASS |
 | **test_lowest_landau_level_of_covariant_laplacian[Bz=0.1]** | | | | |
 | max\|∇×A − B\| for the Landau-gauge links | 5.274e-16 | <= 1e-13 | 1.000e-13 | PASS |
 | non-Hermiticity of −(∇ − iA)² | 0 | <= 1e-13 | 1.000e-13 | PASS |
@@ -190,6 +208,12 @@ Each check records the measured value, the value physics requires and the tolera
 | max\|∇×A − B\| for the Landau-gauge links | 1.055e-15 | <= 1e-13 | 1.000e-13 | PASS |
 | non-Hermiticity of −(∇ − iA)² | 0 | <= 1e-13 | 1.000e-13 | PASS |
 | lowest eigenvalue E₀ | 0.198753 | 0.2 | 0.006 | PASS |
+| **test_order_parameter_matches_the_exact_wall_solution** | | | | |
+| \|ψ\| at the interface from matching | 0.213422 | 0.2134 | 1.000e-04 | PASS |
+| rms error at h = 1 ξ | 0.0496938 | <= 0.08 | 0.08 | PASS |
+| rms error at h = 0.25 ξ | 0.00476747 | <= 0.01 | 0.01 | PASS |
+| max error at h = 0.25 ξ | 0.0162006 | <= 0.03 | 0.03 | PASS |
+| observed order in h | 1.69088 | 2 | 0.5 | PASS |
 | **test_penetration_depth_converges_with_grid_refinement** | | | | |
 | \|λ − κ\| at h = 1.0 | 0.348405 | <= 0.7 | 0.7 | PASS |
 | \|λ − κ\| at h = 0.5 | 0.105629 | <= 0.2 | 0.2 | PASS |
@@ -207,16 +231,16 @@ Each check records the measured value, the value physics requires and the tolera
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
 | **test_fluxoid_equals_enclosed_vorticity_for_any_contour** | | | | |
-| max \|fluxoid − nearest integer\| | 1.767e-17 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|fluxoid − enclosed vorticity\| | 1.767e-17 | <= 1e-09 | 1.000e-09 | PASS |
-| \|staircase fluxoid − enclosed vorticity\| | 0 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − nearest integer\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − enclosed vorticity\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| \|staircase fluxoid − enclosed vorticity\| | 2.665e-15 | <= 1e-09 | 1.000e-09 | PASS |
 | **test_no_vortices_in_the_meissner_state** | | | | |
 | vortex count | 0 | 0 | 0 | PASS |
 | max \|vorticity\| anywhere | 2.209e-18 | <= 1e-09 | 1.000e-09 | PASS |
 | min \|ψ\| | 0.999159 | >= 0.95 | 0.95 | PASS |
 | **test_plaquette_vorticity_is_an_exact_integer** | | | | |
 | plaquettes carrying vorticity | 8 | >= 1 | 1 | PASS |
-| max \|vorticity − nearest integer\| | 1.767e-16 | <= 1e-10 | 1.000e-10 | PASS |
+| max \|vorticity − nearest integer\| | 2.120e-16 | <= 1e-10 | 1.000e-10 | PASS |
 | **test_vortex_count_increases_with_the_applied_field** | | | | |
 | largest decrease in count along the sweep | -4 | <= 0 | 0 | PASS |
 | increase from the lowest to the highest field | 12 | >= 1 | 1 | PASS |
@@ -224,7 +248,7 @@ Each check records the measured value, the value physics requires and the tolera
 | count / (B·A/Φ₀) at Bz = 0.5 | 0.19635 | <= 1 | 1 | PASS |
 | count / (B·A/Φ₀) at Bz = 0.7 | 0.420749 | <= 1 | 1 | PASS |
 | mean interior Bz / applied at Bz = 0.35 | 0.42922 | <= 1 | 1 | PASS |
-| mean interior Bz / applied at Bz = 0.5 | 0.681311 | <= 1 | 1 | PASS |
+| mean interior Bz / applied at Bz = 0.5 | 0.681309 | <= 1 | 1 | PASS |
 | mean interior Bz / applied at Bz = 0.7 | 0.853044 | <= 1 | 1 | PASS |
 | **test_vortex_winding_sign_follows_the_applied_field[Bz=-0.5]** | | | | |
 | vortices detected | 8 | >= 1 | 1 | PASS |
@@ -246,26 +270,70 @@ Each check records the measured value, the value physics requires and the tolera
 
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
+| **test_centred_hole_is_centred[(10.0, 4.0, 0.5)]** | | | | |
+| nodes carved out | 81 | >= 1 | 1 | PASS |
+| hole centre x | 5 | 5 | 1.000e-12 | PASS |
+| hole centre y | 5 | 5 | 1.000e-12 | PASS |
+| carved width | 4 | 4 | 1.000e-12 | PASS |
+| material map asymmetry under x → −x | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under y → −y | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under z → −z | 0 | <= 0 | 0 | PASS |
+| **test_centred_hole_is_centred[(10.0, 4.0, 1.0)]** | | | | |
+| nodes carved out | 25 | >= 1 | 1 | PASS |
+| hole centre x | 5 | 5 | 1.000e-12 | PASS |
+| hole centre y | 5 | 5 | 1.000e-12 | PASS |
+| carved width | 4 | 4 | 1.000e-12 | PASS |
+| material map asymmetry under x → −x | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under y → −y | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under z → −z | 0 | <= 0 | 0 | PASS |
+| **test_centred_hole_is_centred[(12.0, 5.0, 0.5)]** | | | | |
+| nodes carved out | 121 | >= 1 | 1 | PASS |
+| hole centre x | 6 | 6 | 1.000e-12 | PASS |
+| hole centre y | 6 | 6 | 1.000e-12 | PASS |
+| carved width | 5 | 5 | 1.000e-12 | PASS |
+| material map asymmetry under x → −x | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under y → −y | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under z → −z | 0 | <= 0 | 0 | PASS |
+| **test_centred_hole_is_centred[(12.0, 6.0, 1.0)]** | | | | |
+| nodes carved out | 49 | >= 1 | 1 | PASS |
+| hole centre x | 6 | 6 | 1.000e-12 | PASS |
+| hole centre y | 6 | 6 | 1.000e-12 | PASS |
+| carved width | 6 | 6 | 1.000e-12 | PASS |
+| material map asymmetry under x → −x | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under y → −y | 0 | <= 0 | 0 | PASS |
+| material map asymmetry under z → −z | 0 | <= 0 | 0 | PASS |
 | **test_insulator_kappa_controls_field_transmission[kappa=0.0]** | | | | |
-| Bz in the insulator / applied | 1.742e-22 | <= 1e-06 | 1.000e-06 | PASS |
+| Bz in the insulator / applied | 2.719e-22 | <= 1e-06 | 1.000e-06 | PASS |
 | **test_insulator_kappa_controls_field_transmission[kappa=2.0]** | | | | |
-| Bz in the insulator / applied | 0.92095 | >= 0.5 | 0.5 | PASS |
+| Bz in the insulator / applied | 0.950271 | >= 0.5 | 0.5 | PASS |
 | **test_insulator_mask_suppresses_the_order_parameter** | | | | |
-| insulator nodes present | 48 | >= 1 | 1 | PASS |
-| mean \|ψ\| in the insulator | 0.0304171 | <= 0.15 | 0.15 | PASS |
-| max \|ψ\| in the superconductor | 0.99084 | >= 0.95 | 0.95 | PASS |
-| mean \|ψ\| in the superconductor | 0.865684 | >= 0.75 | 0.75 | PASS |
+| insulator nodes present | 60 | >= 1 | 1 | PASS |
+| mean \|ψ\| in the insulator | 0.0243144 | <= 0.15 | 0.15 | PASS |
+| max \|ψ\| in the superconductor | 0.965494 | >= 0.95 | 0.95 | PASS |
+| mean \|ψ\| in the superconductor | 0.843018 | >= 0.75 | 0.75 | PASS |
+| **test_stack_is_mirror_symmetric_about_its_midplane[(3, 1)]** | | | | |
+| sc_mask asymmetry under z → Nz − z | 0 | <= 0 | 0 | PASS |
+| κ asymmetry under z → Nz − z | 0 | <= 1e-15 | 1.000e-15 | PASS |
+| superconducting nodes below vs above the mid-plane | 3 | 3 | 0 | PASS |
+| **test_stack_is_mirror_symmetric_about_its_midplane[(4, 2)]** | | | | |
+| sc_mask asymmetry under z → Nz − z | 0 | <= 0 | 0 | PASS |
+| κ asymmetry under z → Nz − z | 0 | <= 1e-15 | 1.000e-15 | PASS |
+| superconducting nodes below vs above the mid-plane | 4 | 4 | 0 | PASS |
+| **test_stack_is_mirror_symmetric_about_its_midplane[(5, 2)]** | | | | |
+| sc_mask asymmetry under z → Nz − z | 0 | <= 0 | 0 | PASS |
+| κ asymmetry under z → Nz − z | 0 | <= 1e-15 | 1.000e-15 | PASS |
+| superconducting nodes below vs above the mid-plane | 5 | 5 | 0 | PASS |
 | **test_trilayer_external_z_boundary_jn** | | | | |
-| max \|J_z\| on the bottom face | 1.637e-21 | <= 1e-12 | 1.000e-12 | PASS |
-| max \|J_z\| on the top face | 2.943e-21 | <= 1e-12 | 1.000e-12 | PASS |
+| max \|J_z\| on the bottom face | 1.441e-21 | <= 1e-12 | 1.000e-12 | PASS |
+| max \|J_z\| on the top face | 1.505e-21 | <= 1e-12 | 1.000e-12 | PASS |
 | **test_trilayer_kappa_discontinuity** | | | | |
 | LPHI_x diagonal in the superconductor | -16 | -16 | 1.000e-12 | PASS |
 | LPHI_x diagonal in the insulator | 0 | 0 | 1.000e-12 | PASS |
 | **test_trilayer_superconducting_layers_screen** | | | | |
-| Bz in the bottom Nb layer / applied | 0.826226 | <= 0.98 | 0.98 | PASS |
-| Bz in the top Nb layer / applied | 0.739702 | <= 0.98 | 0.98 | PASS |
-| Bz in the bottom Nb layer / applied | 0.826226 | >= 0 | 0 | PASS |
-| top/bottom screening asymmetry | 0.895278 | 1 | 0.15 | PASS |
+| Bz in the bottom Nb layer / applied | 0.852883 | <= 0.98 | 0.98 | PASS |
+| Bz in the top Nb layer / applied | 0.861574 | <= 0.98 | 0.98 | PASS |
+| Bz in the bottom Nb layer / applied | 0.852883 | >= 0 | 0 | PASS |
+| top/bottom screening asymmetry | 1.01019 | 1 | 0.15 | PASS |
 
 ### Flux expulsion by a ring
 
@@ -288,16 +356,27 @@ Each check records the measured value, the value physics requires and the tolera
 | max \|fluxoid − nearest integer\| | 1.332e-15 | <= 1e-09 | 1.000e-09 | PASS |
 | largest decrease along the history | 1.332e-15 | <= 1e-09 | 1.000e-09 | PASS |
 | **test_fluxoid_does_not_depend_on_the_contour** | | | | |
-| \|fluxoid\| (non-trivial, so the check has content) | 2 | >= 0.5 | 0.5 | PASS |
-| spread across contour margins | 6.661e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| \|fluxoid − nearest integer\| | 0 | <= 1e-09 | 1.000e-09 | PASS |
+| \|fluxoid\| (non-trivial, so the check has content) | 4 | >= 0.5 | 0.5 | PASS |
+| spread across contour margins | 0 | <= 1e-09 | 1.000e-09 | PASS |
+| \|fluxoid − nearest integer\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
 | **test_ring_expels_flux_below_threshold** | | | | |
-| max \|fluxoid\| over the whole run | 6.626e-18 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|dX/dt\| at the end | 8.164e-06 | <= 0.001 | 0.001 | PASS |
+| max \|fluxoid\| over the whole run | 1.767e-17 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|dX/dt\| at the end | 6.067e-14 | <= 0.001 | 0.001 | PASS |
+| **test_the_relaxed_ring_is_symmetric** | | | | |
+| \|ψ\| scale (non-trivial) | 0.928977 | >= 0.5 | 0.5 | PASS |
+| Bz scale (non-trivial) | 0.0482529 | >= 0.001 | 0.001 | PASS |
+| max \|ψ\| asymmetry under x → −x | 2.220e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max \|ψ\| asymmetry under y → −y | 2.220e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max \|ψ\| asymmetry under z → −z | 2.220e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max \|ψ\| asymmetry under 90° rotation | 2.220e-16 | <= 1e-12 | 1.000e-12 | PASS |
+| max Bz asymmetry under x → −x | 2.082e-17 | <= 4.83e-14 | 4.825e-14 | PASS |
+| max Bz asymmetry under y → −y | 2.082e-17 | <= 4.83e-14 | 4.825e-14 | PASS |
+| max Bz asymmetry under z → −z | 2.776e-17 | <= 4.83e-14 | 4.825e-14 | PASS |
+| max Bz asymmetry under 90° rotation | 2.082e-17 | <= 4.83e-14 | 4.825e-14 | PASS |
 | **test_the_ring_is_superconducting** | | | | |
-| max \|ψ\| in the superconducting layers | 0.986262 | >= 0.9 | 0.9 | PASS |
-| mean \|ψ\| in the superconducting layers | 0.746616 | >= 0.5 | 0.5 | PASS |
-| max \|ψ\| in the oxide and the hole | 0.112499 | <= 0.25 | 0.25 | PASS |
+| max \|ψ\| in the superconducting layers | 0.928977 | >= 0.9 | 0.9 | PASS |
+| mean \|ψ\| in the superconducting layers | 0.660557 | >= 0.5 | 0.5 | PASS |
+| max \|ψ\| in the oxide and the hole | 0.103677 | <= 0.25 | 0.25 | PASS |
 
 ## Test details
 
@@ -407,6 +486,36 @@ _one curl stencil, one answer, on any grid shape_
 - **Diagnostics:**
   - `b_scale`: 1.3361
 
+### test_bfield_matches_the_exact_london_solution[h=0.5]
+
+_the screened field profile matches the closed-form London solution_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=16, h=0.5, kappa=2, Bz=0.02
+- **PASS** min |ψ| (London limit is applicable): measured 0.999572, expected >= 0.99 — the model assumes |ψ| = 1; the check is void if ψ is suppressed
+- **PASS** field at the centre / B₀: measured 0.0755545, expected <= 0.2 — the sample really is screening, so the comparison has content
+- **PASS** max |solver − model| / B₀: measured 0.0021735, expected <= 0.01 — must not exceed 0.01
+- **PASS** rms |solver − model| / B₀: measured 0.00112196, expected <= 0.005 — must not exceed 0.005
+- **Diagnostics:**
+  - `rms_error_over_B0`: 0.00112196
+  - `profile_over_B0`: [0.783351, 0.615293, 0.48506, 0.384263, 0.306361, 0.246264, 0.200011, 0.164535, … (31 values)]
+
+### test_bfield_matches_the_exact_london_solution[h=1.0]
+
+_the screened field profile matches the closed-form London solution_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=16, h=1, kappa=2, Bz=0.02
+- **PASS** min |ψ| (London limit is applicable): measured 0.999627, expected >= 0.99 — the model assumes |ψ| = 1; the check is void if ψ is suppressed
+- **PASS** field at the centre / B₀: measured 0.0894936, expected <= 0.2 — the sample really is screening, so the comparison has content
+- **PASS** max |solver − model| / B₀: measured 0.00490852, expected <= 0.01 — must not exceed 0.01
+- **PASS** rms |solver − model| / B₀: measured 0.00411878, expected <= 0.005 — must not exceed 0.005
+- **Diagnostics:**
+  - `rms_error_over_B0`: 0.00411878
+  - `profile_over_B0`: [0.61943, 0.39059, 0.253843, 0.172957, 0.126159, 0.10068, 0.0894936, 0.0894936, … (15 values)]
+
 ### test_c4_symmetry_of_a_square_device
 
 _a square sample in a uniform out-of-plane field is invariant under 90° rotation_
@@ -420,6 +529,82 @@ _a square sample in a uniform out-of-plane field is invariant under 90° rotatio
 - **Diagnostics:**
   - `psi_contrast`: 0.00476886
   - `bz_contrast`: 0.0322938
+
+### test_centred_hole_is_centred[(10.0, 4.0, 0.5)]
+
+_the carved geometry must inherit the symmetry of the polygon it was given_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=10, hole=4, h=0.5
+- **PASS** nodes carved out: measured 81, expected >= 1 — must be at least 1
+- **PASS** hole centre x: measured 5, expected 5 — |measured - expected| <= 1e-12
+- **PASS** hole centre y: measured 5, expected 5 — |measured - expected| <= 1e-12
+- **PASS** carved width: measured 4, expected 4 — |measured - expected| <= 1e-12
+- **PASS** material map asymmetry under x → −x: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under y → −y: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under z → −z: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `carved_nodes`: 81
+  - `hole_centre`: [5, 5]
+  - `hole_width`: 4
+
+### test_centred_hole_is_centred[(10.0, 4.0, 1.0)]
+
+_the carved geometry must inherit the symmetry of the polygon it was given_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=10, hole=4, h=1
+- **PASS** nodes carved out: measured 25, expected >= 1 — must be at least 1
+- **PASS** hole centre x: measured 5, expected 5 — |measured - expected| <= 1e-12
+- **PASS** hole centre y: measured 5, expected 5 — |measured - expected| <= 1e-12
+- **PASS** carved width: measured 4, expected 4 — |measured - expected| <= 1e-12
+- **PASS** material map asymmetry under x → −x: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under y → −y: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under z → −z: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `carved_nodes`: 25
+  - `hole_centre`: [5, 5]
+  - `hole_width`: 4
+
+### test_centred_hole_is_centred[(12.0, 5.0, 0.5)]
+
+_the carved geometry must inherit the symmetry of the polygon it was given_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=12, hole=5, h=0.5
+- **PASS** nodes carved out: measured 121, expected >= 1 — must be at least 1
+- **PASS** hole centre x: measured 6, expected 6 — |measured - expected| <= 1e-12
+- **PASS** hole centre y: measured 6, expected 6 — |measured - expected| <= 1e-12
+- **PASS** carved width: measured 5, expected 5 — |measured - expected| <= 1e-12
+- **PASS** material map asymmetry under x → −x: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under y → −y: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under z → −z: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `carved_nodes`: 121
+  - `hole_centre`: [6, 6]
+  - `hole_width`: 5
+
+### test_centred_hole_is_centred[(12.0, 6.0, 1.0)]
+
+_the carved geometry must inherit the symmetry of the polygon it was given_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=12, hole=6, h=1
+- **PASS** nodes carved out: measured 49, expected >= 1 — must be at least 1
+- **PASS** hole centre x: measured 6, expected 6 — |measured - expected| <= 1e-12
+- **PASS** hole centre y: measured 6, expected 6 — |measured - expected| <= 1e-12
+- **PASS** carved width: measured 6, expected 6 — |measured - expected| <= 1e-12
+- **PASS** material map asymmetry under x → −x: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under y → −y: measured 0, expected <= 0 — must not exceed 0
+- **PASS** material map asymmetry under z → −z: measured 0, expected <= 0 — must not exceed 0
+- **Diagnostics:**
+  - `carved_nodes`: 49
+  - `hole_centre`: [6, 6]
+  - `hole_width`: 6
 
 ### test_covariant_laplacian_is_second_order_accurate
 
@@ -503,11 +688,11 @@ _the ring expels flux up to a definite field and admits quanta above it_
 - **PASS** expulsion field B_exp: measured 0.27, expected [0.05, 0.9] — above the lowest field scanned and below H_c2 = 1
 - **PASS** B_exp · A_hole / Φ₀: measured 0.687549, expected [0.2, 3] — the threshold is set by the fluxoid scale, not by the grid
 - **PASS** fields that admitted flux: measured 3, expected >= 3 — must be at least 3
-- **PASS** largest increase in entry time with field: measured -1.99688, expected <= 0 — entry times [9.984374999999986, 5.990625000000023, 3.99375000000001] must fall as the field rises
+- **PASS** largest increase in entry time with field: measured -1.99688, expected <= 0 — entry times [13.978124999999885, 5.990625000000023, 3.99375000000001] must fall as the field rises
 - **Diagnostics:**
   - `fields`: [0.05, 0.15, 0.22, 0.32, 0.45, 0.6]
-  - `final_fluxoid`: [5.522e-18, -2.209e-18, -6.626e-18, 2, 2, 4]
-  - `entry_times`: [—, —, —, 9.98437, 5.99063, 3.99375]
+  - `final_fluxoid`: [0, 4.417e-18, -5.301e-17, 4, 4, 4]
+  - `entry_times`: [—, —, —, 13.9781, 5.99063, 3.99375]
   - `summary`: B_exp = 0.2700 ± 0.0500 (hold time 30)
 
 ### test_field_reversal_flips_b_and_preserves_psi
@@ -535,7 +720,7 @@ _fluxoid quantisation holds instant by instant, including mid-entry_
 - **PASS** max |fluxoid − nearest integer|: measured 1.332e-15, expected <= 1e-09 — must not exceed 1e-09
 - **PASS** largest decrease along the history: measured 1.332e-15, expected <= 1e-09 — flux accumulates; it does not leak back out at fixed field
 - **Diagnostics:**
-  - `fluxoid_history`: [0, -3.534e-17, 2, 4, 4, 4, 4, 4, … (17 values)]
+  - `fluxoid_history`: [0, -4.417e-17, 4, 4, 4, 4, 4, 4, … (17 values)]
   - `entry_time`: 3.99375
 
 ### test_fluxoid_does_not_depend_on_the_contour
@@ -545,11 +730,11 @@ _the fluxoid counts what the contour encloses, not how it is drawn_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** hole=4, Bz=0.45, margins=[1, 1.5, 2]
-- **PASS** |fluxoid| (non-trivial, so the check has content): measured 2, expected >= 0.5 — must be at least 0.5
-- **PASS** spread across contour margins: measured 6.661e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** |fluxoid − nearest integer|: measured 0, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |fluxoid| (non-trivial, so the check has content): measured 4, expected >= 0.5 — must be at least 0.5
+- **PASS** spread across contour margins: measured 0, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |fluxoid − nearest integer|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
-  - `fluxoid_by_margin`: 1.0=2, 1.5=2, 2.0=2
+  - `fluxoid_by_margin`: 1.0=4, 1.5=4, 2.0=4
 
 ### test_fluxoid_equals_enclosed_vorticity_for_any_contour
 
@@ -558,11 +743,11 @@ _the fluxoid is a topological invariant of the region, not of the path_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
-- **PASS** max |fluxoid − nearest integer|: measured 1.767e-17, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |fluxoid − enclosed vorticity|: measured 1.767e-17, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** |staircase fluxoid − enclosed vorticity|: measured 0, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − nearest integer|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − enclosed vorticity|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |staircase fluxoid − enclosed vorticity|: measured 2.665e-15, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
-  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=-1.767e-17, enclosed_vorticity=0
+  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=1.767e-17, enclosed_vorticity=0
   - `staircase_fluxoid`: 6
   - `staircase_enclosed`: 6
 
@@ -669,10 +854,10 @@ _a κ = 0 layer freezes the gauge field; a κ > 0 layer transmits the field_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nz=12, kappa_sc=2, kappa_insulator=0, Bz=0.1
-- **PASS** Bz in the insulator / applied: measured 1.742e-22, expected <= 1e-06 — κ = 0 leaves no term able to evolve A there
+- **PASS** Bz in the insulator / applied: measured 2.719e-22, expected <= 1e-06 — κ = 0 leaves no term able to evolve A there
 - **Diagnostics:**
-  - `bz_profile_over_applied`: [0.308255, 0.25099, 0.14224, -5.983e-22, -4.275e-23, -1.286e-23, -4.283e-23, 0.161313, … (11 values)]
-  - `insulator_mean_over_applied`: -1.742e-22
+  - `bz_profile_over_applied`: [0.308409, 0.251112, 0.142306, -1.005e-21, -6.076e-23, -7.129e-24, -1.455e-23, -1.975e-22, … (11 values)]
+  - `insulator_mean_over_applied`: -2.719e-22
 
 ### test_insulator_kappa_controls_field_transmission[kappa=2.0]
 
@@ -681,10 +866,10 @@ _a κ = 0 layer freezes the gauge field; a κ > 0 layer transmits the field_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nz=12, kappa_sc=2, kappa_insulator=2, Bz=0.1
-- **PASS** Bz in the insulator / applied: measured 0.92095, expected >= 0.5 — a non-superconducting layer with κ > 0 lets the field through
+- **PASS** Bz in the insulator / applied: measured 0.950271, expected >= 0.5 — a non-superconducting layer with κ > 0 lets the field through
 - **Diagnostics:**
-  - `bz_profile_over_applied`: [0.88687, 0.89761, 0.913611, 0.926241, 0.929442, 0.922756, 0.905361, 0.876199, … (11 values)]
-  - `insulator_mean_over_applied`: 0.92095
+  - `bz_profile_over_applied`: [0.894392, 0.906366, 0.925004, 0.942021, 0.951946, 0.95517, 0.951946, 0.942021, … (11 values)]
+  - `insulator_mean_over_applied`: 0.950271
 
 ### test_insulator_mask_suppresses_the_order_parameter
 
@@ -693,14 +878,14 @@ _the material mask must separate superconducting from insulating nodes_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=4, Ny=5, Nz=12, sc_thickness=4
-- **PASS** insulator nodes present: measured 48, expected >= 1 — must be at least 1
-- **PASS** mean |ψ| in the insulator: measured 0.0304171, expected <= 0.15 — residual value is proximity leakage from the adjacent layers
-- **PASS** max |ψ| in the superconductor: measured 0.99084, expected >= 0.95 — the middle of a 4-cell layer must recover the bulk condensate
-- **PASS** mean |ψ| in the superconductor: measured 0.865684, expected >= 0.75 — must be at least 0.75
+- **PASS** insulator nodes present: measured 60, expected >= 1 — must be at least 1
+- **PASS** mean |ψ| in the insulator: measured 0.0243144, expected <= 0.15 — residual value is proximity leakage from the adjacent layers
+- **PASS** max |ψ| in the superconductor: measured 0.965494, expected >= 0.95 — the middle of a 4-cell layer must recover the bulk condensate
+- **PASS** mean |ψ| in the superconductor: measured 0.843018, expected >= 0.75 — must be at least 0.75
 - **Diagnostics:**
-  - `n_insulator_nodes`: 48
-  - `psi_z_profile`: [0.965496, 0.900018, 0.663562, 0.055719, 0.00506601, 0.00507301, 0.0558101, 0.664649, … (11 values)]
-  - `sc_mask_z_profile`: [1, 1, 1, 0, 0, 0, 0, 1, … (11 values)]
+  - `n_insulator_nodes`: 60
+  - `psi_z_profile`: [0.965494, 0.900012, 0.663547, 0.0556877, 0.00470601, 7.843e-04, 0.00470601, 0.0556877, … (11 values)]
+  - `sc_mask_z_profile`: [1, 1, 1, 0, 0, 0, 0, 0, … (11 values)]
 
 ### test_insulator_order_parameter_decays_with_the_stated_time_constant
 
@@ -710,11 +895,11 @@ _the insulator relaxation term must act on its documented time scale_
 - **Duration:** 0.000s
 - **Parameters:** Nz=6, tau_expected=0.1
 - **PASS** points used in the fit: measured 30, expected >= 5 — must be at least 5
-- **PASS** fitted τ: measured 0.090997, expected 0.1 — |measured - expected| <= 0.02
-- **PASS** residual |ψ| in the insulator: measured 0.0776087, expected <= 0.15 — proximity leakage from the neighbouring superconductors
+- **PASS** fitted τ: measured 0.0929158, expected 0.1 — |measured - expected| <= 0.02
+- **PASS** residual |ψ| in the insulator: measured 0.0532326, expected <= 0.15 — proximity leakage from the neighbouring superconductors
 - **Diagnostics:**
-  - `tau_fit`: 0.090997
-  - `psi_steady_state`: 0.0776087
+  - `tau_fit`: 0.0929158
+  - `psi_steady_state`: 0.0532326
 
 ### test_interior_numbering_matches_documented_strides[5x7x6]
 
@@ -781,6 +966,27 @@ _λ = κ in these units — the field decays as exp(-x/κ) into the bulk_
   - `lambda_fit`: 3.13849
   - `profile`: [0.0169869, 0.014442, 0.0122933, 0.01048, 0.00895069, 0.00766161, 0.0065758, 0.0056619, … (12 values)]
   - `state_drift`: 1.009e-07
+
+### test_london_series_satisfies_its_own_equation
+
+_the analytical model must solve the equation it claims to solve_
+
+- **Status:** PASS
+- **Duration:** 0.112s
+- **Parameters:** width=16, lambda=2, n_grid=[200, 400]
+- **PASS** max |∇²B − B/λ²| at the finer grid: measured 2.400e-05, expected <= 0.0001 — dominated by the five-point stencil used to check it
+- **PASS** residual ratio on halving the check grid: measured 4.00022, expected 4 — O(h²) means the residual belongs to the difference stencil
+- **PASS** max |B − B₀| on an edge, 1 ξ from a corner: measured 0.0143936, expected <= 0.02 — Gibbs ringing from the truncated square wave; falls as 1/n_terms
+- **PASS** finite values at n_terms = 201: measured 1, expected 1 — |measured - expected| <= 0
+- **PASS** finite values at n_terms = 2001: measured 1, expected 1 — |measured - expected| <= 0
+- **PASS** edge ringing at n_terms = 2001: measured 5.883e-04, expected <= 0.002 — must not exceed 0.002
+- **PASS** ringing ratio 2001/201: measured 0.0734807, expected <= 0.2 — Gibbs error at fixed distance falls like 1/n_terms
+- **Diagnostics:**
+  - `max_pde_residual`: 200=9.600e-05, 400=2.400e-05
+  - `max_edge_error`: 200=0.0157767, 400=0.0143936
+  - `edge_finite_at_201_terms`: True
+  - `edge_finite_at_2001_terms`: True
+  - `edge_ringing`: 201=0.0080059, 2001=5.883e-04
 
 ### test_lowest_landau_level_of_covariant_laplacian[Bz=0.1]
 
@@ -904,6 +1110,22 @@ _every measurable quantity must be independent of the gauge_
   - `J_scale`: 0.875324
   - `free_energy`: 56.0777
 
+### test_order_parameter_matches_the_exact_wall_solution
+
+_the order parameter heals over √2 ξ, matching the exact 1-D solution_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** length=24, kappa=2, h_values=[1, 0.5, 0.25], tau=0.1
+- **PASS** |ψ| at the interface from matching: measured 0.213422, expected 0.2134 — positive root of √τ u² + √2 u − √τ = 0
+- **PASS** rms error at h = 1 ξ: measured 0.0496938, expected <= 0.08 — must not exceed 0.08
+- **PASS** rms error at h = 0.25 ξ: measured 0.00476747, expected <= 0.01 — must not exceed 0.01
+- **PASS** max error at h = 0.25 ξ: measured 0.0162006, expected <= 0.03 — must not exceed 0.03
+- **PASS** observed order in h: measured 1.69088, expected 2 — a constant disagreement would show order 0
+- **Diagnostics:**
+  - `rms_error`: 1.0=0.0496938, 0.5=0.0172373, 0.25=0.00476747
+  - `max_error`: 1.0=0.14913, 0.5=0.056927, 0.25=0.0162006
+
 ### test_penetration_depth_converges_with_grid_refinement
 
 _the measured λ must approach κ as the grid is refined_
@@ -926,7 +1148,7 @@ _Σ wrap(Δθ − φ) + Φ_plaquette is exactly 2π × integer_
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
 - **PASS** plaquettes carrying vorticity: measured 8, expected >= 1 — must be at least 1
-- **PASS** max |vorticity − nearest integer|: measured 1.767e-16, expected <= 1e-10 — must not exceed 1e-10
+- **PASS** max |vorticity − nearest integer|: measured 2.120e-16, expected <= 1e-10 — must not exceed 1e-10
 - **Diagnostics:**
   - `n_charged_plaquettes`: 8
   - `vorticity_values`: [0, 1]
@@ -938,7 +1160,7 @@ _a spatially varying κ and an insulator mask must not break gauge covariance_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nz=6, kappa_sc=2
-- **PASS** max covariance violation: measured 4.885e-15, expected <= 1.84e-10 — must not exceed 1.84e-10
+- **PASS** max covariance violation: measured 2.512e-15, expected <= 1.84e-10 — must not exceed 1.84e-10
 - **Diagnostics:**
   - `rhs_scale`: 18.4327
 
@@ -988,11 +1210,11 @@ _below threshold the multiply-connected ring keeps the enclosed fluxoid at zero_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** hole=4, arm=3, kappa=2, Bz=0.05, t_hold=30
-- **PASS** max |fluxoid| over the whole run: measured 6.626e-18, expected <= 1e-09 — not one quantum enters at any time
-- **PASS** max |dX/dt| at the end: measured 8.164e-06, expected <= 0.001 — the expelled state is a fixed point, not a slow transient
+- **PASS** max |fluxoid| over the whole run: measured 1.767e-17, expected <= 1e-09 — not one quantum enters at any time
+- **PASS** max |dX/dt| at the end: measured 6.067e-14, expected <= 0.001 — the expelled state is a fixed point, not a slow transient
 - **Diagnostics:**
-  - `fluxoid_history`: [0, -1.104e-18, 4.417e-18, -3.313e-18, 6.626e-18, 4.417e-18, -1.104e-18, -3.313e-18, … (17 values)]
-  - `residual`: 8.164e-06
+  - `fluxoid_history`: [0, 2.209e-18, -8.835e-18, 2.209e-18, 1.104e-18, -1.546e-17, 8.835e-18, -2.209e-18, … (17 values)]
+  - `residual`: 6.067e-14
 
 ### test_solution_reshape_helpers_are_consistent
 
@@ -1007,6 +1229,45 @@ _the 2-D view must be indexed [i, j] with the interior strides_
 - **Diagnostics:**
   - `shape`: [10, 5]
 
+### test_stack_is_mirror_symmetric_about_its_midplane[(3, 1)]
+
+_equal superconducting layers must give an exactly symmetric material map_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** sc_cells=3, insulator_cells=1, Nz=7
+- **PASS** sc_mask asymmetry under z → Nz − z: measured 0, expected <= 0 — must not exceed 0
+- **PASS** κ asymmetry under z → Nz − z: measured 0, expected <= 1e-15 — must not exceed 1e-15
+- **PASS** superconducting nodes below vs above the mid-plane: measured 3, expected 3 — |measured - expected| <= 0
+- **Diagnostics:**
+  - `sc_mask_z_profile`: [1, 1, 1, 0, 0, 1, 1, 1]
+
+### test_stack_is_mirror_symmetric_about_its_midplane[(4, 2)]
+
+_equal superconducting layers must give an exactly symmetric material map_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** sc_cells=4, insulator_cells=2, Nz=10
+- **PASS** sc_mask asymmetry under z → Nz − z: measured 0, expected <= 0 — must not exceed 0
+- **PASS** κ asymmetry under z → Nz − z: measured 0, expected <= 1e-15 — must not exceed 1e-15
+- **PASS** superconducting nodes below vs above the mid-plane: measured 4, expected 4 — |measured - expected| <= 0
+- **Diagnostics:**
+  - `sc_mask_z_profile`: [1, 1, 1, 1, 0, 0, 0, 1, … (11 values)]
+
+### test_stack_is_mirror_symmetric_about_its_midplane[(5, 2)]
+
+_equal superconducting layers must give an exactly symmetric material map_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** sc_cells=5, insulator_cells=2, Nz=12
+- **PASS** sc_mask asymmetry under z → Nz − z: measured 0, expected <= 0 — must not exceed 0
+- **PASS** κ asymmetry under z → Nz − z: measured 0, expected <= 1e-15 — must not exceed 1e-15
+- **PASS** superconducting nodes below vs above the mid-plane: measured 5, expected 5 — |measured - expected| <= 0
+- **Diagnostics:**
+  - `sc_mask_z_profile`: [1, 1, 1, 1, 1, 0, 0, 0, … (13 values)]
+
 ### test_supercurrent_is_divergence_free_in_steady_state
 
 _∂(∇·A)/∂t = ∇·J_s, so a stationary gauge field forces a solenoidal current_
@@ -1020,6 +1281,27 @@ _∂(∇·A)/∂t = ∇·J_s, so a stationary gauge field forces a solenoidal cu
   - `J_scale`: 0.0795678
   - `state_drift_between_saves`: 8.183e-12
 
+### test_the_relaxed_ring_is_symmetric
+
+_the solution must inherit every symmetry of the device_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** hole=4, arm=3, kappa=2, Bz=0.05
+- **PASS** |ψ| scale (non-trivial): measured 0.928977, expected >= 0.5 — must be at least 0.5
+- **PASS** Bz scale (non-trivial): measured 0.0482529, expected >= 0.001 — must be at least 0.001
+- **PASS** max |ψ| asymmetry under x → −x: measured 2.220e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max |ψ| asymmetry under y → −y: measured 2.220e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max |ψ| asymmetry under z → −z: measured 2.220e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max |ψ| asymmetry under 90° rotation: measured 2.220e-16, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max Bz asymmetry under x → −x: measured 2.082e-17, expected <= 4.83e-14 — must not exceed 4.83e-14
+- **PASS** max Bz asymmetry under y → −y: measured 2.082e-17, expected <= 4.83e-14 — must not exceed 4.83e-14
+- **PASS** max Bz asymmetry under z → −z: measured 2.776e-17, expected <= 4.83e-14 — must not exceed 4.83e-14
+- **PASS** max Bz asymmetry under 90° rotation: measured 2.082e-17, expected <= 4.83e-14 — must not exceed 4.83e-14
+- **Diagnostics:**
+  - `psi_scale`: 0.928977
+  - `Bz_scale`: 0.0482529
+
 ### test_the_ring_is_superconducting
 
 _the superconducting layers must be thicker than the proximity length_
@@ -1027,13 +1309,13 @@ _the superconducting layers must be thicker than the proximity length_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** hole=4, arm=3, sc_thickness=4, kappa=2
-- **PASS** max |ψ| in the superconducting layers: measured 0.986262, expected >= 0.9 — the middle of a 4 ξ layer must recover the bulk condensate
-- **PASS** mean |ψ| in the superconducting layers: measured 0.746616, expected >= 0.5 — must be at least 0.5
-- **PASS** max |ψ| in the oxide and the hole: measured 0.112499, expected <= 0.25 — must not exceed 0.25
+- **PASS** max |ψ| in the superconducting layers: measured 0.928977, expected >= 0.9 — the middle of a 4 ξ layer must recover the bulk condensate
+- **PASS** mean |ψ| in the superconducting layers: measured 0.660557, expected >= 0.5 — must be at least 0.5
+- **PASS** max |ψ| in the oxide and the hole: measured 0.103677, expected <= 0.25 — must not exceed 0.25
 - **Diagnostics:**
-  - `psi_max_in_arms`: 0.986262
-  - `psi_mean_in_arms`: 0.746616
-  - `psi_max_in_insulator_and_hole`: 0.112499
+  - `psi_max_in_arms`: 0.928977
+  - `psi_mean_in_arms`: 0.660557
+  - `psi_max_in_insulator_and_hole`: 0.103677
 
 ### test_trapezoidal_agrees_with_euler_in_the_small_dt_limit
 
@@ -1054,10 +1336,10 @@ _the z-faces of the stack are superconductor/vacuum interfaces_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=5, Ny=4, Nz=6, Bz=0.5
-- **PASS** max |J_z| on the bottom face: measured 1.637e-21, expected <= 1e-12 — must not exceed 1e-12
-- **PASS** max |J_z| on the top face: measured 2.943e-21, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max |J_z| on the bottom face: measured 1.441e-21, expected <= 1e-12 — must not exceed 1e-12
+- **PASS** max |J_z| on the top face: measured 1.505e-21, expected <= 1e-12 — must not exceed 1e-12
 - **Diagnostics:**
-  - `bulk_Jz_scale`: 1.663e-05
+  - `bulk_Jz_scale`: 1.017e-06
 
 ### test_trilayer_kappa_discontinuity
 
@@ -1079,14 +1361,14 @@ _both superconducting layers of a magnetically continuous stack screen_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=16, Nz=12, kappa=2, Bz=0.1
-- **PASS** Bz in the bottom Nb layer / applied: measured 0.826226, expected <= 0.98 — must not exceed 0.98
-- **PASS** Bz in the top Nb layer / applied: measured 0.739702, expected <= 0.98 — must not exceed 0.98
-- **PASS** Bz in the bottom Nb layer / applied: measured 0.826226, expected >= 0 — must be at least 0
-- **PASS** top/bottom screening asymmetry: measured 0.895278, expected 1 — the stack is symmetric about its mid-plane
+- **PASS** Bz in the bottom Nb layer / applied: measured 0.852883, expected <= 0.98 — must not exceed 0.98
+- **PASS** Bz in the top Nb layer / applied: measured 0.861574, expected <= 0.98 — must not exceed 0.98
+- **PASS** Bz in the bottom Nb layer / applied: measured 0.852883, expected >= 0 — must be at least 0
+- **PASS** top/bottom screening asymmetry: measured 1.01019, expected 1 — the stack is symmetric about its mid-plane
 - **Diagnostics:**
-  - `bz_profile_over_applied`: [0.814792, 0.824711, 0.839175, 0.849727, 0.850325, 0.84033, 0.819224, 0.786756, … (11 values)]
-  - `bottom_over_applied`: 0.826226
-  - `top_over_applied`: 0.739702
+  - `bz_profile_over_applied`: [0.838297, 0.850563, 0.869788, 0.887649, 0.898405, 0.901966, 0.898405, 0.887649, … (11 values)]
+  - `bottom_over_applied`: 0.852883
+  - `top_over_applied`: 0.861574
 
 ### test_uniform_state_is_an_exact_fixed_point
 
@@ -1114,7 +1396,7 @@ _the mixed state admits more flux quanta as the applied field rises_
 - **PASS** count / (B·A/Φ₀) at Bz = 0.5: measured 0.19635, expected <= 1 — screening keeps the interior field below the applied field
 - **PASS** count / (B·A/Φ₀) at Bz = 0.7: measured 0.420749, expected <= 1 — screening keeps the interior field below the applied field
 - **PASS** mean interior Bz / applied at Bz = 0.35: measured 0.42922, expected <= 1 — the sample still screens in the mixed state
-- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.681311, expected <= 1 — the sample still screens in the mixed state
+- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.681309, expected <= 1 — the sample still screens in the mixed state
 - **PASS** mean interior Bz / applied at Bz = 0.7: measured 0.853044, expected <= 1 — the sample still screens in the mixed state
 - **Diagnostics:**
   - `vortex_counts`: [0, 4, 12]
@@ -1130,8 +1412,8 @@ _plaquette vorticity is a topological invariant of the gauge-field configuration
 - **Parameters:** Nx=14, kappa=2, Bz=0.6
 - **PASS** vortices present (test would be vacuous otherwise): measured 8, expected >= 1 — must be at least 1
 - **PASS** vortex count after gauge change: measured 8, expected 8 — |measured - expected| <= 0
-- **PASS** max Δ(plaquette vorticity): measured 2.297e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |winding change|: measured 2.220e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max Δ(plaquette vorticity): measured 3.004e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |winding change|: measured 1.110e-16, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
   - `n_vortices`: 8
   - `windings`: [1, 1, 1, 1, 1, 1, 1, 1]
