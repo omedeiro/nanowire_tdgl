@@ -118,10 +118,37 @@ reverse. `B` lives on **plaquettes** anchored at those nodes but spanning
 plaquette, which the interior array does not carry. Drop the last anchor before
 reflecting, or a perfectly symmetric solution reads as ~1e-3 asymmetric.
 
+## Heterostructures
+
+Two settings decide whether an S/I/S stack behaves like one, and neither is
+guarded by the type system:
+
+* **A non-superconducting layer needs κ > 0.** In a layer with `ψ = 0` the
+  supercurrent term of `∂A/∂t = J_s − κ²∇×∇×A` vanishes, so the layer relaxes
+  towards the magnetostatic solution `∇×∇×A = 0` at a rate set by κ² — any
+  positive κ gives the same steady state. `κ = 0` removes the only remaining
+  term: the gauge field is frozen at its initial value and the layer transmits
+  nothing. `Layer(kappa=0.0, is_superconductor=False)` is therefore a modelling
+  choice with consequences, not a neutral way of saying "not a superconductor"
+  (`test_insulator_kappa_controls_field_transmission`).
+* **Superconducting layers need to be thicker than the proximity length.** The
+  oxide suppresses ψ over roughly a coherence length on each side of the
+  interface. A 1 ξ layer is suppressed all the way through — |ψ| ≈ 1e-4 — and
+  every phase-derived quantity measured on it is noise, while still producing
+  plausible-looking fluxoid staircases and field scans. 4 ξ layers recover
+  |ψ| ≈ 0.99 in their middle. `test_the_ring_is_superconducting` is the cheap
+  guard; run it before trusting anything downstream.
+
 ## Numerical limits
 
-* Forward Euler is stable for `dt < h²/(4κ²)` — the limit is set by the stiff
-  `κ²∇×∇×` term, not by the ψ equation. `physics_helpers.cfl_limit` computes it.
+* Forward Euler is stable for `dt < h²/(4κ²(d-1))` — the limit is set by the
+  stiff `κ²∇×∇×` term, not by the ψ equation, and it **depends on dimension**.
+  The familiar `h²/(4κ²)` is the 2D case; in 3D each link variable picks up a
+  second transverse Laplacian direction, the spectral radius of the curl-curl
+  block doubles (61.6 → 123.1 on an 8³ grid at κ=2, h=0.5) and the limit halves.
+  Measured limits: 1.06x `h²/(4κ²)` in 2D, 0.72x in 3D — a 3D run at "0.9 CFL"
+  using the 2D formula diverges. `physics_helpers.cfl_limit` carries the factor;
+  `test_forward_euler_is_stable_below_the_cfl_limit` covers both dimensions.
 * The covariant Laplacian is second-order accurate in `h`; forward Euler is
   first-order in `dt`. Both orders are measured, not assumed.
 * The trapezoidal integrator's Jacobian-vector products are finite differences,

@@ -54,8 +54,8 @@ read `docs/notes/PHYSICS_CONVENTIONS.md`. It records the sign and index
 conventions the solver depends on, and which test fails when each one is broken.
 
 The physics is verified by five suites in `packages/tdgl3d/tests/`:
-`test_verification_{gauge,conservation,symmetry,analytic,vortex}.py`, plus
-`test_physics_validation.py` for heterostructures. They assert through the
+`test_verification_{gauge,conservation,symmetry,analytic,vortex,expulsion}.py`,
+plus `test_physics_validation.py` for heterostructures. They assert through the
 `check_*` helpers on the `phys_log` fixture, which record measured value,
 expected value and tolerance into `logs/test_*.json` for
 `docs/generate_test_report.py`.
@@ -87,7 +87,11 @@ Two rules for adding checks there:
   trapping work; see `docs/notes/HOLE_BC_STATUS.md`).
 - Periodic BCs are defined in `SimulationParameters` but not implemented.
 - An insulating layer with `kappa = 0.0` cannot carry a magnetic field: its
-  φ-equation degenerates entirely. See the "Known limitation" note in
-  `docs/PHYSICS_GALLERY.md`.
+  φ-equation degenerates entirely. Give oxide layers the same κ as the metal
+  unless the field is meant to be blocked — see "Heterostructures" in
+  `docs/notes/PHYSICS_CONVENTIONS.md`.
+- Superconducting layers thinner than ~2 ξ are fully pair-broken by an adjacent
+  insulator (|ψ| ~ 1e-4) while still producing plausible-looking output. Check
+  `max |ψ|` before trusting anything phase-derived.
 - The ghost-ring corner plaquette at `(0, 0)` carries zero applied flux; it does
   not enter the dynamics (see `docs/notes/PHYSICS_CONVENTIONS.md`).

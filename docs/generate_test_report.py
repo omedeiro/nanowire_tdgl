@@ -72,6 +72,7 @@ MODULE_GROUPS = {
     "test_verification_analytic": "Analytic limits",
     "test_verification_vortex": "Vortices and flux quantisation",
     "test_physics_validation": "Heterostructures",
+    "test_verification_expulsion": "Flux expulsion by a ring",
 }
 
 
@@ -87,6 +88,7 @@ GROUP_ORDER = [
     "Analytic limits",
     "Vortices and flux quantisation",
     "Heterostructures",
+    "Flux expulsion by a ring",
     "Other",
 ]
 

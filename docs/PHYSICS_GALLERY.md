@@ -7,7 +7,7 @@ smoke tests in `docs/figures/test_figures.py`.
 ## Regenerating Figures
 
 ```bash
-# Generate all figures (full resolution, ~1 min total)
+# Generate all figures (full resolution; sis_hole_expulsion.py alone takes ~2 min)
 for f in docs/figures/*.py; do
   [[ "$f" == *test_* ]] && continue
   python "$f"
@@ -239,11 +239,12 @@ confirms the lattice Stokes theorem holds for square and non-convex contours ali
 ![CFL instability](figures/cfl_instability.png)
 
 **Physical mechanism:** The Forward Euler method for TDGL is conditionally stable,
-requiring dt < h²/(4κ²) (the CFL condition). Exceeding this limit causes
+requiring dt < h²/(4κ²(d−1)) (the CFL condition; the familiar h²/(4κ²) is the
+2-D case, and the limit halves in 3-D). Exceeding this limit causes
 catastrophic numerical instability — the order parameter collapses.
 
-**Validates:** `test_physics_validation.py::test_cfl_stability_below_limit`
-and `test_cfl_instability_above_limit`
+**Validates:** `test_verification_conservation.py::test_forward_euler_is_stable_below_the_cfl_limit`
+(parametrised over 2-D and 3-D)
 
 **Parameters:** 10×10×1 grid, κ=2.0, Bz=0.5
 
@@ -303,3 +304,52 @@ steady-state lattice configuration.
 
 **Validation metrics:** Count starts at 0, grows, saturates; first vortex before t=100;
 final count ≥ 15% of expected B·A/Φ₀; steady-state fluctuation < 50%
+
+---
+
+## 12. S/I/S Ring — Flux Expulsion and the Expulsion Field
+
+![S/I/S ring flux expulsion](figures/sis_hole_expulsion.png)
+
+![Fluxoid history](figures/sis_hole_fluxoid_history.png)
+
+**Physical mechanism:** A square hole is carved through both superconducting
+layers of an S/I/S stack, leaving the oxide continuous. The ring around the hole
+is multiply connected, so the enclosed *fluxoid* is quantised. The ring
+circulates a screening current that holds it at `n = 0` — flux does thread the
+hole, but the fluxoid does not change — until that current exceeds what the arms
+can carry. A vortex then crosses an arm and `n` steps to a non-zero integer.
+
+**Validates:** `test_verification_expulsion.py`
+
+**Parameters:** 10×10 ξ film, 4×4 ξ hole, 3 ξ arms, S(4 ξ)/I(2 ξ)/S(4 ξ),
+κ=2.0, h=1 ξ, hold time 30 τ_GL (Forward Euler). Refinement points at h=0.5 ξ.
+
+**Key features:**
+- Top-left: fluxoid vs applied field, with the bracketing interval shaded. The
+  dotted line is the flux the hole would gather if nothing screened it.
+- Top-right: time of first entry, which lengthens as the threshold is
+  approached from above — critical slowing down at a stability boundary.
+- Bottom: |ψ|² either side of the threshold, on the refined grid.
+
+**Validation metrics:** B_exp = 0.250 ± 0.030 at h = 1 ξ and 0.270 ± 0.050 at
+h = 0.5 ξ — the brackets overlap, so the threshold is not a coarse-grid
+artefact. B_exp·A_hole/Φ₀ = 0.64: the ring admits its first quantum at roughly
+the field whose flux through the hole is one Φ₀.
+
+**Two modelling traps this figure exists to avoid:**
+1. The oxide must be given a **non-zero κ**. With `kappa=0.0` the φ-equation
+   degenerates there (`LPHI ∝ κ² = 0`, `FPHI ∝ J_s ∝ ψ = 0`) and the gauge field
+   is frozen, so the layer blocks the field instead of transmitting it.
+2. The superconducting layers must be **thicker than the proximity length**.
+   The oxide suppresses ψ over roughly a coherence length on each side of the
+   interface, so a 1 ξ-thick layer is pair-broken all the way through: |ψ| falls
+   to ~1e-4 and every phase measured on it — fluxoid, winding, expulsion field —
+   is read off numerical noise. 4 ξ layers recover |ψ| ≈ 0.99 in their middle.
+   `test_the_ring_is_superconducting` guards this.
+
+**Caveat:** the steps come in pairs, not single quanta. The device is
+C4-symmetric and the run starts from a noiseless state, so the possible entry
+points are degenerate and quanta arrive in symmetry-related pairs. That is a
+property of the idealised geometry, not of the quantisation.
+

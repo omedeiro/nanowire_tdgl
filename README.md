@@ -7,6 +7,46 @@ A Python package for simulating vortex and phase dynamics in three-dimensional
 Type-II superconductors using the time-dependent Ginzburg-Landau (TDGL) model
 on a structured finite-difference grid.
 
+## Gallery
+
+Every figure is produced by a standalone script in [`docs/figures/`](docs/figures/)
+and annotated with the number it is meant to demonstrate. Full descriptions and
+the physics behind each one: [`docs/PHYSICS_GALLERY.md`](docs/PHYSICS_GALLERY.md).
+
+### Flux expulsion by an S/I/S ring
+
+How much field a hole through both superconducting layers can keep out before a
+flux quantum gets in. The ring holds the enclosed fluxoid at zero up to
+**B_exp = 0.25 ± 0.03** (in Φ₀/2πξ², for a 4×4 ξ hole with 3 ξ arms), then admits
+flux in whole quanta; the entry time diverges as the threshold is approached from
+above. Repeating the two bracketing fields at half the grid spacing gives
+0.27 ± 0.05 — the threshold survives refinement.
+
+[![S/I/S ring flux expulsion](docs/figures/sis_hole_expulsion.png)](docs/figures/sis_hole_expulsion.png)
+
+| | |
+|:--:|:--:|
+| [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
+| **Fluxoid vs time** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S screening** — the Nb layers screen; the oxide transmits, provided it is given a non-zero κ. |
+
+### Meissner screening and vortices
+
+| | |
+|:--:|:--:|
+| [![Meissner screening](docs/figures/meissner_screening.png)](docs/figures/meissner_screening.png) | [![Vortex entry](docs/figures/vortex_entry.png)](docs/figures/vortex_entry.png) |
+| **Meissner screening** — B decays into the bulk with λ = 2.24 ξ against κ = 2.0. | **Vortex lattice** — flux front advancing from the edges at Bz = 0.6, every winding +1. |
+| [![Phase winding](docs/figures/phase_winding.png)](docs/figures/phase_winding.png) | [![Vortex entry dynamics](docs/figures/vortex_entry_dynamics.gif)](docs/figures/vortex_entry_dynamics.gif) |
+| **Phase winding** — ±2π around each core; the vorticity is integral to 1e-16. | **Nucleation dynamics** — vortices enter, interact and settle into a steady population. |
+
+### Holes, currents and numerics
+
+| | |
+|:--:|:--:|
+| [![Field in a hole](docs/figures/hole_field_penetration.png)](docs/figures/hole_field_penetration.png) | [![Supercurrent around a hole](docs/figures/supercurrent_hole.png)](docs/figures/supercurrent_hole.png) |
+| **Field in a hole** — the applied field passes through unscreened. | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
+| [![Energy dissipation](docs/figures/energy_dissipation.png)](docs/figures/energy_dissipation.png) | [![CFL instability](docs/figures/cfl_instability.png)](docs/figures/cfl_instability.png) |
+| **Free energy** — TDGL is a gradient flow, so F is non-increasing. | **Step-size limit** — stable below the CFL bound, collapse above it. |
+
 ## Overview
 
 `tdgl3d` solves the coupled TDGL equations for the superconducting order
@@ -320,7 +360,12 @@ Solution(times, states, params, idx)     (core/solution.py)
   all operators fall back to the uniform `params.kappa`.
 - **Insulator suppression:** In `construct_FPSI`, insulator nodes get an
   extra `−ψ/τ_relax` (τ_relax = 0.1) driving ψ → 0 without hard discontinuity.
-- **CFL condition (Forward Euler):** dt < h² / (4κ²).  With h=1, κ=2: dt < 0.0625.
+- **CFL condition (Forward Euler):** dt < h² / (4κ²(d−1)), set by the stiff
+  κ²∇×∇× term.  In 2D (d=2) this is the familiar h²/(4κ²) — with h=1, κ=2,
+  dt < 0.0625.  In 3D each link variable gains a second transverse Laplacian
+  direction, the curl-curl block's spectral radius doubles and the limit halves:
+  dt < 0.03125 for the same h and κ.  A 3D run at "0.9 CFL" computed from the 2D
+  formula diverges.
 
 ## Project layout
 
