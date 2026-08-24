@@ -427,3 +427,25 @@ def test_hole_carved_between_solves_is_not_ignored():
     assert not np.allclose(before, after), (
         "the right-hand side ignored a hole carved after the first evaluation"
     )
+
+
+@pytest.mark.parametrize(
+    "dims", [(7, 9, 1), (6, 5, 4), (9, 8, 15), (5, 6, 1), (11, 4, 3)]
+)
+def test_grid_order_is_an_ascending_permutation(dims):
+    """The traversal order must be a permutation, and must ascend on the grid.
+
+    Both halves matter.  If it were not a permutation the threads' writes would
+    collide or leave rows unwritten; if it did not ascend it would not buy the
+    locality it exists for.
+    """
+    from tdgl3d.operators.sparse_operators import grid_order
+
+    nx, ny, nz = dims
+    params = SimulationParameters(Nx=nx, Ny=ny, Nz=nz, kappa=2.0)
+    dev = Device(params)
+    order, m_sorted = grid_order(params, dev.idx)
+
+    assert np.array_equal(np.sort(order), np.arange(params.n_interior))
+    assert np.all(np.diff(m_sorted) > 0)
+    assert np.array_equal(m_sorted, dev.idx.interior_to_full[order])

@@ -58,15 +58,17 @@ units; the published S/I/S ring figure uses ``t_stop = 60``):
 ===========  ==================  ==============  ============  ==========
 ξ            grid                interior nodes  s per τ_GL     peak RSS
 ===========  ==================  ==============  ============  ==========
-150 nm       240 × 240 × 9              457 k             19      0.4 GB
-100 nm       360 × 360 × 15            1.80 M            113      1.5 GB
-70 nm        514 × 514 × 21            5.26 M            440      3.7 GB
-50 nm        720 × 720 × 30           15.0 M            1459     10.4 GB
+150 nm       240 × 240 × 9              457 k            5.5      0.5 GB
+100 nm       360 × 360 × 15            1.80 M           25.2      1.6 GB
+70 nm        514 × 514 × 21            5.26 M            132      4.3 GB
+50 nm        720 × 720 × 30           15.0 M            475     12.1 GB
 ===========  ==================  ==============  ============  ==========
 
-So the default here — ξ = 100 nm, t_stop = 60 — is about two hours.  Sweeping
-applied field is embarrassingly parallel across field values: run one process
-per value rather than one long run.
+So the default here — ξ = 100 nm, t_stop = 60 — is about 25 minutes.  Sweeping
+applied field is embarrassingly parallel across field values, but the solver
+already threads across cores: run field values one after another on a whole
+machine rather than several at once on shares of it.  ``TDGL3D_NUM_THREADS``
+sets the pool size if you do want to split it.
 
 Memory
 ------
@@ -126,10 +128,10 @@ CFL_SAFETY = 0.9
 #: doubles from the smallest grid to the largest as the working set outgrows
 #: cache — so the estimate interpolates these rather than scaling one of them.
 _MEASURED_STEP_COST = [
-    (456_968, 0.54),
-    (1_804_334, 3.16),
-    (5_263_380, 12.38),
-    (14_991_869, 41.02),
+    (456_968, 0.155),
+    (1_804_334, 0.710),
+    (5_263_380, 3.722),
+    (14_991_869, 13.347),
 ]
 
 #: How much more the implicit integrator costs per unit simulated time, measured
@@ -337,7 +339,15 @@ def vortex_census(solution, device, spec: dict, step: int, margin: float = 2.0) 
     _, positions, windings = count_vortices_plaquette(
         solution, device, slice_z=slice_z, step=step
     )
+    # The metal is two very different places.  Vortices pack the 8 µm buffer,
+    # where they entered; what matters for the array is how many sit in the
+    # 4 µm of metal *between* the holes.  Reporting one number for both hides
+    # exactly the thing worth knowing.
+    span = N_HOLES * spec["hole_xi"] + (N_HOLES - 1) * spec["gap_xi"]
+    array_lo, array_hi = spec["buffer_xi"], spec["buffer_xi"] + span
+
     in_film = 0
+    in_array = 0
     for (px, py), winding in zip(positions, windings):
         # Plaquette (i, j) spans nodes i…i+1, so its centre sits at node i + 1
         # in full-grid coordinates.
@@ -348,7 +358,10 @@ def vortex_census(solution, device, spec: dict, step: int, margin: float = 2.0) 
             for x0, y0, x1, y1 in rects
         )
         if not inside_a_hole:
-            in_film += abs(int(round(winding)))
+            charge = abs(int(round(winding)))
+            in_film += charge
+            if array_lo <= node_x <= array_hi and array_lo <= node_y <= array_hi:
+                in_array += charge
 
     trapped = []
     for x0, y0, x1, y1 in rects:
@@ -362,11 +375,19 @@ def vortex_census(solution, device, spec: dict, step: int, margin: float = 2.0) 
             )))
         )
 
-    return {"film": in_film, "holes": trapped, "hole_total": int(sum(trapped))}
+    return {
+        "film": in_film,
+        "in_array": in_array,
+        "in_buffer": in_film - in_array,
+        "holes": trapped,
+        "hole_total": int(sum(trapped)),
+        "hole_quanta": int(sum(abs(n) for n in trapped)),
+    }
 
 
 def write_gif(
     solution, device, spec: dict, out_path: Path, field_of_t, fps: int = 8,
+    census: list | None = None,
 ) -> dict:
     """Animate |ψ|² through the run, labelling each hole with its fluxoid.
 
@@ -381,10 +402,11 @@ def write_gif(
     per_xi = units.xi_nm / 1000.0  # µm per ξ
     slice_z = sc_slice(spec)
     extent = [0, spec["side_um"], 0, spec["side_um"]]
-    census = [
-        vortex_census(solution, device, spec, step)
-        for step in range(solution.n_steps)
-    ]
+    if census is None:
+        census = [
+            vortex_census(solution, device, spec, step)
+            for step in range(solution.n_steps)
+        ]
 
     fig, ax = plt.subplots(figsize=(6.6, 6.0), constrained_layout=True)
     image = ax.imshow(
@@ -416,7 +438,8 @@ def write_gif(
         t = float(solution.times[step])
         title.set_text(
             f"t = {t:6.1f} τ$_{{GL}}$    B = {field_of_t(t):.3f} mT    "
-            f"{counts['film']} in film, {counts['hole_total']} in holes"
+            f"{counts['in_array']} between holes, "
+            f"{counts['hole_quanta']} trapped in them"
         )
         return [image, title, *labels]
 
@@ -619,6 +642,16 @@ def main() -> None:
     )
     wall = time.perf_counter() - t0
 
+    if args.protocol == "field-cool":
+        def field_of_t(t):
+            return field_func(t, args.t_stop)[2] * units.field_unit_mT
+    elif args.protocol == "ramp-up" and args.ramp:
+        def field_of_t(t):
+            return args.bz_mT * min(t / (args.t_stop * args.ramp), 1.0)
+    else:
+        def field_of_t(t):
+            return args.bz_mT
+
     result = {
         "xi_nm": args.xi,
         "h_xi": args.h,
@@ -632,26 +665,31 @@ def main() -> None:
         "sec_per_tau_GL": round(wall / args.t_stop, 1),
         "frames": int(solution.n_steps),
     }
+    # The census over time is what says whether a protocol worked: a hole that
+    # fills and then empties again looks identical, at the last frame, to one
+    # that never filled.
+    trace = [
+        vortex_census(solution, device, spec, step)
+        for step in range(solution.n_steps)
+    ]
+    print("  t      B(mT)  buffer  array   holes")
+    for step, counts in enumerate(trace):
+        t = float(solution.times[step])
+        print(f"{t:7.1f}  {field_of_t(t):6.3f}  {counts['in_buffer']:6d}  "
+              f"{counts['in_array']:5d}   {counts['holes']}  "
+              f"(|Σ| {counts['hole_quanta']})")
+
     result["protocol"] = args.protocol
     result["ramp_fraction"] = args.ramp
     result["bz_final_mT"] = args.bz_final_mT
     result.update(summarise(solution, spec, args.out))
-    result.update(vortex_census(solution, device, spec, -1))
+    result.update(trace[-1])
 
     if args.gif:
-        if args.protocol == "field-cool":
-            def field_of_t(t):
-                return field_func(t, args.t_stop)[2] * units.field_unit_mT
-        elif args.protocol == "ramp-up" and args.ramp:
-            def field_of_t(t):
-                return args.bz_mT * min(t / (args.t_stop * args.ramp), 1.0)
-        else:
-            def field_of_t(t):
-                return args.bz_mT
-
         gif_path = args.out / "nb_hole_array.gif"
         t0 = time.perf_counter()
-        write_gif(solution, device, spec, gif_path, field_of_t, fps=args.fps)
+        write_gif(solution, device, spec, gif_path, field_of_t, fps=args.fps,
+                  census=trace)
         result["gif"] = str(gif_path)
         result["gif_seconds"] = round(time.perf_counter() - t0, 1)
 
