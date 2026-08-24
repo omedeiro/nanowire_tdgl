@@ -114,7 +114,11 @@ def forward_euler(
         dt_actual = min(dt, t_stop - t)
         u = eval_u(t, X)
         f = eval_f(X, params, idx, u, material=material)
-        X = X + dt_actual * f
+        # In place: ``f`` is freshly allocated by eval_f each step, so scaling
+        # it and adding is one full-state allocation fewer per step — 115 MB of
+        # it on the 1.8 M-node grid.
+        f *= dt_actual
+        X += f
         t += dt_actual
 
         if (step + 1) % save_every == 0 or step == n_steps - 1:

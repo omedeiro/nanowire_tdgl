@@ -1,6 +1,13 @@
 """Truncated Generalized Conjugate Residual (TGCR) — matrix-free variant.
 
 Python port of ``tgcr_MatrixFree.m`` and ``tgcr_MatrixFreetrap.m``.
+
+The truncation the name promises is :data:`DEFAULT_MAX_KRYLOV`.  Every
+iteration stores two vectors the length of the state, and on a large 3-D mesh
+that is most of a gigabyte each: at 15 M interior nodes an untruncated solve
+that ran twenty iterations would hold 38 GB of search directions.  Keeping a
+bounded window of the most recent directions caps that, at the cost of
+orthogonalising against fewer of them.
 """
 
 from __future__ import annotations
@@ -9,6 +16,19 @@ from typing import Callable
 
 import numpy as np
 from numpy.typing import NDArray
+
+#: Search directions kept.  Measured solves in this code converge in 1-8
+#: iterations, so this bound does not bind in practice — it exists so that a
+#: solve that fails to converge cannot exhaust memory on a large mesh.
+DEFAULT_MAX_KRYLOV = 30
+
+
+def _truncate(p_list: list, Ap_list: list, max_krylov: int) -> None:
+    """Drop the oldest directions once the window is full."""
+    excess = len(p_list) - max_krylov
+    if excess > 0:
+        del p_list[:excess]
+        del Ap_list[:excess]
 
 
 def tgcr_matrix_free(
@@ -19,6 +39,7 @@ def tgcr_matrix_free(
     max_iter: int | None = None,
     eps_mf: float = 1e-4,
     f_base: NDArray[np.complexfloating] | None = None,
+    max_krylov: int = DEFAULT_MAX_KRYLOV,
 ) -> NDArray[np.complex128]:
     """Solve ``J δx = b`` where ``J = ∂f/∂x`` using matrix-free directional
     derivatives of *eval_f* evaluated at *x_lin*.
@@ -42,6 +63,8 @@ def tgcr_matrix_free(
         point does not move during the Krylov solve, so this value is the same
         in every iteration; passing it in removes one right-hand-side
         evaluation per iteration, which is half of them.
+    max_krylov : int
+        Search directions kept; see :data:`DEFAULT_MAX_KRYLOV`.
 
     Returns
     -------
@@ -89,6 +112,7 @@ def tgcr_matrix_free(
 
         p_list.append(pk)
         Ap_list.append(Apk)
+        _truncate(p_list, Ap_list, max_krylov)
 
         alpha = np.vdot(r, Apk).real
         x = x + alpha * pk
@@ -109,6 +133,7 @@ def tgcr_matrix_free_trap(
     max_iter: int | None = None,
     eps_mf: float = 1e-4,
     f_base: NDArray[np.complexfloating] | None = None,
+    max_krylov: int = DEFAULT_MAX_KRYLOV,
 ) -> NDArray[np.complex128]:
     """TGCR for the trapezoidal implicit system ``(I - dt/2 J) δx = b``.
 
@@ -158,6 +183,7 @@ def tgcr_matrix_free_trap(
 
         p_list.append(pk)
         Ap_list.append(Apk)
+        _truncate(p_list, Ap_list, max_krylov)
 
         alpha = np.vdot(r, Apk).real
         x = x + alpha * pk

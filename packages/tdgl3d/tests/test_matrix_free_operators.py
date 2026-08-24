@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from tdgl3d.core import parallel
 from tdgl3d.core.device import Device
 from tdgl3d.core.material import Layer, Trilayer
 from tdgl3d.core.parameters import SimulationParameters
@@ -39,6 +40,8 @@ from tdgl3d.operators.sparse_operators import (
     construct_LPSI_z,
     kappa_sq_interior,
 )
+from tdgl3d.physics.applied_field import build_boundary_field_vectors
+from tdgl3d.physics.rhs import BoundaryVectors, eval_f
 from tdgl3d.solvers.tgcr import tgcr_matrix_free, tgcr_matrix_free_trap
 
 # Both paths do the same arithmetic in a different order, so they agree to
@@ -116,6 +119,94 @@ def test_apply_matches_assembled_operators(geometry):
         assert np.allclose(fz, np.exp(-1j * y3[m]), rtol=RTOL, atol=0.0)
     else:
         assert fz is None
+
+
+@pytest.mark.parametrize("geometry", GEOMETRIES)
+def test_chunked_rhs_matches_the_whole_array_operators(geometry):
+    """``rhs_rows`` — the path ``eval_f`` takes — matches ``apply_*`` row for row.
+
+    ``rhs_rows`` re-derives the same stencil in one pass over a block of nodes
+    so each thread reads one neighbourhood.  That is a second implementation of
+    arithmetic already checked against the assembled matrices above, so it has
+    to be held against the first one or the two can drift apart silently.
+    """
+    from tdgl3d.operators.sparse_operators import (
+        construct_FPHI_x,
+        construct_FPHI_y,
+        construct_FPHI_z,
+        construct_FPSI,
+        rhs_rows,
+    )
+
+    dev = _device(*geometry)
+    params, idx, material = dev.params, dev.idx, dev.material
+    n = params.n_interior
+
+    rng = np.random.default_rng(555)
+    x, y1, y2 = (_random_full(params, rng) for _ in range(3))
+    y3 = (
+        _random_full(params, rng)
+        if params.is_3d
+        else np.zeros(params.dim_x, dtype=np.complex128)
+    )
+
+    lpsi, (fx, fy, fz) = apply_LPSI(x, y1, y2, y3, params, idx)
+    expected = [
+        lpsi + construct_FPSI(x, params, idx, material),
+        apply_LPHI_x(y1, params, idx, material)
+        + construct_FPHI_x(x, y1, y2, y3, params, idx, material, link_factor=fx),
+        apply_LPHI_y(y2, params, idx, material)
+        + construct_FPHI_y(x, y1, y2, y3, params, idx, material, link_factor=fy),
+        apply_LPHI_z(y3, params, idx, material)
+        + construct_FPHI_z(x, y1, y2, y3, params, idx, material, link_factor=fz),
+    ]
+
+    # Split into uneven blocks so a chunk-boundary bug cannot hide.
+    got = [np.zeros(n, dtype=np.complex128) for _ in range(4)]
+    for rows in (slice(0, 1), slice(1, n // 3), slice(n // 3, n)):
+        rhs_rows(x, y1, y2, y3, params, idx, material, rows, tuple(got))
+
+    for block, (want, have) in enumerate(zip(expected, got)):
+        if block == 3 and not params.is_3d:
+            continue
+        assert np.allclose(have, want, rtol=RTOL, atol=1e-12), f"block {block}"
+    assert np.max(np.abs(expected[0])) > 1.0
+
+
+@pytest.mark.parametrize("geometry", GEOMETRIES)
+def test_eval_f_is_independent_of_thread_count(geometry):
+    """Splitting the interior across threads must not change a single bit.
+
+    The chunks are disjoint and each writes only its own rows, so the result is
+    exactly the serial one — not merely close to it.
+    """
+    dev = _device(*geometry)
+    params, idx = dev.params, dev.idx
+    rng = np.random.default_rng(99)
+    state = (
+        rng.standard_normal(params.n_state) + 1j * rng.standard_normal(params.n_state)
+    )
+    u = BoundaryVectors(*build_boundary_field_vectors(0.02, -0.01, 0.05, params, idx))
+
+    original_threads = parallel.get_num_threads()
+    original_min = parallel.MIN_NODES_PER_THREAD
+    try:
+        # Force real splitting on grids far smaller than the production cutoff.
+        parallel.MIN_NODES_PER_THREAD = 1
+        parallel.set_num_threads(1)
+        serial = eval_f(state, params, idx, u, material=dev.material)
+        results = []
+        for n_threads in (2, 3, 5):
+            parallel.set_num_threads(n_threads)
+            results.append(eval_f(state, params, idx, u, material=dev.material))
+    finally:
+        parallel.MIN_NODES_PER_THREAD = original_min
+        parallel.set_num_threads(original_threads)
+
+    assert np.isfinite(serial).all()
+    assert np.max(np.abs(serial)) > 0.0
+    for threaded in results:
+        assert np.array_equal(serial, threaded)
 
 
 def test_kappa_cache_follows_the_material():

@@ -159,41 +159,61 @@ class GridIndices:
     hole_y_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
     hole_z_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
 
-    # -- Cached neighbour stencil (built on first use) ----------------------
-    # ``interior_to_full`` shifted by each of the six stencil offsets.  The
-    # operators need these on every right-hand-side evaluation, and forming
-    # them costs a full pass over ``n_interior`` each time; a device is solved
-    # for thousands of steps, so they are built once and kept.
+    # -- Per-device scratch shared by the operators (built on first use) -----
+    # Holds the cached κ² and the full-grid workspace the right-hand side
+    # writes into.  Deliberately holds *no* shifted copies of
+    # ``interior_to_full``: the operators need six of them, and on a 15 M-node
+    # grid that would be 700 MB of resident index arrays.  They are formed per
+    # chunk instead, where they stay cache-resident.
     _stencil: dict = field(default_factory=dict, repr=False, compare=False)
 
     def neighbours(self, params: SimulationParameters) -> dict:
-        """Return the cached ``{offset_name: index array}`` stencil.
+        """Return the per-device scratch dict, keyed ``m`` for the interior nodes.
 
-        Keys are ``m`` (the interior nodes themselves), ``xm``/``xp``
-        (``m∓1``), ``ym``/``yp`` (``m∓mj``) and, in 3-D, ``zm``/``zp``
-        (``m∓mk``).  All are full-grid linear indices in interior ordering,
-        so ``vec[stencil["xp"]]`` gathers the +x neighbour of every interior
-        node in one shot.
+        Operators shift ``m`` themselves — ``m + 1`` for the +x neighbour,
+        ``m + params.mj`` for +y, ``m + params.mk`` for +z — over whatever slice
+        of rows they are computing.  Other entries are private caches
+        (``_kappa_sq``, ``_workspace``) keyed by the object they were built for.
         """
         if not self._stencil:
-            m = self.interior_to_full
-            mj, mk = params.mj, params.mk
-            st = {
-                "m": m,
-                "xm": m - 1,
-                "xp": m + 1,
-                "ym": m - mj,
-                "yp": m + mj,
-            }
-            if params.is_3d:
-                st["zm"] = m - mk
-                st["zp"] = m + mk
-            self._stencil = st
+            self._stencil = {"m": self.interior_to_full}
         return self._stencil
 
     def clear_stencil(self) -> None:
-        """Drop the cached neighbour stencil (call after mutating indices)."""
+        """Drop the cached operator scratch (call after mutating indices)."""
         self._stencil = {}
+
+    def workspace(self, params: SimulationParameters, n_vectors: int = 8) -> list:
+        """Lend *n_vectors* full-grid complex scratch arrays, or make new ones.
+
+        The right-hand side needs eight arrays of ``dim_x`` complex128 — four
+        to scatter the interior state onto the full grid and four copies the
+        boundary conditions read from.  At 15 M interior nodes that is two
+        gigabytes allocated and touched on every evaluation, and there are tens
+        of thousands of evaluations in a run.  Keeping one set per device and
+        handing it out turns that into a single allocation.
+
+        The workspace is lent, not shared: a nested or concurrent caller gets
+        freshly allocated arrays rather than the ones already in use, so the
+        reuse can never alias two live evaluations.  Return it with
+        :meth:`release_workspace`.
+        """
+        st = self.neighbours(params)
+        held = st.get("_workspace")
+        if held is not None and not held["in_use"] and len(held["buf"]) >= n_vectors:
+            held["in_use"] = True
+            return held["buf"][:n_vectors]
+
+        buf = [np.empty(params.dim_x, dtype=np.complex128) for _ in range(n_vectors)]
+        if held is None:
+            st["_workspace"] = {"buf": buf, "in_use": True}
+        return buf
+
+    def release_workspace(self, params: SimulationParameters, buf: list) -> None:
+        """Give back arrays lent by :meth:`workspace`."""
+        held = self.neighbours(params).get("_workspace")
+        if held is not None and buf and held["buf"][0] is buf[0]:
+            held["in_use"] = False
 
     def define_hole_polygon(
         self,

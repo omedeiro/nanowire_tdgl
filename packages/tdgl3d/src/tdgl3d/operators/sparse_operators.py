@@ -383,6 +383,12 @@ def construct_FPHI_z(
 # operator itself rather than its action.
 
 
+def _rows(idx: GridIndices, params: SimulationParameters, rows: slice | None):
+    """Interior full-grid indices for *rows*, and the two grid strides."""
+    m = idx.neighbours(params)["m"]
+    return (m if rows is None else m[rows]), params.mj, params.mk
+
+
 def apply_LPSI(
     x: NDArray[np.complexfloating],
     y1: NDArray[np.complexfloating],
@@ -390,41 +396,41 @@ def apply_LPSI(
     y3: NDArray[np.complexfloating],
     params: SimulationParameters,
     idx: GridIndices,
-) -> tuple[NDArray[np.complex128], tuple[NDArray[np.complex128], ...]]:
+    rows: slice | None = None,
+) -> tuple[NDArray[np.complex128], tuple]:
     """Interior rows of ``(LPSIX/hx² + LPSIY/hy² + LPSIZ/hz²) @ x``.
 
     Matrix-free equivalent of building :func:`construct_LPSI_x`,
     :func:`construct_LPSI_y` and :func:`construct_LPSI_z`, scaling each by its
-    grid spacing, and multiplying by *x*.
+    grid spacing, and multiplying by *x*.  *rows* restricts the computation to
+    a contiguous block of interior nodes, which is how the right-hand side
+    splits the work across threads.
 
     Returns
     -------
     dpsi : ndarray
-        The operator applied to *x*, on the interior nodes.
+        The operator applied to *x*, on the selected interior rows.
     link_factors : tuple of ndarray
         ``(exp(-1j*y1[m]), exp(-1j*y2[m]), exp(-1j*y3[m]))`` — the on-site
         Peierls factors, which :func:`construct_FPHI_x` and its siblings need
         as well.  ``y3``'s entry is ``None`` in 2-D.
     """
-    st = idx.neighbours(params)
-    m = st["m"]
-    inv_hx2 = 1.0 / params.hx**2
-    inv_hy2 = 1.0 / params.hy**2
+    m, mj, mk = _rows(idx, params, rows)
 
     x_m = x[m]
     fx = np.exp(-1j * y1[m])
     fy = np.exp(-1j * y2[m])
-    out = (np.exp(1j * y1[st["xm"]]) * x[st["xm"]]
-           + fx * x[st["xp"]]
-           - 2.0 * x_m) * inv_hx2
-    out += (np.exp(1j * y2[st["ym"]]) * x[st["ym"]]
-            + fy * x[st["yp"]]
-            - 2.0 * x_m) * inv_hy2
+    out = (np.exp(1j * y1[m - 1]) * x[m - 1]
+           + fx * x[m + 1]
+           - 2.0 * x_m) / params.hx**2
+    out += (np.exp(1j * y2[m - mj]) * x[m - mj]
+            + fy * x[m + mj]
+            - 2.0 * x_m) / params.hy**2
     fz = None
     if params.is_3d:
         fz = np.exp(-1j * y3[m])
-        out += (np.exp(1j * y3[st["zm"]]) * x[st["zm"]]
-                + fz * x[st["zp"]]
+        out += (np.exp(1j * y3[m - mk]) * x[m - mk]
+                + fz * x[m + mk]
                 - 2.0 * x_m) / params.hz**2
     return out, (fx, fy, fz)
 
@@ -434,17 +440,15 @@ def apply_LPHI_x(
     params: SimulationParameters,
     idx: GridIndices,
     material: Optional[MaterialMap] = None,
+    rows: slice | None = None,
 ) -> NDArray[np.complex128]:
     """Interior rows of ``construct_LPHI_x(...) @ y1``, matrix-free."""
-    st = idx.neighbours(params)
-    m = st["m"]
-    kappa2 = kappa_sq_interior(params, idx, material)
-    coeff_y = kappa2 / params.hy**2
+    m, mj, mk = _rows(idx, params, rows)
+    kappa2 = kappa_sq_interior(params, idx, material)[rows if rows else slice(None)]
 
-    out = coeff_y * (y1[st["yp"]] + y1[st["ym"]] - 2.0 * y1[m])
+    out = (kappa2 / params.hy**2) * (y1[m + mj] + y1[m - mj] - 2.0 * y1[m])
     if params.is_3d:
-        coeff_z = kappa2 / params.hz**2
-        out += coeff_z * (y1[st["zp"]] + y1[st["zm"]] - 2.0 * y1[m])
+        out += (kappa2 / params.hz**2) * (y1[m + mk] + y1[m - mk] - 2.0 * y1[m])
     return out
 
 
@@ -453,17 +457,15 @@ def apply_LPHI_y(
     params: SimulationParameters,
     idx: GridIndices,
     material: Optional[MaterialMap] = None,
+    rows: slice | None = None,
 ) -> NDArray[np.complex128]:
     """Interior rows of ``construct_LPHI_y(...) @ y2``, matrix-free."""
-    st = idx.neighbours(params)
-    m = st["m"]
-    kappa2 = kappa_sq_interior(params, idx, material)
-    coeff_x = kappa2 / params.hx**2
+    m, _mj, mk = _rows(idx, params, rows)
+    kappa2 = kappa_sq_interior(params, idx, material)[rows if rows else slice(None)]
 
-    out = coeff_x * (y2[st["xp"]] + y2[st["xm"]] - 2.0 * y2[m])
+    out = (kappa2 / params.hx**2) * (y2[m + 1] + y2[m - 1] - 2.0 * y2[m])
     if params.is_3d:
-        coeff_z = kappa2 / params.hz**2
-        out += coeff_z * (y2[st["zp"]] + y2[st["zm"]] - 2.0 * y2[m])
+        out += (kappa2 / params.hz**2) * (y2[m + mk] + y2[m - mk] - 2.0 * y2[m])
     return out
 
 
@@ -472,14 +474,93 @@ def apply_LPHI_z(
     params: SimulationParameters,
     idx: GridIndices,
     material: Optional[MaterialMap] = None,
+    rows: slice | None = None,
 ) -> NDArray[np.complex128]:
     """Interior rows of ``construct_LPHI_z(...) @ y3``, matrix-free."""
-    st = idx.neighbours(params)
-    m = st["m"]
-    kappa2 = kappa_sq_interior(params, idx, material)
-    coeff_x = kappa2 / params.hx**2
-    coeff_y = kappa2 / params.hy**2
+    m, mj, _mk = _rows(idx, params, rows)
+    kappa2 = kappa_sq_interior(params, idx, material)[rows if rows else slice(None)]
 
-    out = coeff_x * (y3[st["xp"]] + y3[st["xm"]] - 2.0 * y3[m])
-    out += coeff_y * (y3[st["yp"]] + y3[st["ym"]] - 2.0 * y3[m])
+    out = (kappa2 / params.hx**2) * (y3[m + 1] + y3[m - 1] - 2.0 * y3[m])
+    out += (kappa2 / params.hy**2) * (y3[m + mj] + y3[m - mj] - 2.0 * y3[m])
     return out
+
+
+def rhs_rows(
+    x: NDArray[np.complexfloating],
+    y1: NDArray[np.complexfloating],
+    y2: NDArray[np.complexfloating],
+    y3: NDArray[np.complexfloating],
+    params: SimulationParameters,
+    idx: GridIndices,
+    material: Optional[MaterialMap],
+    rows: slice,
+    out: tuple[NDArray, NDArray, NDArray, NDArray],
+) -> None:
+    """Write dψ/dt and dφ/dt for interior rows *rows* into *out*.
+
+    This is the whole interior right-hand side for one contiguous block of
+    nodes, which is the unit :func:`~tdgl3d.physics.rhs.eval_f` hands to each
+    thread.  Doing all four output blocks for one block of nodes — rather than
+    one output block for all nodes — keeps each thread reading the same
+    neighbourhood of ``x``, ``y1``, ``y2`` and ``y3`` throughout.
+
+    It is the same arithmetic as :func:`apply_LPSI`, :func:`apply_LPHI_x` and
+    the ``construct_F*`` forcings; ``test_matrix_free_operators`` holds the two
+    paths together.
+    """
+    m, mj, mk = _rows(idx, params, rows)
+    kappa2 = kappa_sq_interior(params, idx, material)[rows]
+    out_psi, out_px, out_py, out_pz = out
+    hx2, hy2, hz2 = params.hx**2, params.hy**2, params.hz**2
+    is_3d = params.is_3d
+
+    x_m = x[m]
+    fx = np.exp(-1j * y1[m])
+    fy = np.exp(-1j * y2[m])
+
+    # --- dψ/dt: covariant Laplacian plus the Ginzburg-Landau forcing --------
+    dpsi = (np.exp(1j * y1[m - 1]) * x[m - 1] + fx * x[m + 1] - 2.0 * x_m) / hx2
+    dpsi += (np.exp(1j * y2[m - mj]) * x[m - mj] + fy * x[m + mj] - 2.0 * x_m) / hy2
+    if is_3d:
+        fz = np.exp(-1j * y3[m])
+        dpsi += (np.exp(1j * y3[m - mk]) * x[m - mk] + fz * x[m + mk] - 2.0 * x_m) / hz2
+
+    gl_term = (1.0 - np.conj(x_m) * x_m) * x_m
+    if material is not None:
+        sc = material.interior_sc_mask[rows]
+        dpsi += sc * gl_term - (1.0 - sc) * x_m / INSULATOR_RELAXATION_TIME
+    else:
+        dpsi += gl_term
+    out_psi[rows] = dpsi
+
+    # --- dφ_x/dt: transverse Laplacian, curl-curl cross terms, supercurrent -
+    kx, ky, kz = kappa2 / hx2, kappa2 / hy2, kappa2 / hz2
+    xp = m + 1
+
+    dpx = ky * (y1[m + mj] + y1[m - mj] - 2.0 * y1[m])
+    dpx += ky * (-y2[xp] + y2[m] + y2[xp - mj] - y2[m - mj])
+    if is_3d:
+        dpx += kz * (y1[m + mk] + y1[m - mk] - 2.0 * y1[m])
+        dpx += kz * (-y3[xp] + y3[m] + y3[xp - mk] - y3[m - mk])
+    dpx += np.imag(fx * np.conj(x_m) * x[xp])
+    out_px[rows] = dpx
+
+    # --- dφ_y/dt ------------------------------------------------------------
+    yp = m + mj
+    dpy = kx * (y2[xp] + y2[m - 1] - 2.0 * y2[m])
+    dpy += kx * (-y1[yp] + y1[m] + y1[yp - 1] - y1[m - 1])
+    if is_3d:
+        dpy += kz * (y2[m + mk] + y2[m - mk] - 2.0 * y2[m])
+        dpy += kz * (-y3[yp] + y3[m] + y3[yp - mk] - y3[m - mk])
+    dpy += np.imag(fy * np.conj(x_m) * x[yp])
+    out_py[rows] = dpy
+
+    # --- dφ_z/dt ------------------------------------------------------------
+    if is_3d:
+        zp = m + mk
+        dpz = kx * (y3[xp] + y3[m - 1] - 2.0 * y3[m])
+        dpz += ky * (y3[yp] + y3[m - mj] - 2.0 * y3[m])
+        dpz += kx * (-y1[zp] + y1[m] + y1[zp - 1] - y1[m - 1])
+        dpz += ky * (-y2[zp] + y2[m] + y2[zp - mj] - y2[m - mj])
+        dpz += np.imag(fz * np.conj(x_m) * x[zp])
+        out_pz[rows] = dpz
