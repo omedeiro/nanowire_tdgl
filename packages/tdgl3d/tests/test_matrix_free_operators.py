@@ -398,3 +398,32 @@ def test_gcr_cached_f_base_matches_recomputing_it():
     calls["n"] = 0
     trap_with = tgcr_matrix_free_trap(f, x_lin, b, 0.1, tol=1e-10, f_base=f(x_lin))
     assert np.allclose(trap_with, trap_without, rtol=1e-12, atol=1e-12)
+
+
+def test_hole_carved_between_solves_is_not_ignored():
+    """Carving a hole invalidates the grid-order copy of the material mask.
+
+    The operators cache κ² and the superconducting mask permuted into grid
+    order, keyed on the identity of the ``MaterialMap``.  Carving mutates that
+    map in place, so without an explicit invalidation a hole added after a
+    first evaluation would be missing from every later one — a device that
+    silently simulates as though it were solid.
+    """
+    dev = _device(9, 9, 6, 1.0, 1.0, 1.0, trilayer=True)
+    params, idx = dev.params, dev.idx
+    rng = np.random.default_rng(4)
+    state = (
+        rng.standard_normal(params.n_state) + 1j * rng.standard_normal(params.n_state)
+    )
+    u = BoundaryVectors(*build_boundary_field_vectors(0.0, 0.0, 0.05, params, idx))
+
+    before = eval_f(state, params, idx, u, material=dev.material)
+
+    square = [(3.0, 3.0), (6.0, 3.0), (6.0, 6.0), (3.0, 6.0)]
+    dev.add_hole(square, z_range=(0, params.Nz))
+    after = eval_f(state, params, dev.idx, u, material=dev.material)
+
+    assert dev.material.interior_sc_mask.min() == 0.0, "the hole must be carved"
+    assert not np.allclose(before, after), (
+        "the right-hand side ignored a hole carved after the first evaluation"
+    )

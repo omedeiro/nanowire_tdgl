@@ -109,6 +109,12 @@ class MaterialMap:
         # Update interior mask
         self.interior_sc_mask = self.sc_mask[idx.interior_to_full]
 
+        # The operators keep a copy of this mask permuted into grid order,
+        # keyed on the identity of this MaterialMap — which carving does not
+        # change.  Drop that cache here, at the mutation, so a hole added
+        # between two solves cannot be silently ignored by the second one.
+        idx.clear_stencil()
+
 
 # ---------------------------------------------------------------------------
 # Layer / Trilayer descriptors

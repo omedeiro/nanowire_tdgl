@@ -22,6 +22,25 @@ and 1.8 M interior nodes; at ξ = 50 nm it is 15 M and each state vector alone i
 a gigabyte.  ``--xi`` is therefore the knob that decides whether a run takes
 hours or weeks, and ξ is a function of temperature: ξ(T) = ξ₀/√(1 − T/T_c).
 
+Getting flux into the holes
+---------------------------
+The film screens too well for the obvious protocol to work.  Ramping a field up
+from zero, nothing enters at all until about **3.15 mT** — and just above that,
+hundreds of vortices enter at once.  Held at 3.6 mT for 200 τ_GL, 567 of them
+pack the 8 µm buffer into a triangular lattice and the whole 3×3 array stays
+fully Meissner-screened behind them: the flux front stalls at the array
+perimeter and never reaches a hole.  There is no applied field at which this
+film holds one or two vortices in equilibrium; it holds none, or it holds
+hundreds.
+
+``--protocol field-cool`` does what the experiment does instead.  ψ starts near
+zero — the numerical stand-in for cooling through T_c — with the field already
+on, so flux is trapped where it already is rather than having to cross 8 µm of
+screening metal.  The field then ramps down, and the two kinds of trapped flux
+part company: a vortex in the metal costs a core and is driven out through the
+edge, while a hole has no core to pay for and keeps its fluxoid.  What is left
+is a remanent state with quantised flux in the holes and a nearly clean film.
+
 Use forward Euler
 -----------------
 ``solve()`` defaults to the implicit trapezoidal integrator, which on a grid
@@ -60,9 +79,16 @@ Usage
 -----
 ::
 
-    python3 packages/tdgl3d/examples/nb_hole_array.py --dry-run   # cost estimate only
+    # cost estimate only, no solve
+    python3 packages/tdgl3d/examples/nb_hole_array.py --dry-run
+
+    # Meissner state at one field
     python3 packages/tdgl3d/examples/nb_hole_array.py --xi 150 --t-stop 20
-    python3 packages/tdgl3d/examples/nb_hole_array.py --bz-mT 5.0 --out run5mT
+
+    # flux trapped in the holes, with a GIF of it happening
+    python3 packages/tdgl3d/examples/nb_hole_array.py --xi 150 \
+        --protocol field-cool --bz-mT 2.0 --bz-final-mT 0.0 --ramp 0.22 \
+        --t-stop 420 --gif
 """
 
 from __future__ import annotations
@@ -165,14 +191,80 @@ def hole_rects(spec: dict) -> list[tuple[float, float, float, float]]:
     return rects
 
 
+#: Width of the field-cool down-ramp, as a fraction of ``t_stop``.  Everything
+#: after it is settling time, and settling is what clears the film: the metal's
+#: vortices leave through the edge over tens of τ_GL, so a protocol that ramps
+#: late leaves a film still full of them.
+FIELD_COOL_RAMP_WIDTH = 0.1
+
+
+def field_cool_window(t_stop: float, ramp_start_fraction: float) -> tuple:
+    """``(t_start, t_end)`` of the down-ramp."""
+    start = ramp_start_fraction * t_stop
+    return start, start + FIELD_COOL_RAMP_WIDTH * t_stop
+
+
+def field_schedule(
+    units, bz_mT: float, bz_final_mT: float, t_stop: float, protocol: str,
+    ramp_start_fraction: float = 0.35,
+):
+    """``f(t, t_stop) -> (Bx, By, Bz)`` for the requested protocol.
+
+    ``constant`` and ``ramp-up`` are what :class:`AppliedField` already does;
+    ``field-cool`` needs a schedule of its own, because trapping flux in the
+    holes and clearing it out of the metal are two different fields.  The film
+    screens so well that nothing enters below about 3 mT, and at that field
+    hundreds of vortices enter at once — so there is no field at which the
+    metal holds one or two vortices in equilibrium.  Cooling in a *low* field
+    instead traps flux everywhere at once, and the down-ramp then drives the
+    film's vortices out through the edge while the holes keep theirs: a hole
+    has no core to pay for, so its trapped fluxoid survives a field the film
+    cannot hold a vortex in.
+    """
+    bz = units.field(bz_mT)
+    bz_final = units.field(bz_final_mT)
+    t_ramp_start, t_ramp_end = field_cool_window(t_stop, ramp_start_fraction)
+
+    def evaluate(t: float, _t_stop: float) -> tuple[float, float, float]:
+        if t <= t_ramp_start:
+            return 0.0, 0.0, bz
+        if t >= t_ramp_end:
+            return 0.0, 0.0, bz_final
+        frac = (t - t_ramp_start) / (t_ramp_end - t_ramp_start)
+        return 0.0, 0.0, bz + frac * (bz_final - bz)
+
+    if protocol != "field-cool":
+        return None
+    return evaluate
+
+
+def normal_initial_state(device, spec: dict, seed: int, amplitude: float = 0.02):
+    """A near-normal start: |ψ| ≈ *amplitude*, random phase, φ = 0.
+
+    This is the numerical stand-in for cooling through T_c in a field.  Starting
+    from the fully-formed condensate instead makes the film screen from the
+    first step, and flux can then only enter from the outside edge — which on a
+    36 µm film means it never reaches the array at all.  Growing ψ from nothing
+    with the field already on lets flux be trapped where it already is.
+    """
+    state = device.initial_state(noise_amplitude=0.0, seed=seed)
+    rng = np.random.default_rng(seed)
+    n = spec["n_interior"]
+    phase = rng.uniform(0.0, 2.0 * np.pi, n)
+    state.psi[:] *= amplitude * np.exp(1j * phase)
+    return state
+
+
 def build(
-    spec: dict, bz_mT: float, t_on_fraction: float, ramp_fraction: float = 0.0
+    spec: dict, bz_mT: float, t_on_fraction: float, ramp_fraction: float = 0.0,
+    field_func=None,
 ) -> tdgl3d.Device:
     """The trilayer with all nine holes carved through it.
 
     A non-zero *ramp_fraction* raises the field linearly over that fraction of
     the run and holds it after — which is how vortices are made to enter a few
-    at a time instead of all at once from a step change.
+    at a time instead of all at once from a step change.  *field_func* overrides
+    both and supplies the field directly.
     """
     units = spec["units"]
     trilayer = Trilayer(
@@ -200,6 +292,7 @@ def build(
             t_on_fraction=t_on_fraction,
             ramp=ramp_fraction > 0.0,
             ramp_fraction=ramp_fraction or 0.5,
+            field_func=field_func,
         ),
         trilayer=trilayer,
     )
@@ -273,8 +366,7 @@ def vortex_census(solution, device, spec: dict, step: int, margin: float = 2.0) 
 
 
 def write_gif(
-    solution, device, spec: dict, out_path: Path, bz_mT: float, ramp_fraction: float,
-    fps: int = 8,
+    solution, device, spec: dict, out_path: Path, field_of_t, fps: int = 8,
 ) -> dict:
     """Animate |ψ|² through the run, labelling each hole with its fluxoid.
 
@@ -289,8 +381,6 @@ def write_gif(
     per_xi = units.xi_nm / 1000.0  # µm per ξ
     slice_z = sc_slice(spec)
     extent = [0, spec["side_um"], 0, spec["side_um"]]
-    t_stop = float(solution.times[-1])
-
     census = [
         vortex_census(solution, device, spec, step)
         for step in range(solution.n_steps)
@@ -318,11 +408,6 @@ def write_gif(
         ))
     title = ax.set_title("")
 
-    def field_at(t: float) -> float:
-        if ramp_fraction <= 0.0:
-            return bz_mT
-        return bz_mT * min(t / (t_stop * ramp_fraction), 1.0)
-
     def update(step: int):
         image.set_data(solution.psi_squared_2d(step, slice_z=slice_z).T)
         counts = census[step]
@@ -330,7 +415,7 @@ def write_gif(
             label.set_text(str(n) if n else "")
         t = float(solution.times[step])
         title.set_text(
-            f"t = {t:6.1f} τ$_{{GL}}$    B = {field_at(t):.2f} mT    "
+            f"t = {t:6.1f} τ$_{{GL}}$    B = {field_of_t(t):.3f} mT    "
             f"{counts['film']} in film, {counts['hole_total']} in holes"
         )
         return [image, title, *labels]
@@ -412,6 +497,21 @@ def main() -> None:
                              "run, then hold (default: 0, field on at full "
                              "strength from t=0). Use ~0.6 to watch vortices "
                              "enter a few at a time.")
+    parser.add_argument("--protocol",
+                        choices=["constant", "ramp-up", "field-cool"],
+                        default="constant",
+                        help="constant: field on at full strength from t=0. "
+                             "ramp-up: raise it over --ramp of the run (needs a "
+                             "field above the entry threshold, ~3 mT here). "
+                             "field-cool: start from a near-normal state at "
+                             "--bz-mT, then ramp to --bz-final-mT — the way to "
+                             "leave flux trapped in the holes and a clean film. "
+                             "--ramp sets when the down-ramp starts (default "
+                             "0.35); everything after it is settling time, and "
+                             "settling is what empties the film.")
+    parser.add_argument("--bz-final-mT", type=float, default=0.0,
+                        help="field to ramp down to under --protocol field-cool "
+                             "(default: 0)")
     parser.add_argument("--gif", action="store_true",
                         help="also write an animated GIF of |psi|^2 with each "
                              "hole labelled by its trapped fluxoid")
@@ -429,6 +529,7 @@ def main() -> None:
 
     spec = plan(args.xi, args.h)
     units = spec["units"]
+    ramp_start = args.ramp if args.ramp else 0.35
     dt = spec["dt"] if args.method == "euler" else 0.05
     n_steps = max(int(round(args.t_stop / dt)), 1)
     save_every = args.save_every or max(n_steps // 12, 1)
@@ -459,9 +560,14 @@ def main() -> None:
               "unit simulated time on a grid this size")
     print(f"saving every {save_every} steps → ~{n_steps // save_every + 1} frames, "
           f"{spec['MB_per_frame'] * (n_steps // save_every + 1) / 1000:.1f} GB")
-    if args.ramp:
+    if args.protocol == "ramp-up" and args.ramp:
         print(f"field ramps 0 → {args.bz_mT:g} mT over t = 0 … "
               f"{args.t_stop * args.ramp:g} τ_GL, then holds")
+    elif args.protocol == "field-cool":
+        lo, hi = field_cool_window(args.t_stop, ramp_start)
+        print(f"field-cool: ψ grows from ~0 at {args.bz_mT:g} mT, "
+              f"field ramps to {args.bz_final_mT:g} mT over "
+              f"t = {lo:g} … {hi:g} τ_GL, then holds")
 
     # A superconducting layer thinner than about 3 ξ is pair-broken by the oxide
     # beside it and still produces plausible-looking screening, so this has to be
@@ -482,8 +588,22 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.perf_counter()
-    device = build(spec, args.bz_mT, args.t_on, ramp_fraction=args.ramp)
+    field_func = field_schedule(
+        units, args.bz_mT, args.bz_final_mT, args.t_stop, args.protocol,
+        ramp_start_fraction=ramp_start,
+    )
+    ramp_fraction = args.ramp if args.protocol == "ramp-up" else 0.0
+    device = build(
+        spec, args.bz_mT, args.t_on, ramp_fraction=ramp_fraction,
+        field_func=field_func,
+    )
     print(f"device built in {time.perf_counter() - t0:.1f} s")
+
+    x0 = (
+        normal_initial_state(device, spec, args.seed)
+        if args.protocol == "field-cool"
+        else None
+    )
 
     t0 = time.perf_counter()
     solution = tdgl3d.solve(
@@ -491,6 +611,7 @@ def main() -> None:
         t_stop=args.t_stop,
         dt=dt,
         method=args.method,
+        x0=x0,
         save_every=save_every,
         noise_seed=args.seed,
         progress=True,
@@ -511,14 +632,26 @@ def main() -> None:
         "sec_per_tau_GL": round(wall / args.t_stop, 1),
         "frames": int(solution.n_steps),
     }
+    result["protocol"] = args.protocol
     result["ramp_fraction"] = args.ramp
+    result["bz_final_mT"] = args.bz_final_mT
     result.update(summarise(solution, spec, args.out))
     result.update(vortex_census(solution, device, spec, -1))
 
     if args.gif:
+        if args.protocol == "field-cool":
+            def field_of_t(t):
+                return field_func(t, args.t_stop)[2] * units.field_unit_mT
+        elif args.protocol == "ramp-up" and args.ramp:
+            def field_of_t(t):
+                return args.bz_mT * min(t / (args.t_stop * args.ramp), 1.0)
+        else:
+            def field_of_t(t):
+                return args.bz_mT
+
         gif_path = args.out / "nb_hole_array.gif"
         t0 = time.perf_counter()
-        write_gif(solution, device, spec, gif_path, args.bz_mT, args.ramp, fps=args.fps)
+        write_gif(solution, device, spec, gif_path, field_of_t, fps=args.fps)
         result["gif"] = str(gif_path)
         result["gif_seconds"] = round(time.perf_counter() - t0, 1)
 
