@@ -153,8 +153,27 @@ def plan(xi_nm: float, h_xi: float) -> dict:
     }
 
 
-def build(spec: dict, bz_mT: float, t_on_fraction: float) -> tdgl3d.Device:
-    """The trilayer with all nine holes carved through it."""
+def hole_rects(spec: dict) -> list[tuple[float, float, float, float]]:
+    """``(x0, y0, x1, y1)`` of every hole, in ξ units."""
+    pitch = spec["hole_xi"] + spec["gap_xi"]
+    rects = []
+    for row in range(N_HOLES):
+        for col in range(N_HOLES):
+            x0 = spec["buffer_xi"] + col * pitch
+            y0 = spec["buffer_xi"] + row * pitch
+            rects.append((x0, y0, x0 + spec["hole_xi"], y0 + spec["hole_xi"]))
+    return rects
+
+
+def build(
+    spec: dict, bz_mT: float, t_on_fraction: float, ramp_fraction: float = 0.0
+) -> tdgl3d.Device:
+    """The trilayer with all nine holes carved through it.
+
+    A non-zero *ramp_fraction* raises the field linearly over that fraction of
+    the run and holds it after — which is how vortices are made to enter a few
+    at a time instead of all at once from a step change.
+    """
     units = spec["units"]
     trilayer = Trilayer(
         bottom=Layer(thickness_z=spec["n_layer"], kappa=KAPPA, is_superconductor=True),
@@ -177,21 +196,150 @@ def build(spec: dict, bz_mT: float, t_on_fraction: float) -> tdgl3d.Device:
     device = tdgl3d.Device(
         params,
         applied_field=tdgl3d.AppliedField(
-            Bz=units.field(bz_mT), t_on_fraction=t_on_fraction
+            Bz=units.field(bz_mT),
+            t_on_fraction=t_on_fraction,
+            ramp=ramp_fraction > 0.0,
+            ramp_fraction=ramp_fraction or 0.5,
         ),
         trilayer=trilayer,
     )
 
-    pitch = spec["hole_xi"] + spec["gap_xi"]
-    for row in range(N_HOLES):
-        for col in range(N_HOLES):
-            x0 = spec["buffer_xi"] + col * pitch
-            y0 = spec["buffer_xi"] + row * pitch
-            x1, y1 = x0 + spec["hole_xi"], y0 + spec["hole_xi"]
-            device.add_hole(
-                [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], z_range=(0, trilayer.Nz)
-            )
+    for x0, y0, x1, y1 in hole_rects(spec):
+        device.add_hole(
+            [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], z_range=(0, trilayer.Nz)
+        )
     return device
+
+
+def sc_slice(spec: dict) -> int:
+    """Interior z-slice strictly inside the bottom superconductor.
+
+    Interior arrays run k = 1 … Nz-1, so interior slice s is full-grid node
+    s + 1.  The bottom superconductor owns full-grid nodes k < n_layer (both
+    oxide interfaces belong to the insulator), so the deepest interior slice
+    still inside the metal is n_layer - 2.
+    """
+    return max(min(spec["n_layer"] // 2, spec["n_layer"] - 2), 0)
+
+
+def vortex_census(solution, device, spec: dict, step: int, margin: float = 2.0) -> dict:
+    """Vortices sitting in the metal, and the fluxoid trapped in each hole.
+
+    The two are counted differently because they are different things.  A
+    vortex in the film is a core — a plaquette carrying 2π of gauge-invariant
+    phase winding, which ``count_vortices_plaquette`` finds directly.  A hole
+    has no core to find: what it holds is a fluxoid, and the only way to read
+    it is the winding on a contour drawn in the metal *around* the hole, which
+    is an exact integer regardless of how much field actually threads the
+    opening.
+    """
+    from tdgl3d.analysis.vortex_counting import (
+        count_vortices_plaquette,
+        count_vortices_polygon,
+    )
+
+    slice_z = sc_slice(spec)
+    rects = hole_rects(spec)
+
+    _, positions, windings = count_vortices_plaquette(
+        solution, device, slice_z=slice_z, step=step
+    )
+    in_film = 0
+    for (px, py), winding in zip(positions, windings):
+        # Plaquette (i, j) spans nodes i…i+1, so its centre sits at node i + 1
+        # in full-grid coordinates.
+        node_x, node_y = px + 1.0, py + 1.0
+        inside_a_hole = any(
+            x0 - margin <= node_x <= x1 + margin
+            and y0 - margin <= node_y <= y1 + margin
+            for x0, y0, x1, y1 in rects
+        )
+        if not inside_a_hole:
+            in_film += abs(int(round(winding)))
+
+    trapped = []
+    for x0, y0, x1, y1 in rects:
+        contour = np.array([
+            [x0 - margin, y0 - margin], [x1 + margin, y0 - margin],
+            [x1 + margin, y1 + margin], [x0 - margin, y1 + margin],
+        ])
+        trapped.append(
+            int(round(count_vortices_polygon(
+                solution, device, contour, slice_z=slice_z, step=step
+            )))
+        )
+
+    return {"film": in_film, "holes": trapped, "hole_total": int(sum(trapped))}
+
+
+def write_gif(
+    solution, device, spec: dict, out_path: Path, bz_mT: float, ramp_fraction: float,
+    fps: int = 8,
+) -> dict:
+    """Animate |ψ|² through the run, labelling each hole with its fluxoid.
+
+    The fluxoid is the point of the annotation: a hole shows no core and no
+    dark spot, so without the number there is nothing on screen to say how much
+    flux it is holding.
+    """
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    from matplotlib.patches import Rectangle
+
+    units = spec["units"]
+    per_xi = units.xi_nm / 1000.0  # µm per ξ
+    slice_z = sc_slice(spec)
+    extent = [0, spec["side_um"], 0, spec["side_um"]]
+    t_stop = float(solution.times[-1])
+
+    census = [
+        vortex_census(solution, device, spec, step)
+        for step in range(solution.n_steps)
+    ]
+
+    fig, ax = plt.subplots(figsize=(6.6, 6.0), constrained_layout=True)
+    image = ax.imshow(
+        solution.psi_squared_2d(0, slice_z=slice_z).T,
+        origin="lower", extent=extent, cmap="inferno", vmin=0.0, vmax=1.0,
+    )
+    ax.set_xlabel("x (µm)")
+    ax.set_ylabel("y (µm)")
+    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.02, label=r"$|\psi|^2$")
+
+    labels = []
+    for x0, y0, x1, y1 in hole_rects(spec):
+        ax.add_patch(Rectangle(
+            (x0 * per_xi, y0 * per_xi),
+            (x1 - x0) * per_xi, (y1 - y0) * per_xi,
+            fill=False, edgecolor="#7fd4ff", lw=0.8, alpha=0.7,
+        ))
+        labels.append(ax.text(
+            0.5 * (x0 + x1) * per_xi, 0.5 * (y0 + y1) * per_xi, "",
+            color="#7fd4ff", ha="center", va="center", fontsize=13, fontweight="bold",
+        ))
+    title = ax.set_title("")
+
+    def field_at(t: float) -> float:
+        if ramp_fraction <= 0.0:
+            return bz_mT
+        return bz_mT * min(t / (t_stop * ramp_fraction), 1.0)
+
+    def update(step: int):
+        image.set_data(solution.psi_squared_2d(step, slice_z=slice_z).T)
+        counts = census[step]
+        for label, n in zip(labels, counts["holes"]):
+            label.set_text(str(n) if n else "")
+        t = float(solution.times[step])
+        title.set_text(
+            f"t = {t:6.1f} τ$_{{GL}}$    B = {field_at(t):.2f} mT    "
+            f"{counts['film']} in film, {counts['hole_total']} in holes"
+        )
+        return [image, title, *labels]
+
+    FuncAnimation(fig, update, frames=solution.n_steps, blit=False).save(
+        str(out_path), writer=PillowWriter(fps=fps)
+    )
+    plt.close(fig)
+    return census[-1]
 
 
 def summarise(solution, spec: dict, out_dir: Path) -> dict:
@@ -259,6 +407,15 @@ def main() -> None:
     parser.add_argument("--t-on", type=float, default=1.0,
                         help="AppliedField.t_on_fraction (default: 1.0, field on "
                              "from the start)")
+    parser.add_argument("--ramp", type=float, default=0.0, metavar="FRACTION",
+                        help="raise the field linearly over this fraction of the "
+                             "run, then hold (default: 0, field on at full "
+                             "strength from t=0). Use ~0.6 to watch vortices "
+                             "enter a few at a time.")
+    parser.add_argument("--gif", action="store_true",
+                        help="also write an animated GIF of |psi|^2 with each "
+                             "hole labelled by its trapped fluxoid")
+    parser.add_argument("--fps", type=int, default=8, help="GIF frame rate")
     parser.add_argument("--save-every", type=int, default=0,
                         help="save every n-th step; 0 picks ~12 frames")
     parser.add_argument("--method", choices=["euler", "trapezoidal"], default="euler",
@@ -302,6 +459,9 @@ def main() -> None:
               "unit simulated time on a grid this size")
     print(f"saving every {save_every} steps → ~{n_steps // save_every + 1} frames, "
           f"{spec['MB_per_frame'] * (n_steps // save_every + 1) / 1000:.1f} GB")
+    if args.ramp:
+        print(f"field ramps 0 → {args.bz_mT:g} mT over t = 0 … "
+              f"{args.t_stop * args.ramp:g} τ_GL, then holds")
 
     # A superconducting layer thinner than about 3 ξ is pair-broken by the oxide
     # beside it and still produces plausible-looking screening, so this has to be
@@ -322,7 +482,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.perf_counter()
-    device = build(spec, args.bz_mT, args.t_on)
+    device = build(spec, args.bz_mT, args.t_on, ramp_fraction=args.ramp)
     print(f"device built in {time.perf_counter() - t0:.1f} s")
 
     t0 = time.perf_counter()
@@ -351,7 +511,16 @@ def main() -> None:
         "sec_per_tau_GL": round(wall / args.t_stop, 1),
         "frames": int(solution.n_steps),
     }
+    result["ramp_fraction"] = args.ramp
     result.update(summarise(solution, spec, args.out))
+    result.update(vortex_census(solution, device, spec, -1))
+
+    if args.gif:
+        gif_path = args.out / "nb_hole_array.gif"
+        t0 = time.perf_counter()
+        write_gif(solution, device, spec, gif_path, args.bz_mT, args.ramp, fps=args.fps)
+        result["gif"] = str(gif_path)
+        result["gif_seconds"] = round(time.perf_counter() - t0, 1)
 
     h5_path = args.out / "nb_hole_array.h5"
     solution.save(str(h5_path))

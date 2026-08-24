@@ -389,6 +389,59 @@ def _rows(idx: GridIndices, params: SimulationParameters, rows: slice | None):
     return (m if rows is None else m[rows]), params.mj, params.mk
 
 
+def grid_order(params: SimulationParameters, idx: GridIndices) -> tuple:
+    """Interior nodes renumbered into full-grid order, cached per device.
+
+    The two numberings run opposite ways — the full grid is i-fastest, the
+    interior numbering is i-slowest — so consecutive interior nodes land tens
+    of thousands of elements apart on the full grid.  Walking the stencil in
+    interior order therefore fetches a fresh cache line for almost every one of
+    its twenty-odd gathers: measured 6.7 ms against 2.4 ms for the same gather
+    taken in ascending order, on an 800 k-node grid.
+
+    Sorting ``interior_to_full`` is just reading the interior array in (k, j, i)
+    order instead of (i, j, k), so the permutation is a transpose and needs no
+    sort.  The right-hand side walks the nodes this way and pays the scattered
+    access on its four writes instead of on all its reads.
+
+    Returns
+    -------
+    order : ndarray
+        ``order[p]`` is the interior index of the p-th node in full-grid order.
+    m_sorted : ndarray
+        ``interior_to_full[order]`` — ascending.
+    """
+    st = idx.neighbours(params)
+    cached = st.get("_grid_order")
+    if cached is not None:
+        return cached
+
+    shape = (params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1))
+    order = np.arange(params.n_interior).reshape(shape).transpose(2, 1, 0).ravel()
+    order = np.ascontiguousarray(order)
+    m_sorted = idx.interior_to_full[order]
+    st["_grid_order"] = (order, m_sorted)
+    return st["_grid_order"]
+
+
+def _material_in_grid_order(
+    params: SimulationParameters,
+    idx: GridIndices,
+    material: Optional[MaterialMap],
+) -> tuple:
+    """``(κ², superconducting mask)`` permuted into full-grid order, cached."""
+    st = idx.neighbours(params)
+    cached = st.get("_material_grid_order")
+    if cached is not None and cached[0] is material:
+        return cached[1], cached[2]
+
+    order, _ = grid_order(params, idx)
+    kappa_sq = kappa_sq_interior(params, idx, material)[order]
+    sc = None if material is None else material.interior_sc_mask[order]
+    st["_material_grid_order"] = (material, kappa_sq, sc)
+    return kappa_sq, sc
+
+
 def apply_LPSI(
     x: NDArray[np.complexfloating],
     y1: NDArray[np.complexfloating],
@@ -498,18 +551,25 @@ def rhs_rows(
 ) -> None:
     """Write dψ/dt and dφ/dt for interior rows *rows* into *out*.
 
-    This is the whole interior right-hand side for one contiguous block of
-    nodes, which is the unit :func:`~tdgl3d.physics.rhs.eval_f` hands to each
-    thread.  Doing all four output blocks for one block of nodes — rather than
-    one output block for all nodes — keeps each thread reading the same
-    neighbourhood of ``x``, ``y1``, ``y2`` and ``y3`` throughout.
+    *rows* selects a contiguous block of the **grid-ordered** nodes — see
+    :func:`grid_order` — so a thread's gathers walk the full grid in order
+    rather than jumping a plane at a time.  Doing all four output blocks for
+    one block of nodes, rather than one output block for all nodes, keeps that
+    thread reading the same neighbourhood of ``x``, ``y1``, ``y2`` and ``y3``
+    throughout.  The four writes go back through the permutation, which is
+    where the scattered access is paid; there are four of those against twenty
+    reads.
 
     It is the same arithmetic as :func:`apply_LPSI`, :func:`apply_LPHI_x` and
     the ``construct_F*`` forcings; ``test_matrix_free_operators`` holds the two
     paths together.
     """
-    m, mj, mk = _rows(idx, params, rows)
-    kappa2 = kappa_sq_interior(params, idx, material)[rows]
+    order, m_sorted = grid_order(params, idx)
+    kappa_sq_all, sc_all = _material_in_grid_order(params, idx, material)
+    m = m_sorted[rows]
+    write = order[rows]
+    mj, mk = params.mj, params.mk
+    kappa2 = kappa_sq_all[rows]
     out_psi, out_px, out_py, out_pz = out
     hx2, hy2, hz2 = params.hx**2, params.hy**2, params.hz**2
     is_3d = params.is_3d
@@ -526,12 +586,12 @@ def rhs_rows(
         dpsi += (np.exp(1j * y3[m - mk]) * x[m - mk] + fz * x[m + mk] - 2.0 * x_m) / hz2
 
     gl_term = (1.0 - np.conj(x_m) * x_m) * x_m
-    if material is not None:
-        sc = material.interior_sc_mask[rows]
+    if sc_all is not None:
+        sc = sc_all[rows]
         dpsi += sc * gl_term - (1.0 - sc) * x_m / INSULATOR_RELAXATION_TIME
     else:
         dpsi += gl_term
-    out_psi[rows] = dpsi
+    out_psi[write] = dpsi
 
     # --- dφ_x/dt: transverse Laplacian, curl-curl cross terms, supercurrent -
     kx, ky, kz = kappa2 / hx2, kappa2 / hy2, kappa2 / hz2
@@ -543,7 +603,7 @@ def rhs_rows(
         dpx += kz * (y1[m + mk] + y1[m - mk] - 2.0 * y1[m])
         dpx += kz * (-y3[xp] + y3[m] + y3[xp - mk] - y3[m - mk])
     dpx += np.imag(fx * np.conj(x_m) * x[xp])
-    out_px[rows] = dpx
+    out_px[write] = dpx
 
     # --- dφ_y/dt ------------------------------------------------------------
     yp = m + mj
@@ -553,7 +613,7 @@ def rhs_rows(
         dpy += kz * (y2[m + mk] + y2[m - mk] - 2.0 * y2[m])
         dpy += kz * (-y3[yp] + y3[m] + y3[yp - mk] - y3[m - mk])
     dpy += np.imag(fy * np.conj(x_m) * x[yp])
-    out_py[rows] = dpy
+    out_py[write] = dpy
 
     # --- dφ_z/dt ------------------------------------------------------------
     if is_3d:
@@ -563,4 +623,4 @@ def rhs_rows(
         dpz += kx * (-y1[zp] + y1[m] + y1[zp - 1] - y1[m - 1])
         dpz += ky * (-y2[zp] + y2[m] + y2[zp - mj] - y2[m - mj])
         dpz += np.imag(fz * np.conj(x_m) * x[zp])
-        out_pz[rows] = dpz
+        out_pz[write] = dpz
