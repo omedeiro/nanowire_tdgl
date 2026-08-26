@@ -1,6 +1,6 @@
 # Physics Verification Report
 
-**Run timestamp:** 2026-08-23T14:26:28.320831
+**Run timestamp:** 2026-08-26T23:32:27.110541
 **Tests:** 77/77 passed, 0 failed
 **Checks:** 274/274 passed (0 failed)
 
@@ -44,8 +44,8 @@ Each check records the measured value, the value physics requires and the tolera
 | **test_vortex_count_is_gauge_invariant** | | | | |
 | vortices present (test would be vacuous otherwise) | 8 | >= 1 | 1 | PASS |
 | vortex count after gauge change | 8 | 8 | 0 | PASS |
-| max Δ(plaquette vorticity) | 3.331e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|winding change\| | 2.220e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max Δ(plaquette vorticity) | 2.297e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|winding change\| | 1.110e-16 | <= 1e-09 | 1.000e-09 | PASS |
 
 ### Conservation laws and identities
 
@@ -247,9 +247,9 @@ Each check records the measured value, the value physics requires and the tolera
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
 | **test_fluxoid_equals_enclosed_vorticity_for_any_contour** | | | | |
-| max \|fluxoid − nearest integer\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|fluxoid − enclosed vorticity\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| \|staircase fluxoid − enclosed vorticity\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − nearest integer\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − enclosed vorticity\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| \|staircase fluxoid − enclosed vorticity\| | 2.665e-15 | <= 1e-09 | 1.000e-09 | PASS |
 | **test_no_vortices_in_the_meissner_state** | | | | |
 | vortex count | 0 | 0 | 0 | PASS |
 | max \|vorticity\| anywhere | 2.209e-18 | <= 1e-09 | 1.000e-09 | PASS |
@@ -264,7 +264,7 @@ Each check records the measured value, the value physics requires and the tolera
 | count / (B·A/Φ₀) at Bz = 0.5 | 0.19635 | <= 1 | 1 | PASS |
 | count / (B·A/Φ₀) at Bz = 0.7 | 0.420749 | <= 1 | 1 | PASS |
 | mean interior Bz / applied at Bz = 0.35 | 0.42922 | <= 1 | 1 | PASS |
-| mean interior Bz / applied at Bz = 0.5 | 0.681309 | <= 1 | 1 | PASS |
+| mean interior Bz / applied at Bz = 0.5 | 0.681311 | <= 1 | 1 | PASS |
 | mean interior Bz / applied at Bz = 0.7 | 0.853044 | <= 1 | 1 | PASS |
 | **test_vortex_winding_sign_follows_the_applied_field[Bz=-0.5]** | | | | |
 | vortices detected | 8 | >= 1 | 1 | PASS |
@@ -750,11 +750,11 @@ _the fluxoid is a topological invariant of the region, not of the path_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
-- **PASS** max |fluxoid − nearest integer|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |fluxoid − enclosed vorticity|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** |staircase fluxoid − enclosed vorticity|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − nearest integer|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − enclosed vorticity|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |staircase fluxoid − enclosed vorticity|: measured 2.665e-15, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
-  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=-8.835e-18, enclosed_vorticity=0
+  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=1.767e-17, enclosed_vorticity=0
   - `staircase_fluxoid`: 6
   - `staircase_enclosed`: 6
 
@@ -979,7 +979,7 @@ _λ = κ in these units — the field decays as exp(-x/κ) into the bulk_
 _the analytical model must solve the equation it claims to solve_
 
 - **Status:** PASS
-- **Duration:** 0.494s
+- **Duration:** 0.197s
 - **Parameters:** width=16, lambda=2, n_grid=[200, 400]
 - **PASS** max |∇²B − B/λ²| at the finer grid: measured 2.400e-05, expected <= 0.0001 — dominated by the five-point stencil used to check it
 - **PASS** residual ratio on halving the check grid: measured 4.00022, expected 4 — O(h²) means the residual belongs to the difference stencil
@@ -1442,7 +1442,7 @@ _the mixed state admits more flux quanta as the applied field rises_
 - **PASS** count / (B·A/Φ₀) at Bz = 0.5: measured 0.19635, expected <= 1 — screening keeps the interior field below the applied field
 - **PASS** count / (B·A/Φ₀) at Bz = 0.7: measured 0.420749, expected <= 1 — screening keeps the interior field below the applied field
 - **PASS** mean interior Bz / applied at Bz = 0.35: measured 0.42922, expected <= 1 — the sample still screens in the mixed state
-- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.681309, expected <= 1 — the sample still screens in the mixed state
+- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.681311, expected <= 1 — the sample still screens in the mixed state
 - **PASS** mean interior Bz / applied at Bz = 0.7: measured 0.853044, expected <= 1 — the sample still screens in the mixed state
 - **Diagnostics:**
   - `vortex_counts`: [0, 4, 12]
@@ -1458,8 +1458,8 @@ _plaquette vorticity is a topological invariant of the gauge-field configuration
 - **Parameters:** Nx=14, kappa=2, Bz=0.6
 - **PASS** vortices present (test would be vacuous otherwise): measured 8, expected >= 1 — must be at least 1
 - **PASS** vortex count after gauge change: measured 8, expected 8 — |measured - expected| <= 0
-- **PASS** max Δ(plaquette vorticity): measured 3.331e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |winding change|: measured 2.220e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max Δ(plaquette vorticity): measured 2.297e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |winding change|: measured 1.110e-16, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
   - `n_vortices`: 8
   - `windings`: [1, 1, 1, 1, 1, 1, 1, 1]

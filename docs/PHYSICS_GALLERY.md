@@ -29,11 +29,18 @@ gallery. Regenerate the report with:
 cd packages/tdgl3d
 python3 -m pytest tests/test_verification_*.py tests/test_physics_validation.py -q
 cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
+python3 docs/generate_error_table.py --input packages/tdgl3d/logs
 ```
 
-Full details: [`physics_test_report.md`](physics_test_report.md), which lists
-every check with its measured value, the value physics requires, and the
-tolerance allowed.
+Two reports come out of the same run:
+
+* [`physics_test_report.md`](physics_test_report.md) lists **every** check with
+  its measured value, the value physics requires, and the tolerance allowed.
+* [`physics_error_table.md`](physics_error_table.md) lists only the checks
+  anchored to a result known independently of the solver — a closed-form
+  solution, an exact lattice identity, or a second code path — with the error,
+  the budget it used, and a curated list of known solutions that have no row
+  yet.
 
 | Suite | What it pins down |
 |-------|-------------------|
