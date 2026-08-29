@@ -39,6 +39,11 @@ SCRIPTS = [
     ]),
     ("vortex_entry_dynamics", ["vortex_entry_dynamics.gif"]),
     ("analytic_cross_sections", ["analytic_cross_sections.png"]),
+    ("nb_hole_array", [
+        "nb_hole_array_entry.png",
+        "nb_hole_array_trapped.png",
+        "nb_hole_array_trapped.gif",
+    ]),
 ]
 
 

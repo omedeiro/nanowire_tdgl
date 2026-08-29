@@ -189,15 +189,16 @@ mkdir -p .tdgl3d-run/ex && cd .tdgl3d-run/ex && python3 ../../packages/tdgl3d/ex
 
 ```bash
 python3 -m pytest packages/tdgl3d/tests packages/schema/tests packages/tdgl3d-server/tests -q
-# 272 passed, 3 xfailed in 5m26s
+# 318 passed, 3 xfailed in ~1m (solver package alone)
 ```
 
-**5½ minutes**, almost entirely the physics-verification suites. While
-iterating, use the fast subset:
+**About a minute** — it used to be 5½, most of it the physics-verification
+suites, before the solver's right-hand side stopped rebuilding sparse matrices
+on every call. While iterating, use the fast subset:
 
 ```bash
 python3 -m pytest packages/tdgl3d/tests -q -k "not verification and not physics_validation"
-# 181 passed, 77 deselected, 3 xfailed in 23s
+# 241 passed, 77 deselected, 3 xfailed in 13s
 
 python3 -m pytest packages/schema/tests packages/tdgl3d-server/tests -q
 # 14 passed in 1s

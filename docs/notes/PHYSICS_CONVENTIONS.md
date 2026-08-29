@@ -263,3 +263,16 @@ See `test_verification_analytic.py` and gallery §14.
 * The trapezoidal integrator's Jacobian-vector products are finite differences,
   so its Newton-GCR tolerances cannot usefully be pushed below the differencing
   noise floor (~1e-5 works; 1e-8 fails to converge or takes minutes).
+* The trapezoidal integrator does not pay for itself at these parameters. Its
+  Krylov iteration count grows about as fast as the step size it buys, so cost
+  per unit simulated time bottoms out around 2.8x forward Euler's — measured
+  over `dt` from 0.02 to 0.8. Every figure in `docs/figures/` uses Euler.
+* **A diagonal (Jacobi) preconditioner does not fix that.** Measured 0.92x to
+  1.10x against no preconditioner across κ = 2, 5, 10, h = 1 and 0.5, and step
+  sizes from 2x to 32x the explicit limit. The operator is nearly
+  constant-coefficient: within each block the diagonal is the same number at
+  every node, so scaling by it is close to a uniform rescale and changes no
+  eigenvalue ratio. The conditioning is the Laplacian's spread across spatial
+  frequencies, which only a frequency-aware method touches — multigrid, or a
+  sine-transform solve, which the structured Cartesian grid would suit.
+  `tgcr_matrix_free_trap(..., scaling=...)` is the seam one plugs into.
