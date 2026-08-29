@@ -9,9 +9,10 @@ between neighbours), with an 8 µm buffer of unbroken film around the array::
          └ hole   gap  hole  gap  hole ┘
 
 The stack is S(500 nm) / I(500 nm) / S(500 nm) = 1.5 µm thick, and the holes go
-through all three layers.  The oxide is given the same κ as the metal: an
-insulator at κ = 0 cannot carry a magnetic field at all, and would block the
-field between the layers instead of transmitting it.
+through all three layers.  The oxide is written with the metal's κ, but that is
+cosmetic: κ on a non-superconducting layer carries no physics, because the
+coefficient multiplying the Maxwell term is the field energy rather than a
+material property.
 
 Scale is what makes this expensive
 ----------------------------------
@@ -271,8 +272,9 @@ def build(
     units = spec["units"]
     trilayer = Trilayer(
         bottom=Layer(thickness_z=spec["n_layer"], kappa=KAPPA, is_superconductor=True),
-        # The oxide keeps the metal's κ on purpose.  At κ = 0 its φ-equation
-        # degenerates and it blocks the field rather than transmitting it.
+        # κ on a non-superconducting layer carries no physics: the Maxwell
+        # coefficient is the field energy and takes params.kappa everywhere.
+        # It is written out here only to keep the three layers reading alike.
         insulator=Layer(
             thickness_z=spec["n_layer"], kappa=KAPPA, is_superconductor=False
         ),

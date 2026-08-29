@@ -87,8 +87,8 @@ def _build(xi_nm, scale, field):
     units, side, n_side, n_layer, rects, array_span = _geometry(xi_nm, scale)
     trilayer = Trilayer(
         bottom=Layer(thickness_z=n_layer, kappa=KAPPA, is_superconductor=True),
-        # A non-superconducting layer still needs κ > 0: at κ = 0 its φ-equation
-        # degenerates and the oxide blocks the field instead of transmitting it.
+        # κ on a non-superconducting layer carries no physics: the Maxwell
+        # coefficient is the field energy and takes params.kappa everywhere.
         insulator=Layer(thickness_z=n_layer, kappa=KAPPA, is_superconductor=False),
         top=Layer(thickness_z=n_layer, kappa=KAPPA, is_superconductor=True),
     )

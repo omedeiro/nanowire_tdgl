@@ -8,7 +8,7 @@ from typing import Optional
 import numpy as np
 
 from ..mesh.indices import GridIndices, construct_indices
-from ..physics.applied_field import AppliedField
+from ..physics.applied_field import AppliedField, _reject_periodic_axes
 from .material import MaterialMap, Trilayer, build_material_map
 from .parameters import SimulationParameters
 from .state import StateVector
@@ -47,6 +47,13 @@ class Device:
             self._material = build_material_map(
                 self.params, self.trilayer, self._idx
             )
+        # Fail here rather than several thousand time steps later.
+        _reject_periodic_axes(
+            self.applied_field.Bx,
+            self.applied_field.By,
+            self.applied_field.Bz,
+            self.params,
+        )
 
     @property
     def idx(self) -> GridIndices:
