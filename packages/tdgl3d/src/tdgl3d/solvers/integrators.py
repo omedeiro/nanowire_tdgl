@@ -15,6 +15,7 @@ from ..core.material import MaterialMap
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
 from ..physics.rhs import BoundaryVectors, eval_f
+from .history import make_history
 from .newton import newton_gcr_trap
 
 
@@ -30,43 +31,6 @@ def _make_eval_f(
     return f
 
 
-class _History:
-    """Growable ``(n_state, n_saved)`` store for the saved states.
-
-    The obvious implementation — append copies to a list, then
-    ``np.column_stack`` — holds every frame twice at the moment the run
-    finishes, because the stack allocates the whole output before the list is
-    released.  On a large 3-D grid a single frame is hundreds of megabytes and
-    that doubling is what runs the machine out of memory, right at the end of
-    a run that had otherwise succeeded.
-
-    Writing frames straight into a preallocated column block and growing it
-    geometrically keeps one copy of the history, plus at most one growth
-    reallocation.
-    """
-
-    __slots__ = ("_buf", "_n", "times")
-
-    def __init__(self, n_state: int, capacity: int) -> None:
-        self._buf = np.empty((n_state, max(capacity, 1)), dtype=np.complex128)
-        self._n = 0
-        self.times: list[float] = []
-
-    def append(self, t: float, X: NDArray) -> None:
-        if self._n == self._buf.shape[1]:
-            self._buf = np.concatenate(
-                [self._buf, np.empty_like(self._buf[:, : max(self._n, 1)])], axis=1
-            )
-        self._buf[:, self._n] = X
-        self._n += 1
-        self.times.append(t)
-
-    def finish(self) -> tuple[NDArray, NDArray]:
-        # A slice of the buffer is a view, so this returns the frames without
-        # copying them when the capacity estimate was exact.
-        return np.array(self.times), self._buf[:, : self._n]
-
-
 def forward_euler(
     x0: NDArray[np.complexfloating],
     params: SimulationParameters,
@@ -79,6 +43,7 @@ def forward_euler(
     save_every: int = 1,
     progress: bool = True,
     material: Optional[MaterialMap] = None,
+    history=None,
 ) -> tuple[NDArray, NDArray]:
     """Explicit Forward-Euler time integration.
 
@@ -96,6 +61,9 @@ def forward_euler(
         Save every *n*-th step to the history.
     progress : bool
         Show a tqdm progress bar.
+    history : MemoryHistory or HDF5History, optional
+        Where saved frames go.  Defaults to memory; pass an
+        :class:`~tdgl3d.solvers.history.HDF5History` to stream them to disk.
 
     Returns
     -------
@@ -105,7 +73,7 @@ def forward_euler(
     n_steps = int(np.ceil((t_stop - t_start) / dt))
     X = np.array(x0, dtype=np.complex128)
 
-    hist = _History(X.size, n_steps // max(save_every, 1) + 2)
+    hist = history or make_history(X.size, n_steps // max(save_every, 1) + 2, None)
     hist.append(t_start, X)
 
     t = t_start
@@ -147,6 +115,7 @@ def trapezoidal(
     progress: bool = True,
     verbose: bool = False,
     material: Optional[MaterialMap] = None,
+    history=None,
 ) -> tuple[NDArray, NDArray]:
     """Implicit Trapezoidal time integration with Newton-GCR.
 
@@ -180,7 +149,9 @@ def trapezoidal(
     current_dt = dt
 
     n_steps_est = int(np.ceil((t_stop - t_start) / dt)) if dt > 0 else 1
-    hist = _History(X.size, n_steps_est // max(save_every, 1) + 2)
+    hist = history or make_history(
+        X.size, n_steps_est // max(save_every, 1) + 2, None
+    )
     hist.append(t, X)
     step = 0
 

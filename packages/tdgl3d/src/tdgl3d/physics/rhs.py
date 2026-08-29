@@ -42,7 +42,7 @@ def _expand_interior_to_full(
     conditions rely on because they accumulate into the ghost faces.
     """
     if out is None:
-        full = np.zeros(params.dim_x, dtype=np.complex128)
+        full = np.zeros(params.dim_x, dtype=interior_vals.dtype)
     else:
         full = out
         full[:] = 0.0
@@ -252,18 +252,24 @@ def eval_f(
         Time derivative dX/dt.
     """
     n = params.n_interior
+    # Everything downstream follows the state's precision: a complex64 run
+    # gets complex64 scratch, output and material coefficients, and never
+    # silently promotes back to double part-way through.
+    dtype = np.dtype(X.dtype)
+    if dtype not in (np.complex64, np.complex128):
+        dtype = np.dtype(np.complex128)
 
     # Unpack interior values
     psi_int = X[:n]
     phi_x_int = X[n : 2 * n]
     phi_y_int = X[2 * n : 3 * n]
-    phi_z_int = X[3 * n : 4 * n] if params.is_3d else np.zeros(n, dtype=np.complex128)
+    phi_z_int = X[3 * n : 4 * n] if params.is_3d else np.zeros(n, dtype=dtype)
 
     # Expand to full grid, into buffers the device lends us.  Allocating and
     # first-touching eight full-grid arrays per evaluation is most of a
     # gigabyte of page faults on a large mesh, repeated tens of thousands of
     # times in a run.
-    work = idx.workspace(params, 8)
+    work = idx.workspace(params, 8, dtype=dtype)
     try:
         x = _expand_interior_to_full(psi_int, params, idx, work[0])
         y1 = _expand_interior_to_full(phi_x_int, params, idx, work[1])
@@ -282,10 +288,10 @@ def eval_f(
         # on every call.  It is split across threads by interior node; the
         # kernel is memory-bound, so the cores buy bandwidth.
         n_blocks = 4 if params.is_3d else 3
-        F = np.empty(n_blocks * n, dtype=np.complex128)
+        F = np.empty(n_blocks * n, dtype=dtype)
         blocks = tuple(F[i * n : (i + 1) * n] for i in range(n_blocks))
         if not params.is_3d:
-            blocks = blocks + (np.empty(0, dtype=np.complex128),)
+            blocks = blocks + (np.empty(0, dtype=dtype),)
 
         run_chunks(
             lambda rows: rhs_rows(

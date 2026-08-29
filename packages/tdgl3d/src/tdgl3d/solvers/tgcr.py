@@ -134,6 +134,7 @@ def tgcr_matrix_free_trap(
     eps_mf: float = 1e-4,
     f_base: NDArray[np.complexfloating] | None = None,
     max_krylov: int = DEFAULT_MAX_KRYLOV,
+    scaling: NDArray[np.floating] | None = None,
 ) -> NDArray[np.complex128]:
     """TGCR for the trapezoidal implicit system ``(I - dt/2 J) δx = b``.
 
@@ -143,6 +144,24 @@ def tgcr_matrix_free_trap(
     ``f(x)`` at the linearisation point is constant for the whole solve; pass
     it as *f_base* (Newton already has it) to avoid recomputing it once per
     Krylov iteration.
+
+    *scaling* right-preconditions the solve: the search direction becomes
+    ``M⁻¹ r`` with ``M⁻¹`` the elementwise *scaling*.  Right rather than left,
+    so the residual this loop monitors and stops on stays the residual of the
+    original system and the tolerance keeps its meaning.
+
+    .. note::
+       A **diagonal (Jacobi)** scaling is the obvious thing to put here and it
+       does not work — measured 0.92x to 1.10x against no preconditioner across
+       κ = 2, 5, 10, h = 1 and 0.5, and step sizes from 2x to 32x the explicit
+       limit.  The reason is that this operator is nearly constant-coefficient:
+       within each block the diagonal is the same number at every node, so
+       scaling by it is close to a uniform rescale and changes no eigenvalue
+       ratio.  The conditioning comes from the Laplacian's spread across
+       spatial frequencies, which only a method that treats frequencies
+       differently touches — multigrid, or a sine-transform solve, which the
+       structured Cartesian grid here would suit.  This parameter is the seam
+       such a preconditioner plugs into.
     """
     N = len(b)
     if f_base is None:
@@ -163,7 +182,10 @@ def tgcr_matrix_free_trap(
     k = 0
     while r_norms[-1] / r_norms[0] > tol and k < max_iter:
         k += 1
-        pk = r.copy()
+        # The search direction lives in the preconditioned space; ``pk`` below
+        # is the direction actually added to x, so it carries the scaling and
+        # nothing has to be undone at the end.
+        pk = r * scaling if scaling is not None else r.copy()
 
         epsilon = eps_mf * (1.0 + np.linalg.norm(x_lin)) / np.linalg.norm(pk)
         f_pert = eval_f(x_lin + epsilon * pk)

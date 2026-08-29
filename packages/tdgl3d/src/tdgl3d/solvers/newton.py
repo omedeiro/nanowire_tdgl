@@ -87,12 +87,15 @@ def newton_gcr_trap(
     tol_gcr: float = 1e-4,
     eps_mf: float = 1e-4,
     verbose: bool = False,
+    scaling: NDArray[np.floating] | None = None,
 ) -> tuple[NDArray[np.complex128], bool, int]:
     """Newton iteration for the **trapezoidal** implicit system:
 
         g(x) = x - (dt/2) f(x) - γ = 0
 
     where γ = x_n + (dt/2) f(x_n).
+
+    *scaling* is passed through to the Krylov solve as its preconditioner.
     """
     x = np.array(x0, dtype=np.complex128)
     # f(x) at the current iterate.  Each pass through the loop below ends by
@@ -104,7 +107,8 @@ def newton_gcr_trap(
         g = x - (dt / 2.0) * f - gamma
 
         dx = tgcr_matrix_free_trap(
-            eval_f, x, -g, dt, tol=tol_gcr, eps_mf=eps_mf, f_base=f
+            eval_f, x, -g, dt, tol=tol_gcr, eps_mf=eps_mf, f_base=f,
+            scaling=scaling,
         )
         if dx.size == 0:
             if verbose:

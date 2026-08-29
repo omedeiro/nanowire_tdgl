@@ -183,7 +183,10 @@ class GridIndices:
         """Drop the cached operator scratch (call after mutating indices)."""
         self._stencil = {}
 
-    def workspace(self, params: SimulationParameters, n_vectors: int = 8) -> list:
+    def workspace(
+        self, params: SimulationParameters, n_vectors: int = 8,
+        dtype=np.complex128,
+    ) -> list:
         """Lend *n_vectors* full-grid complex scratch arrays, or make new ones.
 
         The right-hand side needs eight arrays of ``dim_x`` complex128 — four
@@ -196,16 +199,25 @@ class GridIndices:
         The workspace is lent, not shared: a nested or concurrent caller gets
         freshly allocated arrays rather than the ones already in use, so the
         reuse can never alias two live evaluations.  Return it with
-        :meth:`release_workspace`.
+        :meth:`release_workspace`.  *dtype* follows the state being evaluated,
+        so a single-precision run gets single-precision scratch.
         """
         st = self.neighbours(params)
+        dtype = np.dtype(dtype)
         held = st.get("_workspace")
-        if held is not None and not held["in_use"] and len(held["buf"]) >= n_vectors:
+        if (
+            held is not None
+            and not held["in_use"]
+            and len(held["buf"]) >= n_vectors
+            and held["buf"][0].dtype == dtype
+        ):
             held["in_use"] = True
             return held["buf"][:n_vectors]
 
-        buf = [np.empty(params.dim_x, dtype=np.complex128) for _ in range(n_vectors)]
-        if held is None:
+        buf = [np.empty(params.dim_x, dtype=dtype) for _ in range(n_vectors)]
+        if held is None or held["buf"][0].dtype != dtype:
+            if held is not None and held["in_use"]:
+                return buf  # in use at another precision; do not steal the slot
             st["_workspace"] = {"buf": buf, "in_use": True}
         return buf
 

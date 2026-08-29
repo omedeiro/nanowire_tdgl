@@ -428,17 +428,28 @@ def _material_in_grid_order(
     params: SimulationParameters,
     idx: GridIndices,
     material: Optional[MaterialMap],
+    real_dtype=np.float64,
 ) -> tuple:
-    """``(κ², superconducting mask)`` permuted into full-grid order, cached."""
+    """``(κ², superconducting mask)`` permuted into full-grid order, cached.
+
+    Kept in *real_dtype* so a single-precision state is not silently promoted
+    back to double the first time it is multiplied by a coefficient.
+    """
     st = idx.neighbours(params)
+    real_dtype = np.dtype(real_dtype)
     cached = st.get("_material_grid_order")
-    if cached is not None and cached[0] is material:
+    if cached is not None and cached[0] is material and cached[3] == real_dtype:
         return cached[1], cached[2]
 
     order, _ = grid_order(params, idx)
-    kappa_sq = kappa_sq_interior(params, idx, material)[order]
-    sc = None if material is None else material.interior_sc_mask[order]
-    st["_material_grid_order"] = (material, kappa_sq, sc)
+    kappa_sq = kappa_sq_interior(params, idx, material)[order].astype(
+        real_dtype, copy=False
+    )
+    sc = (
+        None if material is None
+        else material.interior_sc_mask[order].astype(real_dtype, copy=False)
+    )
+    st["_material_grid_order"] = (material, kappa_sq, sc, real_dtype)
     return kappa_sq, sc
 
 
@@ -565,7 +576,10 @@ def rhs_rows(
     paths together.
     """
     order, m_sorted = grid_order(params, idx)
-    kappa_sq_all, sc_all = _material_in_grid_order(params, idx, material)
+    real_dtype = out[0].real.dtype
+    kappa_sq_all, sc_all = _material_in_grid_order(
+        params, idx, material, real_dtype=real_dtype
+    )
     m = m_sorted[rows]
     write = order[rows]
     mj, mk = params.mj, params.mk
