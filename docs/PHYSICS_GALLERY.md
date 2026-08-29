@@ -44,12 +44,13 @@ tolerance allowed.
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
 | `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents |
 
-> **Known limitation.** Setting `kappa = 0.0` on an insulating layer degenerates
-> its φ-equation entirely (`LPHI ∝ κ² = 0` and `FPHI ∝ J_s ∝ ψ = 0`), so the
-> gauge field is frozen there and the layer cannot carry the field that should
-> pass straight through it — see figure 5. This is a solver limitation, not a
-> physical result; the trilayer test pins the current behaviour so a fix is
-> visible as a test failure.
+> **A note on `kappa` in a non-superconducting layer.** The κ² that
+> multiplies `∇×(∇×A)` is the field energy `B²/2μ₀`, which belongs to the
+> field rather than to the material, so the solver uses the reference
+> `params.kappa` in insulators, holes and vacuum.  A layer declared with
+> `kappa=0.0` therefore still transmits the field; the declared value is
+> recorded but carries no physics.  (`Layer.magnetic_kappa` exists for
+> models that deliberately want a varying coefficient.)
 
 ---
 
@@ -146,28 +147,56 @@ boundary conditions at the hole edges.
 
 ---
 
-## 5. Trilayer B-field Screening
+## 5. Trilayer B-field Screening — and the Vacuum Around the Stack
 
 ![Trilayer bfield](figures/trilayer_bfield.png)
 
-**Physical mechanism:** In a Superconductor/Insulator/Superconductor (S/I/S) trilayer,
-the SC layers screen the magnetic field via the Meissner effect, while the insulator
-allows field penetration. For a symmetric trilayer, screening is approximately symmetric.
+**Physical mechanism:** In a Superconductor/Insulator/Superconductor (S/I/S)
+trilayer, the metal layers screen the perpendicular field via the Meissner
+effect, while the oxide — which has no condensate, so no screening current —
+transmits it.
 
-**Validates:** `test_physics_validation.py::test_trilayer_bfield_penetration_profile`
+The applied field enters this solver as prescribed flux through the plaquettes
+on the *wall of the box*.  That is the right statement only where the wall is
+far-field vacuum.  With the stack filling the box the same condition lands on
+the metal's own surface, so the film's outermost nodes are handed the applied
+field rather than solving for it, and flux expelled from the film has nowhere
+to go.  Padding the stack with vacuum moves the condition off the metal, and
+then all three things the device does are visible at once: the metal screens,
+the oxide transmits, and the expelled flux crowds into the vacuum beside the
+film, where the field *exceeds* the applied one and relaxes back to it out at
+the wall.
 
-**Parameters:** 8×8×12 grid (S/I/S: 4/4/4), κ=2.0, Bz=0.3, t=5 (Forward Euler)
+**Validates:** `test_verification_vacuum.py`, `test_physics_validation.py::test_trilayer_bfield_penetration_profile`
+
+**Parameters:** metal span 4 ξ, oxide gap 3 ξ, film 16 ξ wide, 6 ξ vacuum
+either side and 6 ξ above and below, κ=2.0, h=1 ξ (28×28×23 grid),
+relaxed 60 τ_GL.  Refinement panel: 8 ξ film, 2 ξ margin, 4 ξ pad, at
+h = 1 and 0.5 ξ.
 
 **Key features:**
-- Left: Bz(z) profile at center with shaded SC (blue) and insulator (red) regions;
-  field is screened in SC layers, penetrates insulator
-- Right: |ψ|²(z) profile showing order parameter in SC vs insulator layers
+- Top-left: Bz(z) through the stack, padded (blue) against the same stack
+  filling the box (red).  Vacuum, metal and oxide regions shaded.
+- Top-right: the same cut at two grid spacings, with the *realised* metal span
+  and oxide gap held fixed as h changes (see below).
+- Bottom-left: Bz(x) across the film — screened inside, crowded just outside.
+- Bottom-right: Bz in the x–z plane; cyan outlines the metal, the dashed
+  contour is the applied value.
 
-**Validation metrics:** Bz ≈ 0.01 in the Nb layers (screened from 0.3) and |ψ|² → 0 across the
-insulator, both as expected. Bz ≈ 0 in the insulator is the κ = 0 limitation noted above,
-not a physical result.
+**Validation metrics:** Bz at the film centre 0.396 × applied; peak beside
+the film 1.035 × applied — the crowding is only visible with vacuum in the
+box.  The oxide is declared `kappa=0.0` and transmits anyway: the Maxwell
+coefficient is the vacuum's, so the declared value changes nothing.  What
+screens is the condensate, and the oxide has none.
 
----
+**A meshing trap worhere.** `build_material_map` hands both S/I interface
+nodes to the insulator, so a metal layer declared `n` cells spans only
+`n-1` cells of nodes and the metal-to-metal gap comes out `m+2` cells rather
+than `m`.  Declaring cell counts directly therefore makes the *device* change
+when the mesh is refined, and a refinement study would be comparing three
+different stacks.  The script inverts the offsets so the realised geometry is
+pinned instead; it also puts a floor on the spacing, since a 3 ξ gap needs
+`3/h ≥ 3`.
 
 ## 6. Insulator Order Parameter Decay
 

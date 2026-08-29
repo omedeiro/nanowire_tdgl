@@ -40,7 +40,7 @@ survives refinement.
 | | |
 |:--:|:--:|
 | [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
-| **Fluxoid vs time** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S screening** — the Nb layers screen; the oxide transmits, provided it is given a non-zero κ. |
+| **Fluxoid vs time**** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S in a perpendicular field** — the metal screens, the oxide transmits, and the expelled flux crowds into the vacuum beside the film. |
 
 ### Checks against exact solutions
 
@@ -181,7 +181,7 @@ where `φ_x[m]` is the Peierls phase (line integral of **A**) on the link from n
 Non-superconducting regions (insulators, holes) are modeled by:
 
 1. **Suppressing ψ**: Adding a relaxation term `−ψ/τ_relax` (τ = 0.1) drives ψ → 0
-2. **Preserving gauge dynamics**: Keeping κ non-zero so the vector potential **A** still evolves
+2. **Leaving the Maxwell term alone**: the `κ²∇×∇×A` coefficient is the field energy `B²/2μ₀`, which belongs to the field rather than to the material, so it keeps the reference `params.kappa` in an insulator, in a hole and in vacuum.  A decldeclared `kappa` of 0 would zero that term, which would degenerate the φ-equation and freeze **A** — so the layer would neither screen nor transmit.
 
 This allows **magnetic flux penetration** into holes without screening:
 ```
@@ -251,6 +251,7 @@ by principle rather than by feature:
 | `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
 | `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt |
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field sign; lattice Stokes |
+| `test_verification_vacuum.py` | the applied field is exact in vacuum; a κ contrast in a currentless region changes nothing; a lateral margin unpins the film edge; flux crowds beside it; the far field converges with padding |
 
 Three numbers anchor the normalisation: **Φ₀ = 2π**, **λ = κ** (in ξ), and
 **H_c2 = 1**. An applied field above 1 leaves a normal metal, not a vortex
@@ -288,14 +289,14 @@ requires, and the tolerance allowed.
 | **Post-processing** | B-field evaluation, order-parameter magnitude, vorticity |
 | **Visualization** | 2D slice plots, 3D isometric scatter plots, animated GIFs |
 | **HDF5 I/O** | Save/load solutions via h5py |
-| **Validation suite** | 261 tests carrying 274 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer |
+| **Validation suite** | 273 tests carrying 294 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, interfaces and vacuum |
 
 ## Installation
 
 ```bash
 cd tdgl3d
 pip install -e ".[dev]"
-pytest          # 261 tests
+pytest          # 273 tests
 ```
 
 **Requirements:** Python ≥ 3.10, numpy ≥ 1.24, scipy ≥ 1.10, matplotlib ≥ 3.7,
@@ -328,6 +329,8 @@ import tdgl3d
 
 trilayer = tdgl3d.Trilayer(
     bottom=tdgl3d.Layer(thickness_z=3, kappa=2.0),
+    # κ is is recorded but carries no physics in a non-superconducting
+    # layer: the Maxwell term takes the vacuum coefficient everywhere.
     insulator=tdgl3d.Layer(thickness_z=1, kappa=0.0, is_superconductor=False),
     top=tdgl3d.Layer(thickness_z=3, kappa=2.0),
 )
@@ -408,6 +411,17 @@ Solution(times, states, params, idx)     (core/solution.py)
   all operators fall back to the uniform `params.kappa`.
 - **Insulator suppression:** In `construct_FPSI`, insulator nodes get an
   extra `−ψ/τ_relax` (τ_relax = 0.1) driving ψ → 0 without hard discontinuity.
+- **Maxwell coefficient is the vacuum's:** the κ² multiplying `∇×(∇×A)`
+  is the field energy `B²/2μ₀`, not a material property, so it
+  is uniform — the superconductor's `params.kappa` everywhere,
+  insulators and vacuum included.  A per per-layoverride
+  (`Layer.magnetic_kappa`) exists for models that want a varying
+  coefficient; where it is used the coefficient is evaluated on
+  plaquettes, which keeps the curl-curl operator self-adjoint.
+- **Applied field needs free boundaries:** the field is written onto
+  the ghost links closing the boundary plaquettes, and a periodic axis
+  has none, so an applied field on a grid with any periodic axis is
+  refused rather than silently returning the wrong field.
 - **CFL condition (Forward Euler):** dt < h² / (4κ²(d−1)), set by the stiff
   κ²∇×∇× term.  In 2D (d=2) this is the familiar h²/(4κ²) — with h=1, κ=2,
   dt < 0.0625.  In 3D each link variable gains a second transverse Laplacian
@@ -468,7 +482,7 @@ tdgl3d/
 ## Test suite
 
 ```bash
-pytest                  # all 261 tests
+pytest                  # all 273 tests
 pytest -k trilayer      # just trilayer tests
 pytest -k verification  # the physics verification suites only
 pytest --cov=tdgl3d     # with coverage
@@ -485,7 +499,7 @@ cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
 ```
 
 The current run is in [`docs/physics_test_report.md`](docs/physics_test_report.md)
-(274/274 checks passing); the conventions the checks depend on — gauge, index
+(294/294 checks passing); the conventions the checks depend on — gauge, index
 ordering, node-versus-plaquette centring, the CFL limit's dimension dependence —
 are written down in
 [`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
