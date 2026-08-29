@@ -27,12 +27,25 @@ def _make_eval_u(
     idx: GridIndices,
     t_stop: float,
 ):
-    """Return a callable ``eval_u(t, X) -> BoundaryVectors``."""
+    """Return a callable ``eval_u(t, X) -> BoundaryVectors``.
+
+    The vectors depend on the field only through ``(bx, by, bz)``, and a
+    constant or piecewise-constant field gives the same triple for thousands of
+    consecutive steps.  Rebuilding them means three full-grid allocations and
+    three ``np.add.at`` scatters each time, so the last result is kept and
+    returned unchanged while the triple holds.  The vectors are read-only to
+    the right-hand side, so sharing one across steps is safe.
+    """
+    cache: dict = {}
 
     def eval_u(t: float, X: NDArray) -> BoundaryVectors:
-        bx, by, bz = applied_field.evaluate(t, t_stop)
-        Bx_vec, By_vec, Bz_vec = build_boundary_field_vectors(bx, by, bz, params, idx)
-        return BoundaryVectors(Bx_vec, By_vec, Bz_vec)
+        b = applied_field.evaluate(t, t_stop)
+        if cache.get("b") != b:
+            cache["b"] = b
+            cache["u"] = BoundaryVectors(
+                *build_boundary_field_vectors(*b, params, idx)
+            )
+        return cache["u"]
 
     return eval_u
 

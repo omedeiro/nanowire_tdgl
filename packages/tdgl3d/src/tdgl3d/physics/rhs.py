@@ -16,7 +16,7 @@ from ..core.material import MaterialMap
 from ..core.parallel import chunk_count, run_chunks
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
-from ..operators.sparse_operators import rhs_rows
+from ..operators.sparse_operators import chunk_planes, rhs_rows
 
 
 class BoundaryVectors:
@@ -93,6 +93,27 @@ def _shared_edge_weight(
     return weight
 
 
+def _shared_edge_weight_cached(
+    idx: GridIndices,
+    nodes: NDArray[np.intp],
+    params: SimulationParameters,
+    axis: int,
+    limit: int,
+    key: str,
+) -> NDArray[np.float64]:
+    """:func:`_shared_edge_weight`, computed once per device.
+
+    The weights depend only on the grid, and the boundary conditions ask for
+    six of them on every right-hand-side evaluation.
+    """
+    st = idx.neighbours(params)
+    cached = st.get(key)
+    if cached is None:
+        cached = _shared_edge_weight(nodes, params, axis, limit)
+        st[key] = cached
+    return cached
+
+
 def _apply_boundary_conditions(
     x: NDArray[np.complex128],
     y1: NDArray[np.complex128],
@@ -101,15 +122,20 @@ def _apply_boundary_conditions(
     params: SimulationParameters,
     idx: GridIndices,
     u: BoundaryVectors,
-    scratch: list | None = None,
 ) -> tuple[NDArray, NDArray, NDArray, NDArray]:
     """Apply periodic or zero-current + magnetic-field BCs to full-grid vectors.
 
     This is a direct translation of the boundary-condition blocks in ``eval_f.m``.
     The vectors are modified **in place** and also returned.
 
-    *scratch* supplies the four full-grid arrays this needs to hold the
-    pre-update values; without it they are allocated.
+    Every block writes to a *ghost face* (i = 0 or Nx, j = 0 or Ny, k = 0 or Nz)
+    and reads from a *first/last interior layer* whose other two indices are
+    strictly interior, so no block can read a value another block has already
+    written.  The MATLAB original kept ``x00``/``y100``/``y200``/``y300`` copies
+    to guarantee that; on this grid they are four full-grid copies per
+    evaluation that never change an answer, so the reads are taken from the
+    live arrays instead.  ``test_boundary_conditions_read_disjoint_indices``
+    pins the disjointness the shortcut rests on.
     """
     hx, hy, hz = params.hx, params.hy, params.hz
 
@@ -121,15 +147,9 @@ def _apply_boundary_conditions(
     if params.is_3d:
         y3[idx.z_normal_bc_mask] = 0.0
 
-    # Keep copies of the (already boundary-zeroed) values for BC referencing
-    if scratch is None:
-        x00, y100, y200, y300 = x.copy(), y1.copy(), y2.copy(), y3.copy()
-    else:
-        x00, y100, y200, y300 = scratch
-        np.copyto(x00, x)
-        np.copyto(y100, y1)
-        np.copyto(y200, y2)
-        np.copyto(y300, y3)
+    # The pre-update values the BC blocks reference.  Aliases, not copies —
+    # see the disjointness argument in the docstring.
+    x00, y100, y200, y300 = x, y1, y2, y3
 
     # --- x boundaries -------------------------------------------------------
     if params.periodic_x:
@@ -142,14 +162,16 @@ def _apply_boundary_conditions(
         x[idx.x_face_lo_inner] += x00[idx.x_first_inner] * np.exp(-1j * y100[idx.x_face_lo_inner])
         x[idx.x_face_hi_inner] += x00[idx.x_last_inner] * np.exp(1j * y100[idx.x_last_inner])
         # Magnetic-field x BCs (eq. 37 in report)
-        wz = _shared_edge_weight(idx.x_face_hi_inner, params, 1, params.Ny - 1)
+        wz = _shared_edge_weight_cached(
+            idx, idx.x_face_hi_inner, params, 1, params.Ny - 1, "_w_x_hi_z")
         y2[idx.x_face_lo_inner] += -u.Bz[idx.x_face_lo_inner] * hx * hy + y200[idx.x_first_inner]
         y2[idx.x_face_hi_inner] += (
             wz * u.Bz[idx.x_face_hi_inner] * hx * hy + y200[idx.x_last_inner]
         )
         y3[idx.x_face_lo_inner] += u.By[idx.x_face_lo_inner] * hz * hx + y300[idx.x_first_inner]
         if params.is_3d:
-            wy = _shared_edge_weight(idx.x_face_hi_inner, params, 2, params.Nz - 1)
+            wy = _shared_edge_weight_cached(
+                idx, idx.x_face_hi_inner, params, 2, params.Nz - 1, "_w_x_hi_y")
         else:
             wy = 1.0
         y3[idx.x_face_hi_inner] += (
@@ -165,14 +187,16 @@ def _apply_boundary_conditions(
     else:
         x[idx.y_face_lo_inner] += x00[idx.y_first_inner] * np.exp(-1j * y200[idx.y_face_lo_inner])
         x[idx.y_face_hi_inner] += x00[idx.y_last_inner] * np.exp(1j * y200[idx.y_last_inner])
-        wz = _shared_edge_weight(idx.y_face_hi_inner, params, 0, params.Nx - 1)
+        wz = _shared_edge_weight_cached(
+            idx, idx.y_face_hi_inner, params, 0, params.Nx - 1, "_w_y_hi_z")
         y1[idx.y_face_lo_inner] += u.Bz[idx.y_face_lo_inner] * hx * hy + y100[idx.y_first_inner]
         y1[idx.y_face_hi_inner] += (
             -wz * u.Bz[idx.y_face_hi_inner] * hx * hy + y100[idx.y_last_inner]
         )
         y3[idx.y_face_lo_inner] += -u.Bx[idx.y_face_lo_inner] * hy * hz + y300[idx.y_first_inner]
         if params.is_3d:
-            wx = _shared_edge_weight(idx.y_face_hi_inner, params, 2, params.Nz - 1)
+            wx = _shared_edge_weight_cached(
+                idx, idx.y_face_hi_inner, params, 2, params.Nz - 1, "_w_y_hi_x")
         else:
             wx = 1.0
         y3[idx.y_face_hi_inner] += (
@@ -191,8 +215,10 @@ def _apply_boundary_conditions(
                 -1j * y300[idx.z_face_lo_inner]
             )
             x[idx.z_face_hi_inner] += x00[idx.z_last_inner] * np.exp(1j * y300[idx.z_last_inner])
-            wy = _shared_edge_weight(idx.z_face_hi_inner, params, 0, params.Nx - 1)
-            wx = _shared_edge_weight(idx.z_face_hi_inner, params, 1, params.Ny - 1)
+            wy = _shared_edge_weight_cached(
+                idx, idx.z_face_hi_inner, params, 0, params.Nx - 1, "_w_z_hi_y")
+            wx = _shared_edge_weight_cached(
+                idx, idx.z_face_hi_inner, params, 1, params.Ny - 1, "_w_z_hi_x")
             y1[idx.z_face_lo_inner] += (
                 -u.By[idx.z_face_lo_inner] * hz * hx + y100[idx.z_first_inner]
             )
@@ -266,10 +292,10 @@ def eval_f(
     phi_z_int = X[3 * n : 4 * n] if params.is_3d else np.zeros(n, dtype=dtype)
 
     # Expand to full grid, into buffers the device lends us.  Allocating and
-    # first-touching eight full-grid arrays per evaluation is most of a
-    # gigabyte of page faults on a large mesh, repeated tens of thousands of
+    # first-touching four full-grid arrays per evaluation is hundreds of
+    # megabytes of page faults on a large mesh, repeated tens of thousands of
     # times in a run.
-    work = idx.workspace(params, 8, dtype=dtype)
+    work = idx.workspace(params, 4, dtype=dtype)
     try:
         x = _expand_interior_to_full(psi_int, params, idx, work[0])
         y1 = _expand_interior_to_full(phi_x_int, params, idx, work[1])
@@ -277,9 +303,7 @@ def eval_f(
         y3 = _expand_interior_to_full(phi_z_int, params, idx, work[3])
 
         # Apply BCs (modifies in place)
-        x, y1, y2, y3 = _apply_boundary_conditions(
-            x, y1, y2, y3, params, idx, u, scratch=work[4:8]
-        )
+        x, y1, y2, y3 = _apply_boundary_conditions(x, y1, y2, y3, params, idx, u)
 
         # Evaluate the interior stencil.  ``rhs_rows`` is the matrix-free
         # equivalent of building ``construct_LPSI_*`` / ``construct_LPHI_*``,
@@ -293,12 +317,16 @@ def eval_f(
         if not params.is_3d:
             blocks = blocks + (np.empty(0, dtype=dtype),)
 
+        # Split by slab of interior planes: a chunk has to stay a rectangular
+        # box for the stencil to be slices rather than gathers, and a slab of
+        # the slowest axis is contiguous in memory.
+        n_planes = chunk_planes(params)
         run_chunks(
-            lambda rows: rhs_rows(
-                x, y1, y2, y3, params, idx, material, rows, blocks
+            lambda pl: rhs_rows(
+                x, y1, y2, y3, params, idx, material, pl, blocks
             ),
-            n,
-            chunk_count(n),
+            n_planes,
+            min(chunk_count(n), n_planes),
         )
     finally:
         idx.release_workspace(params, work)

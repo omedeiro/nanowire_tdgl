@@ -19,6 +19,16 @@ from .history import make_history
 from .newton import newton_gcr_trap
 
 
+def _state_dtype(x0: NDArray) -> np.dtype:
+    """Complex dtype to integrate *x0* in.
+
+    ``complex64`` and ``complex128`` are carried through; anything else (a real
+    initial state, say) becomes ``complex128``, since the state is complex.
+    """
+    dtype = np.dtype(np.asarray(x0).dtype)
+    return dtype if dtype in (np.complex64, np.complex128) else np.dtype(np.complex128)
+
+
 def _make_eval_f(
     params: SimulationParameters,
     idx: GridIndices,
@@ -71,7 +81,10 @@ def forward_euler(
     X_history : ndarray, shape (n_state, n_saved)
     """
     n_steps = int(np.ceil((t_stop - t_start) / dt))
-    X = np.array(x0, dtype=np.complex128)
+    # The state keeps the width it arrives with: casting to complex128 here
+    # would undo ``solve(precision="single")`` at the first line of the run,
+    # leaving the narrow dtype visible only in the saved frames.
+    X = np.array(x0, dtype=_state_dtype(x0))
 
     hist = history or make_history(X.size, n_steps // max(save_every, 1) + 2, None)
     hist.append(t_start, X)
@@ -144,7 +157,7 @@ def trapezoidal(
     -------
     times, X_history
     """
-    X = np.array(x0, dtype=np.complex128)
+    X = np.array(x0, dtype=_state_dtype(x0))
     t = t_start
     current_dt = dt
 
