@@ -25,13 +25,91 @@ INSULATOR_RELAXATION_TIME = 0.1
 def _kappa_at(m: NDArray[np.intp],
               params: SimulationParameters,
               material: Optional[MaterialMap] = None) -> NDArray[np.float64]:
-    """Return κ values at full-grid indices *m*.
+    """Return the Maxwell-term κ at full-grid indices *m*.
 
-    If *material* is ``None`` the uniform ``params.kappa`` is used.
+    This is :attr:`MaterialMap.magnetic_kappa`, **not**
+    :attr:`MaterialMap.kappa`: the coefficient multiplying
+    ``κ²∇×(∇×A)`` is the vacuum field energy and does not vary between
+    materials.  When no layer overrode it — the usual case — the
+    uniform ``params.kappa`` is used everywhere, insulators, holes and
+    vacuum included.  See :class:`~tdgl3d.core.material.MaterialMap`.
     """
-    if material is not None:
-        return material.kappa[m]
+    if material is not None and material.magnetic_kappa is not None:
+        return material.magnetic_kappa[m]
     return np.full(len(m), params.kappa, dtype=np.float64)
+
+
+def _forward(a: NDArray, axis: int) -> NDArray:
+    """Shift *a* one node forward along *axis*, repeating the last plane."""
+    i = np.arange(a.shape[axis])
+    return np.take(a, np.minimum(i + 1, a.shape[axis] - 1), axis=axis)
+
+
+def plaquette_kappa2(
+    params: SimulationParameters,
+    material: Optional[MaterialMap] = None,
+) -> Optional[tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]]:
+    """κ² averaged over each plaquette, or ``None`` when it is uniform.
+
+    Returns ``(nu_x, nu_y, nu_z)``, full-grid arrays indexed by the
+    plaquette's lower-corner node: ``nu_z[m]`` belongs to the plaquette
+    spanning nodes ``m, m+1, m+mj, m+1+mj`` — the one whose flux is
+    ``Bz[m]`` — and likewise for the other two normals.
+
+    Why plaquettes.  The magnetic term is the gradient of
+    ``Σ_p ν_p B_p²``, and each link borders *two* plaquettes of a given
+    normal.  Reading ν once, at the node the link starts from, gives
+    both plaquettes the same coefficient, and the result is not the
+    gradient of any energy: the operator loses self-adjointness at a
+    material interface (measured at 19% of the operator norm for a
+    κ = 2/4/2 stack) and the free energy stops being a Lyapunov
+    functional.  Evaluating ν per plaquette restores both.
+
+    ``None`` means the coefficient is uniform, where the two forms
+    coincide exactly and callers can use the scalar ``params.kappa**2``.
+    """
+    if material is None or material.magnetic_kappa is None:
+        return None
+
+    k2 = material.magnetic_kappa ** 2
+    if params.is_3d:
+        a = k2.reshape(params.Nz + 1, params.Ny + 1, params.Nx + 1)  # (k, j, i)
+        i_ax, j_ax, k_ax = 2, 1, 0
+        nu_x = 0.25 * (a + _forward(a, j_ax) + _forward(a, k_ax)
+                       + _forward(_forward(a, k_ax), j_ax))
+        nu_y = 0.25 * (a + _forward(a, i_ax) + _forward(a, k_ax)
+                       + _forward(_forward(a, k_ax), i_ax))
+        nu_z = 0.25 * (a + _forward(a, i_ax) + _forward(a, j_ax)
+                       + _forward(_forward(a, j_ax), i_ax))
+    else:
+        a = k2.reshape(params.Ny + 1, params.Nx + 1)                 # (j, i)
+        i_ax, j_ax = 1, 0
+        nu_z = 0.25 * (a + _forward(a, i_ax) + _forward(a, j_ax)
+                       + _forward(_forward(a, j_ax), i_ax))
+        nu_x = nu_y = a  # φ_z is absent in 2-D; these are never read
+
+    return nu_x.ravel(), nu_y.ravel(), nu_z.ravel()
+
+
+def _nu_pair(
+    nu: Optional[tuple[NDArray, NDArray, NDArray]],
+    normal: int,
+    m: NDArray[np.intp],
+    stride: int,
+    params: SimulationParameters,
+    material: Optional[MaterialMap],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """The two plaquette coefficients a link at *m* sits between.
+
+    Returns ``(nu_hi, nu_lo)`` = ``(ν[m], ν[m - stride])`` for the
+    plaquette family with the given *normal* (0=x, 1=y, 2=z).  Falls
+    back to the uniform ``κ²`` when *nu* is ``None``.
+    """
+    if nu is None:
+        k2 = _kappa_at(m, params, material) ** 2
+        return k2, k2
+    arr = nu[normal]
+    return arr[m], arr[m - stride]
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +191,18 @@ def construct_LPSI_z(
 
 def construct_LPHI_x(params: SimulationParameters, idx: GridIndices,
                      material: Optional[MaterialMap] = None) -> sp.csr_matrix:
-    """Laplacian cross-terms for φ_x (y and z derivatives).
+    """Laplacian cross-terms for phi_x (y and z derivatives).
+
+    Together with :func:`construct_FPHI_x` this forms
+    ``-(curl (nu curl A))_x``, assembled plaquette by plaquette:
+
+    ::
+
+        dphi_x[m]/dt = -(hx/hy)(nu_z[m] Bz[m] - nu_z[m-mj] Bz[m-mj])
+                       +(hx/hz)(nu_y[m] By[m] - nu_y[m-mk] By[m-mk])
+
+    This function carries the phi_x part of those four plaquette
+    fluxes; :func:`construct_FPHI_x` carries the phi_y and phi_z parts.
 
     Corresponds to ``construct_LPHIXm.m``.
     """
@@ -123,27 +212,44 @@ def construct_LPHI_x(params: SimulationParameters, idx: GridIndices,
     m = idx.interior_to_full
     hy, hz = params.hy, params.hz
 
-    kappa_m = _kappa_at(m, params, material)
-    coeff_y = kappa_m**2 / hy**2
-    coeff_z = kappa_m**2 / hz**2 if params.is_3d else np.zeros_like(kappa_m)
+    nu = plaquette_kappa2(params, material)
+    # The y-derivative of phi_x closes the two Bz plaquettes above and
+    # below the link; the z-derivative closes the two By plaquettes.
+    nu_z_hi, nu_z_lo = _nu_pair(nu, 2, m, mj, params, material)
+    if params.is_3d:
+        nu_y_hi, nu_y_lo = _nu_pair(nu, 1, m, mk, params, material)
+    else:
+        nu_y_hi = nu_y_lo = np.zeros_like(nu_z_hi)
 
-    data_diag = -2.0 * (coeff_y + coeff_z)
+    coeff_y_hi = nu_z_hi / hy**2
+    coeff_y_lo = nu_z_lo / hy**2
+    coeff_z_hi = nu_y_hi / hz**2
+    coeff_z_lo = nu_y_lo / hz**2
+
+    data_diag = -(coeff_y_hi + coeff_y_lo + coeff_z_hi + coeff_z_lo)
     L = sp.csr_matrix((data_diag.astype(np.complex128), (m, m)), shape=(N, N), dtype=np.complex128)
 
     if params.Ny > 1:
-        L += sp.csr_matrix((coeff_y.astype(np.complex128), (m, m + mj)), shape=(N, N))
-        L += sp.csr_matrix((coeff_y.astype(np.complex128), (m, m - mj)), shape=(N, N))
+        L += sp.csr_matrix((coeff_y_hi.astype(np.complex128), (m, m + mj)), shape=(N, N))
+        L += sp.csr_matrix((coeff_y_lo.astype(np.complex128), (m, m - mj)), shape=(N, N))
 
     if params.is_3d:
-        L += sp.csr_matrix((coeff_z.astype(np.complex128), (m, m + mk)), shape=(N, N))
-        L += sp.csr_matrix((coeff_z.astype(np.complex128), (m, m - mk)), shape=(N, N))
+        L += sp.csr_matrix((coeff_z_hi.astype(np.complex128), (m, m + mk)), shape=(N, N))
+        L += sp.csr_matrix((coeff_z_lo.astype(np.complex128), (m, m - mk)), shape=(N, N))
 
     return L
 
 
 def construct_LPHI_y(params: SimulationParameters, idx: GridIndices,
                      material: Optional[MaterialMap] = None) -> sp.csr_matrix:
-    """Laplacian cross-terms for φ_y (x and z derivatives).
+    """Laplacian cross-terms for phi_y (x and z derivatives).
+
+    The phi_y part of
+
+    ::
+
+        dphi_y[m]/dt = -(hy/hz)(nu_x[m] Bx[m] - nu_x[m-mk] Bx[m-mk])
+                       +(hy/hx)(nu_z[m] Bz[m] - nu_z[m-1]  Bz[m-1])
 
     Corresponds to ``construct_LPHIYm.m``.
     """
@@ -152,27 +258,42 @@ def construct_LPHI_y(params: SimulationParameters, idx: GridIndices,
     m = idx.interior_to_full
     hx, hz = params.hx, params.hz
 
-    kappa_m = _kappa_at(m, params, material)
-    coeff_x = kappa_m**2 / hx**2
-    coeff_z = kappa_m**2 / hz**2 if params.is_3d else np.zeros_like(kappa_m)
+    nu = plaquette_kappa2(params, material)
+    nu_z_hi, nu_z_lo = _nu_pair(nu, 2, m, 1, params, material)
+    if params.is_3d:
+        nu_x_hi, nu_x_lo = _nu_pair(nu, 0, m, mk, params, material)
+    else:
+        nu_x_hi = nu_x_lo = np.zeros_like(nu_z_hi)
 
-    data_diag = -2.0 * (coeff_x + coeff_z)
+    coeff_x_hi = nu_z_hi / hx**2
+    coeff_x_lo = nu_z_lo / hx**2
+    coeff_z_hi = nu_x_hi / hz**2
+    coeff_z_lo = nu_x_lo / hz**2
+
+    data_diag = -(coeff_x_hi + coeff_x_lo + coeff_z_hi + coeff_z_lo)
     L = sp.csr_matrix((data_diag.astype(np.complex128), (m, m)), shape=(N, N), dtype=np.complex128)
 
     if params.Nx > 1:
-        L += sp.csr_matrix((coeff_x.astype(np.complex128), (m, m + 1)), shape=(N, N))
-        L += sp.csr_matrix((coeff_x.astype(np.complex128), (m, m - 1)), shape=(N, N))
+        L += sp.csr_matrix((coeff_x_hi.astype(np.complex128), (m, m + 1)), shape=(N, N))
+        L += sp.csr_matrix((coeff_x_lo.astype(np.complex128), (m, m - 1)), shape=(N, N))
 
     if params.is_3d:
-        L += sp.csr_matrix((coeff_z.astype(np.complex128), (m, m + mk)), shape=(N, N))
-        L += sp.csr_matrix((coeff_z.astype(np.complex128), (m, m - mk)), shape=(N, N))
+        L += sp.csr_matrix((coeff_z_hi.astype(np.complex128), (m, m + mk)), shape=(N, N))
+        L += sp.csr_matrix((coeff_z_lo.astype(np.complex128), (m, m - mk)), shape=(N, N))
 
     return L
 
 
 def construct_LPHI_z(params: SimulationParameters, idx: GridIndices,
                      material: Optional[MaterialMap] = None) -> sp.csr_matrix:
-    """Laplacian cross-terms for φ_z (x and y derivatives).
+    """Laplacian cross-terms for phi_z (x and y derivatives).
+
+    The phi_z part of
+
+    ::
+
+        dphi_z[m]/dt = -(hz/hx)(nu_y[m] By[m] - nu_y[m-1]  By[m-1])
+                       +(hz/hy)(nu_x[m] Bx[m] - nu_x[m-mj] Bx[m-mj])
 
     Corresponds to ``construct_LPHIZm.m``.
     """
@@ -181,20 +302,25 @@ def construct_LPHI_z(params: SimulationParameters, idx: GridIndices,
     m = idx.interior_to_full
     hx, hy = params.hx, params.hy
 
-    kappa_m = _kappa_at(m, params, material)
-    coeff_x = kappa_m**2 / hx**2
-    coeff_y = kappa_m**2 / hy**2
+    nu = plaquette_kappa2(params, material)
+    nu_y_hi, nu_y_lo = _nu_pair(nu, 1, m, 1, params, material)
+    nu_x_hi, nu_x_lo = _nu_pair(nu, 0, m, mj, params, material)
 
-    data_diag = -2.0 * (coeff_x + coeff_y)
+    coeff_x_hi = nu_y_hi / hx**2
+    coeff_x_lo = nu_y_lo / hx**2
+    coeff_y_hi = nu_x_hi / hy**2
+    coeff_y_lo = nu_x_lo / hy**2
+
+    data_diag = -(coeff_x_hi + coeff_x_lo + coeff_y_hi + coeff_y_lo)
     L = sp.csr_matrix((data_diag.astype(np.complex128), (m, m)), shape=(N, N), dtype=np.complex128)
 
     if params.Nx > 1:
-        L += sp.csr_matrix((coeff_x.astype(np.complex128), (m, m + 1)), shape=(N, N))
-        L += sp.csr_matrix((coeff_x.astype(np.complex128), (m, m - 1)), shape=(N, N))
+        L += sp.csr_matrix((coeff_x_hi.astype(np.complex128), (m, m + 1)), shape=(N, N))
+        L += sp.csr_matrix((coeff_x_lo.astype(np.complex128), (m, m - 1)), shape=(N, N))
 
     if params.Ny > 1:
-        L += sp.csr_matrix((coeff_y.astype(np.complex128), (m, m + mj)), shape=(N, N))
-        L += sp.csr_matrix((coeff_y.astype(np.complex128), (m, m - mj)), shape=(N, N))
+        L += sp.csr_matrix((coeff_y_hi.astype(np.complex128), (m, m + mj)), shape=(N, N))
+        L += sp.csr_matrix((coeff_y_lo.astype(np.complex128), (m, m - mj)), shape=(N, N))
 
     return L
 
@@ -240,23 +366,36 @@ def construct_FPHI_x(
     idx: GridIndices,
     material: Optional[MaterialMap] = None,
 ) -> NDArray[np.complex128]:
-    """Forcing for φ_x.  Corresponds to ``construct_FPHIXm.m``."""
+    """Forcing for phi_x: supercurrent plus the phi_y/phi_z plaquette terms.
+
+    The magnetic part is the phi_y and phi_z half of
+
+    ::
+
+        -(hx/hy)(nu_z[m] Bz[m] - nu_z[m-mj] Bz[m-mj])
+        +(hx/hz)(nu_y[m] By[m] - nu_y[m-mk] By[m-mk])
+
+    with each plaquette carrying its own coefficient; see
+    :func:`plaquette_kappa2`.  Corresponds to ``construct_FPHIXm.m``.
+    """
     m = idx.interior_to_full
     mj = params.mj
     mk = params.mk
 
-    kappa_m = _kappa_at(m, params, material)
+    nu = plaquette_kappa2(params, material)
+    nu_z_hi, nu_z_lo = _nu_pair(nu, 2, m, mj, params, material)
 
     supercurrent = np.imag(np.exp(-1j * y1[m]) * np.conj(x[m]) * x[m + 1])
 
-    curl_yz = (kappa_m**2 / params.hy**2) * (
-        -y2[m + 1] + y2[m] + y2[m + 1 - mj] - y2[m - mj]
-    )
+    curl_yz = (
+        nu_z_hi * (y2[m] - y2[m + 1]) + nu_z_lo * (y2[m + 1 - mj] - y2[m - mj])
+    ) / params.hy**2
 
     if params.is_3d:
-        curl_yz += (kappa_m**2 / params.hz**2) * (
-            -y3[m + 1] + y3[m] + y3[m + 1 - mk] - y3[m - mk]
-        )
+        nu_y_hi, nu_y_lo = _nu_pair(nu, 1, m, mk, params, material)
+        curl_yz = curl_yz + (
+            nu_y_hi * (y3[m] - y3[m + 1]) - nu_y_lo * (y3[m - mk] - y3[m + 1 - mk])
+        ) / params.hz**2
 
     return (curl_yz + supercurrent).astype(np.complex128)
 
@@ -270,23 +409,25 @@ def construct_FPHI_y(
     idx: GridIndices,
     material: Optional[MaterialMap] = None,
 ) -> NDArray[np.complex128]:
-    """Forcing for φ_y.  Corresponds to ``construct_FPHIYm.m``."""
+    """Forcing for phi_y.  Corresponds to ``construct_FPHIYm.m``."""
     m = idx.interior_to_full
     mj = params.mj
     mk = params.mk
 
-    kappa_m = _kappa_at(m, params, material)
+    nu = plaquette_kappa2(params, material)
+    nu_z_hi, nu_z_lo = _nu_pair(nu, 2, m, 1, params, material)
 
     supercurrent = np.imag(np.exp(-1j * y2[m]) * np.conj(x[m]) * x[m + mj])
 
-    curl_xz = (kappa_m**2 / params.hx**2) * (
-        -y1[m + mj] + y1[m] + y1[m + mj - 1] - y1[m - 1]
-    )
+    curl_xz = (
+        nu_z_hi * (y1[m] - y1[m + mj]) - nu_z_lo * (y1[m - 1] - y1[m + mj - 1])
+    ) / params.hx**2
 
     if params.is_3d:
-        curl_xz += (kappa_m**2 / params.hz**2) * (
-            -y3[m + mj] + y3[m] + y3[m + mj - mk] - y3[m - mk]
-        )
+        nu_x_hi, nu_x_lo = _nu_pair(nu, 0, m, mk, params, material)
+        curl_xz = curl_xz + (
+            nu_x_hi * (y3[m] - y3[m + mj]) - nu_x_lo * (y3[m - mk] - y3[m + mj - mk])
+        ) / params.hz**2
 
     return (curl_xz + supercurrent).astype(np.complex128)
 
@@ -300,7 +441,7 @@ def construct_FPHI_z(
     idx: GridIndices,
     material: Optional[MaterialMap] = None,
 ) -> NDArray[np.complex128]:
-    """Forcing for φ_z.  Corresponds to ``construct_FPHIZm.m``."""
+    """Forcing for phi_z.  Corresponds to ``construct_FPHIZm.m``."""
     if not params.is_3d:
         return np.zeros(params.n_interior, dtype=np.complex128)
 
@@ -308,15 +449,17 @@ def construct_FPHI_z(
     mj = params.mj
     mk = params.mk
 
-    kappa_m = _kappa_at(m, params, material)
+    nu = plaquette_kappa2(params, material)
+    nu_y_hi, nu_y_lo = _nu_pair(nu, 1, m, 1, params, material)
+    nu_x_hi, nu_x_lo = _nu_pair(nu, 0, m, mj, params, material)
 
     supercurrent = np.imag(np.exp(-1j * y3[m]) * np.conj(x[m]) * x[m + mk])
 
-    curl_xy = (kappa_m**2 / params.hx**2) * (
-        -y1[m + mk] + y1[m] + y1[m + mk - 1] - y1[m - 1]
-    )
-    curl_xy += (kappa_m**2 / params.hy**2) * (
-        -y2[m + mk] + y2[m] + y2[m + mk - mj] - y2[m - mj]
-    )
+    curl_xy = (
+        nu_y_hi * (y1[m] - y1[m + mk]) - nu_y_lo * (y1[m - 1] - y1[m + mk - 1])
+    ) / params.hx**2
+    curl_xy = curl_xy + (
+        nu_x_hi * (y2[m] - y2[m + mk]) - nu_x_lo * (y2[m - mj] - y2[m + mk - mj])
+    ) / params.hy**2
 
     return (curl_xy + supercurrent).astype(np.complex128)

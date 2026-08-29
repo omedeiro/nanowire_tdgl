@@ -75,10 +75,19 @@ def _interior_position(params, idx) -> dict[int, int]:
 
 
 def test_trilayer_kappa_discontinuity(phys_log):
-    """The φ-Laplacian picks up κ from the material map, node by node.
+    """The φ-Laplacian takes its κ from the *vacuum*, not from the layer.
 
-    In the superconducting layers the diagonal must be ``-2κ²(1/h_y² + 1/h_z²)``;
-    in the insulator, where ``κ = 0``, it must vanish exactly.
+    The ``κ²|∇×A|²`` term of the Ginzburg-Landau functional is the field
+    energy ``B²/2μ₀`` written in the units set by the reference material.
+    It belongs to the field, so it has the same coefficient in the metal,
+    in the oxide and in vacuum — what distinguishes the layers is ψ, and
+    hence the supercurrent.  So the LPHI diagonal must be
+    ``-2κ_ref²(1/h_y² + 1/h_z²)`` in *every* layer, oxide included, even
+    though the oxide is declared with ``kappa=0.0``.
+
+    Reading the declared per-layer κ here instead is what used to freeze
+    **A** in a ``kappa=0.0`` oxide — see
+    ``test_insulator_kappa_is_not_the_maxwell_coefficient``.
     """
     kappa = 2.0
     trilayer = _trilayer(kappa=kappa)
@@ -100,25 +109,89 @@ def test_trilayer_kappa_discontinuity(phys_log):
         ]
         return float(np.mean(values))
 
-    expected_sc = -2.0 * (kappa**2 / params.hy**2 + kappa**2 / params.hz**2)
+    expected = -2.0 * (kappa**2 / params.hy**2 + kappa**2 / params.hz**2)
     ranges = trilayer.z_ranges()
     k_sc = max(ranges["bottom"][0], 1)
     k_ins = ranges["insulator"][0]
 
     with phys_log.test(
         "test_trilayer_kappa_discontinuity",
-        {"Nx": 4, "Ny": 5, "Nz": trilayer.Nz, "kappa": kappa},
-        "a spatially varying κ must appear in the operator coefficients exactly",
+        {"Nx": 4, "Ny": 5, "Nz": trilayer.Nz, "kappa": kappa,
+         "kappa_insulator_declared": 0.0},
+        "the Maxwell coefficient is the vacuum one in every layer",
     ) as log:
         log["k_superconductor"] = int(k_sc)
         log["k_insulator"] = int(k_ins)
         log.check_close(
-            "LPHI_x diagonal in the superconductor", layer_mean(k_sc), expected_sc,
+            "LPHI_x diagonal in the superconductor", layer_mean(k_sc), expected,
             atol=1e-12,
         )
         log.check_close(
-            "LPHI_x diagonal in the insulator", layer_mean(k_ins), 0.0, atol=1e-12,
-            detail="κ = 0 there, so the curl-curl term must switch off entirely",
+            "LPHI_x diagonal in the insulator", layer_mean(k_ins), expected,
+            atol=1e-12,
+            detail="the field energy does not know it is inside an oxide",
+        )
+
+
+def test_magnetic_kappa_override_is_plaquette_centred(phys_log):
+    """An explicit non-uniform coefficient still gives a self-adjoint operator.
+
+    ``Layer.magnetic_kappa`` is the escape hatch for a model that really
+    wants a spatially varying magnetic coefficient.  Each link borders two
+    plaquettes of a given normal, and the term is the gradient of
+    ``Σ_p ν_p B_p²``, so ν has to be read *per plaquette*.  Reading it once
+    at the node the link starts from gives both plaquettes the same
+    coefficient; the result is then the gradient of no energy at all, the
+    operator loses self-adjointness at the interface, and the free energy
+    stops being a Lyapunov functional.
+
+    With ψ = 0 the φ-block is linear, so build it column by column and
+    check it is symmetric.
+    """
+    from tdgl3d.physics.rhs import BoundaryVectors, eval_f
+
+    kappa_ref = 2.0
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=2, kappa=kappa_ref),
+        insulator=Layer(thickness_z=2, kappa=kappa_ref, is_superconductor=False,
+                        magnetic_kappa=8.0),
+        top=Layer(thickness_z=2, kappa=kappa_ref),
+    )
+    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=kappa_ref)
+    device = Device(params, applied_field=AppliedField(), trilayer=trilayer)
+    idx, material = device.idx, device.material
+
+    n = params.n_interior
+    n_phi = 3 * n
+    zeros = np.zeros(params.dim_x)
+    u = BoundaryVectors(zeros, zeros.copy(), zeros.copy())
+    base = np.zeros(params.n_state, dtype=np.complex128)      # ψ = 0
+    f0 = np.real(eval_f(base, params, idx, u, material)[n:])
+
+    matrix = np.zeros((n_phi, n_phi))
+    for column in range(n_phi):
+        probe = base.copy()
+        probe[n + column] = 1.0
+        matrix[:, column] = np.real(eval_f(probe, params, idx, u, material)[n:]) - f0
+
+    asymmetry = float(np.abs(matrix - matrix.T).max())
+    scale = float(np.abs(matrix).max())
+    largest_eigenvalue = float(np.linalg.eigvalsh(0.5 * (matrix + matrix.T)).max())
+
+    with phys_log.test(
+        "test_magnetic_kappa_override_is_plaquette_centred",
+        {"kappa_ref": kappa_ref, "magnetic_kappa_insulator": 8.0,
+         "operator_norm": scale},
+        "the curl-curl operator is self-adjoint and dissipative for any ν",
+    ) as log:
+        log.check_below(
+            "max |M - Mᵀ| / |M|", asymmetry / scale, 1e-12,
+            detail="ν read per plaquette, so the term is the gradient of Σ ν_p B_p²",
+        )
+        log.check_below(
+            "largest eigenvalue of the symmetric part", largest_eigenvalue,
+            1e-9 * scale,
+            detail="the magnetic term may only remove energy, never add it",
         )
 
 
@@ -187,20 +260,23 @@ def _layer_field_profile(state, params, idx, boundary):
 
 
 @pytest.mark.parametrize("kappa_insulator", [0.0, 2.0])
-def test_insulator_kappa_controls_field_transmission(kappa_insulator, phys_log):
-    """κ in a non-superconducting layer decides whether it can carry a field.
+def test_insulator_kappa_is_not_the_maxwell_coefficient(kappa_insulator, phys_log):
+    """A declared ``Layer.kappa`` must not decide whether an oxide transmits.
 
-    The φ-equation is ``∂A/∂t = J_s − κ²∇×∇×A``.  In a layer with ``ψ = 0`` the
-    supercurrent term vanishes, so the layer relaxes towards the magnetostatic
-    solution ``∇×∇×A = 0`` at a rate set by ``κ²`` — *any* positive κ gives the
-    same steady state, only faster or slower.  Setting ``κ = 0`` removes the
-    only remaining term: the gauge field there is frozen at its initial value
-    and the layer transmits nothing.
+    The φ-equation is ``∂A/∂t = J_s − κ²∇×∇×A``.  In a layer with ψ = 0
+    the supercurrent term vanishes, so the layer relaxes towards the
+    magnetostatic solution ``∇×∇×A = 0`` at a rate set by κ².  The steady
+    state is therefore the same for *any* positive κ — but κ is not free
+    to be zero: at κ = 0 the last remaining term goes too, **A** is frozen
+    at its initial value, and the oxide blocks the field instead of
+    transmitting it.
 
-    ``Layer(kappa=0.0, is_superconductor=False)`` is therefore a modelling
-    choice with real consequences, not a neutral way of saying "not a
-    superconductor". Give an oxide the same κ as the metal unless the field is
-    meant to be blocked.
+    That is not a modelling choice, it is a degenerate equation, and the
+    fix is not to remember to write ``kappa=κ_SC`` on every oxide.  The
+    coefficient is the field energy ``B²/2μ₀``; it is a property of the
+    vacuum, so it takes the reference ``params.kappa`` in every
+    non-superconducting node.  Both parametrisations below must therefore
+    transmit, and must agree with each other.
     """
     kappa_sc, bz = 2.0, 0.1
     trilayer = Trilayer(
@@ -223,24 +299,64 @@ def test_insulator_kappa_controls_field_transmission(kappa_insulator, phys_log):
     start, stop = ranges["insulator"]
     insulator_mean = float(np.mean(profile[max(start, 1) - 1 : stop - 1]))
 
-    name = f"test_insulator_kappa_controls_field_transmission[kappa={kappa_insulator}]"
+    name = f"test_insulator_kappa_is_not_the_maxwell_coefficient[kappa={kappa_insulator}]"
     with phys_log.test(
         name,
-        {"Nz": trilayer.Nz, "kappa_sc": kappa_sc, "kappa_insulator": kappa_insulator, "Bz": bz},
-        "a κ = 0 layer freezes the gauge field; a κ > 0 layer transmits the field",
+        {"Nz": trilayer.Nz, "kappa_sc": kappa_sc,
+         "kappa_insulator_declared": kappa_insulator, "Bz": bz},
+        "a declared oxide κ, zero included, does not change what the oxide transmits",
     ) as log:
         log["bz_profile_over_applied"] = [float(v) for v in profile]
         log["insulator_mean_over_applied"] = insulator_mean
-        if kappa_insulator == 0.0:
-            log.check_below(
-                "Bz in the insulator / applied", abs(insulator_mean), 1e-6,
-                detail="κ = 0 leaves no term able to evolve A there",
-            )
-        else:
-            log.check_above(
-                "Bz in the insulator / applied", insulator_mean, 0.5,
-                detail="a non-superconducting layer with κ > 0 lets the field through",
-            )
+        log.check_above(
+            "Bz in the insulator / applied", insulator_mean, 0.5,
+            detail="ψ = 0 means no screening current, so the oxide lets the field through",
+        )
+
+
+def test_declared_oxide_kappa_does_not_change_the_field(phys_log):
+    """κ = 0 and κ = κ_SC oxides must give the *same* field, node for node.
+
+    The companion to the test above: not just "both transmit", but "both
+    transmit identically".  Any difference between them would mean a
+    declared per-layer κ had reached the Maxwell term.
+    """
+    kappa_sc, bz = 2.0, 0.1
+    profiles = {}
+    for kappa_insulator in (0.0, kappa_sc):
+        trilayer = Trilayer(
+            bottom=Layer(thickness_z=4, kappa=kappa_sc),
+            insulator=Layer(thickness_z=4, kappa=kappa_insulator,
+                            is_superconductor=False),
+            top=Layer(thickness_z=4, kappa=kappa_sc),
+        )
+        params = SimulationParameters(
+            Nx=10, Ny=10, Nz=trilayer.Nz, hx=0.5, hy=0.5, hz=0.5, kappa=kappa_sc
+        )
+        device = Device(
+            params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0),
+            trilayer=trilayer,
+        )
+        boundary = applied_boundary(params, device.idx, bz=bz)
+        state = _relax_stack(params, device.idx, device.material, boundary,
+                             device=device)
+        profiles[kappa_insulator] = _layer_field_profile(
+            state, params, device.idx, boundary
+        ) / bz
+
+    difference = float(np.abs(profiles[0.0] - profiles[kappa_sc]).max())
+
+    with phys_log.test(
+        "test_declared_oxide_kappa_does_not_change_the_field",
+        {"kappa_sc": kappa_sc, "Bz": bz},
+        "the declared oxide κ is inert; only Layer.magnetic_kappa can change the field",
+    ) as log:
+        log["profile_kappa_zero"] = [float(v) for v in profiles[0.0]]
+        log["profile_kappa_matched"] = [float(v) for v in profiles[kappa_sc]]
+        log.check_below(
+            "max |Bz(κ_ox = 0) − Bz(κ_ox = κ_SC)| / applied", difference, 1e-12,
+            detail="both resolve to the same vacuum Maxwell coefficient",
+        )
 
 
 def test_trilayer_superconducting_layers_screen(phys_log):
