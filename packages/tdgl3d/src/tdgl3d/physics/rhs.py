@@ -13,20 +13,10 @@ import scipy.sparse as sp
 from numpy.typing import NDArray
 
 from ..core.material import MaterialMap
+from ..core.parallel import chunk_count, run_chunks
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
-from ..operators.sparse_operators import (
-    construct_FPHI_x,
-    construct_FPHI_y,
-    construct_FPHI_z,
-    construct_FPSI,
-    construct_LPHI_x,
-    construct_LPHI_y,
-    construct_LPHI_z,
-    construct_LPSI_x,
-    construct_LPSI_y,
-    construct_LPSI_z,
-)
+from ..operators.sparse_operators import rhs_rows
 
 
 class BoundaryVectors:
@@ -44,9 +34,18 @@ def _expand_interior_to_full(
     interior_vals: NDArray[np.complexfloating],
     params: SimulationParameters,
     idx: GridIndices,
+    out: NDArray[np.complex128] | None = None,
 ) -> NDArray[np.complex128]:
-    """Scatter interior values into a full-grid vector (0 elsewhere)."""
-    full = np.zeros(params.dim_x, dtype=np.complex128)
+    """Scatter interior values into a full-grid vector (0 elsewhere).
+
+    *out* may be a reused buffer; it is zeroed first, which the boundary
+    conditions rely on because they accumulate into the ghost faces.
+    """
+    if out is None:
+        full = np.zeros(params.dim_x, dtype=interior_vals.dtype)
+    else:
+        full = out
+        full[:] = 0.0
     full[idx.interior_to_full] = interior_vals
     return full
 
@@ -102,11 +101,15 @@ def _apply_boundary_conditions(
     params: SimulationParameters,
     idx: GridIndices,
     u: BoundaryVectors,
+    scratch: list | None = None,
 ) -> tuple[NDArray, NDArray, NDArray, NDArray]:
     """Apply periodic or zero-current + magnetic-field BCs to full-grid vectors.
 
     This is a direct translation of the boundary-condition blocks in ``eval_f.m``.
     The vectors are modified **in place** and also returned.
+
+    *scratch* supplies the four full-grid arrays this needs to hold the
+    pre-update values; without it they are allocated.
     """
     hx, hy, hz = params.hx, params.hy, params.hz
 
@@ -119,10 +122,14 @@ def _apply_boundary_conditions(
         y3[idx.z_normal_bc_mask] = 0.0
 
     # Keep copies of the (already boundary-zeroed) values for BC referencing
-    x00 = x.copy()
-    y100 = y1.copy()
-    y200 = y2.copy()
-    y300 = y3.copy()
+    if scratch is None:
+        x00, y100, y200, y300 = x.copy(), y1.copy(), y2.copy(), y3.copy()
+    else:
+        x00, y100, y200, y300 = scratch
+        np.copyto(x00, x)
+        np.copyto(y100, y1)
+        np.copyto(y200, y2)
+        np.copyto(y300, y3)
 
     # --- x boundaries -------------------------------------------------------
     if params.periodic_x:
@@ -245,57 +252,56 @@ def eval_f(
         Time derivative dX/dt.
     """
     n = params.n_interior
-    hx, hy, hz = params.hx, params.hy, params.hz
+    # Everything downstream follows the state's precision: a complex64 run
+    # gets complex64 scratch, output and material coefficients, and never
+    # silently promotes back to double part-way through.
+    dtype = np.dtype(X.dtype)
+    if dtype not in (np.complex64, np.complex128):
+        dtype = np.dtype(np.complex128)
 
     # Unpack interior values
     psi_int = X[:n]
     phi_x_int = X[n : 2 * n]
     phi_y_int = X[2 * n : 3 * n]
-    phi_z_int = X[3 * n : 4 * n] if params.is_3d else np.zeros(n, dtype=np.complex128)
+    phi_z_int = X[3 * n : 4 * n] if params.is_3d else np.zeros(n, dtype=dtype)
 
-    # Expand to full grid
-    x = _expand_interior_to_full(psi_int, params, idx)
-    y1 = _expand_interior_to_full(phi_x_int, params, idx)
-    y2 = _expand_interior_to_full(phi_y_int, params, idx)
-    y3 = _expand_interior_to_full(phi_z_int, params, idx)
+    # Expand to full grid, into buffers the device lends us.  Allocating and
+    # first-touching eight full-grid arrays per evaluation is most of a
+    # gigabyte of page faults on a large mesh, repeated tens of thousands of
+    # times in a run.
+    work = idx.workspace(params, 8, dtype=dtype)
+    try:
+        x = _expand_interior_to_full(psi_int, params, idx, work[0])
+        y1 = _expand_interior_to_full(phi_x_int, params, idx, work[1])
+        y2 = _expand_interior_to_full(phi_y_int, params, idx, work[2])
+        y3 = _expand_interior_to_full(phi_z_int, params, idx, work[3])
 
-    # Apply BCs (modifies in place)
-    x, y1, y2, y3 = _apply_boundary_conditions(x, y1, y2, y3, params, idx, u)
+        # Apply BCs (modifies in place)
+        x, y1, y2, y3 = _apply_boundary_conditions(
+            x, y1, y2, y3, params, idx, u, scratch=work[4:8]
+        )
 
-    # Build operators
-    LPSIX = construct_LPSI_x(y1, params, idx)
-    LPSIY = construct_LPSI_y(y2, params, idx)
-    LPSIZ = construct_LPSI_z(y3, params, idx)
+        # Evaluate the interior stencil.  ``rhs_rows`` is the matrix-free
+        # equivalent of building ``construct_LPSI_*`` / ``construct_LPHI_*``,
+        # slicing out the interior rows and multiplying — the assembly and the
+        # row slice dominated the cost and produced the same sparsity pattern
+        # on every call.  It is split across threads by interior node; the
+        # kernel is memory-bound, so the cores buy bandwidth.
+        n_blocks = 4 if params.is_3d else 3
+        F = np.empty(n_blocks * n, dtype=dtype)
+        blocks = tuple(F[i * n : (i + 1) * n] for i in range(n_blocks))
+        if not params.is_3d:
+            blocks = blocks + (np.empty(0, dtype=dtype),)
 
-    LPHIX = construct_LPHI_x(params, idx, material)
-    LPHIY = construct_LPHI_y(params, idx, material)
-    LPHIZ = construct_LPHI_z(params, idx, material)
-
-    FPSI = construct_FPSI(x, params, idx, material)
-    FPHIX = construct_FPHI_x(x, y1, y2, y3, params, idx, material)
-    FPHIY = construct_FPHI_y(x, y1, y2, y3, params, idx, material)
-    FPHIZ = construct_FPHI_z(x, y1, y2, y3, params, idx, material)
-
-    # Extract interior rows from the Laplacians
-    LPSIX_int = LPSIX[idx.interior_to_full, :]
-    LPSIY_int = LPSIY[idx.interior_to_full, :]
-    LPSIZ_int = LPSIZ[idx.interior_to_full, :]
-
-    LPHIX_int = LPHIX[idx.interior_to_full, :]
-    LPHIY_int = LPHIY[idx.interior_to_full, :]
-    LPHIZ_int = LPHIZ[idx.interior_to_full, :]
-
-    # Remove all-zero rows (boundary equations)
-    # In the Python version we already extracted interior rows, so skip this step
-    # (the MATLAB code removes zero rows because the full matrix has them)
-
-    # dψ/dt
-    dPsidt = (LPSIX_int / hx**2 + LPSIY_int / hy**2 + LPSIZ_int / hz**2) @ x + FPSI
-
-    # dφ/dt
-    dPhidtX = LPHIX_int @ y1 + FPHIX
-    dPhidtY = LPHIY_int @ y2 + FPHIY
-    dPhidtZ = LPHIZ_int @ y3 + FPHIZ
+        run_chunks(
+            lambda rows: rhs_rows(
+                x, y1, y2, y3, params, idx, material, rows, blocks
+            ),
+            n,
+            chunk_count(n),
+        )
+    finally:
+        idx.release_workspace(params, work)
 
     # NOTE: We do NOT enforce dφ/dt=0 on hole boundaries.
     # Physical reasoning (same as in _apply_boundary_conditions):
@@ -303,7 +309,4 @@ def eval_f(
     # - The TDGL equation dφ/dt ∝ J·∇ψ* automatically gives dφ/dt→0 where ψ=0
     # - Explicit freezing of dφ/dt would prevent flux trapping by blocking phase winding
     # - We need φ free to evolve around hole boundaries for ∮∇φ·dl = n·2π (flux quantization)
-    if params.is_3d:
-        return np.concatenate([dPsidt, dPhidtX, dPhidtY, dPhidtZ])
-    else:
-        return np.concatenate([dPsidt, dPhidtX, dPhidtY])
+    return F

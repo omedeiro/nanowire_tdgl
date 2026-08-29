@@ -120,17 +120,20 @@ reflecting, or a perfectly symmetric solution reads as ~1e-3 asymmetric.
 
 ## Heterostructures
 
-Two settings decide whether an S/I/S stack behaves like one, and neither is
+`Layer.kappa` on a non-superconducting layer is inert.  The coefficient
+multiplying `κ²∇×∇×A` is the field energy `B²/2μ₀`, which belongs to the field
+rather than to the material, so the solver uses the uniform `params.kappa` in
+insulators, holes and vacuum alike: an oxide declared `kappa=0.0` transmits the
+field exactly as one declared with the metal's κ does
+(`test_declared_oxide_kappa_does_not_change_the_field`).  What screens is the
+condensate, and a non-superconducting layer has none.
+`Layer.magnetic_kappa` is the explicit override for a model that genuinely
+wants a varying coefficient; where it is set, the operators evaluate it per
+plaquette so the curl-curl operator stays self-adjoint.
+
+One setting decides whether an S/I/S stack behaves like one, and it is not
 guarded by the type system:
 
-* **A non-superconducting layer needs κ > 0.** In a layer with `ψ = 0` the
-  supercurrent term of `∂A/∂t = J_s − κ²∇×∇×A` vanishes, so the layer relaxes
-  towards the magnetostatic solution `∇×∇×A = 0` at a rate set by κ² — any
-  positive κ gives the same steady state. `κ = 0` removes the only remaining
-  term: the gauge field is frozen at its initial value and the layer transmits
-  nothing. `Layer(kappa=0.0, is_superconductor=False)` is therefore a modelling
-  choice with consequences, not a neutral way of saying "not a superconductor"
-  (`test_insulator_kappa_controls_field_transmission`).
 * **Superconducting layers need to be thicker than the proximity length.** The
   oxide suppresses ψ over roughly a coherence length on each side of the
   interface. A 1 ξ layer is suppressed all the way through — |ψ| ≈ 1e-4 — and
@@ -263,3 +266,16 @@ See `test_verification_analytic.py` and gallery §14.
 * The trapezoidal integrator's Jacobian-vector products are finite differences,
   so its Newton-GCR tolerances cannot usefully be pushed below the differencing
   noise floor (~1e-5 works; 1e-8 fails to converge or takes minutes).
+* The trapezoidal integrator does not pay for itself at these parameters. Its
+  Krylov iteration count grows about as fast as the step size it buys, so cost
+  per unit simulated time bottoms out around 2.8x forward Euler's — measured
+  over `dt` from 0.02 to 0.8. Every figure in `docs/figures/` uses Euler.
+* **A diagonal (Jacobi) preconditioner does not fix that.** Measured 0.92x to
+  1.10x against no preconditioner across κ = 2, 5, 10, h = 1 and 0.5, and step
+  sizes from 2x to 32x the explicit limit. The operator is nearly
+  constant-coefficient: within each block the diagonal is the same number at
+  every node, so scaling by it is close to a uniform rescale and changes no
+  eigenvalue ratio. The conditioning is the Laplacian's spread across spatial
+  frequencies, which only a frequency-aware method touches — multigrid, or a
+  sine-transform solve, which the structured Cartesian grid would suit.
+  `tgcr_matrix_free_trap(..., scaling=...)` is the seam one plugs into.

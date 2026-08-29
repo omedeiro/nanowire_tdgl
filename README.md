@@ -13,6 +13,55 @@ Every figure is produced by a standalone script in [`docs/figures/`](docs/figure
 and annotated with the number it is meant to demonstrate. Full descriptions and
 the physics behind each one: [`docs/PHYSICS_GALLERY.md`](docs/PHYSICS_GALLERY.md).
 
+### A 3×3 array of 4 µm holes — where lithography sets the size
+
+The coherence length fixes the grid spacing, but fabrication fixes the device,
+so a real hole array is a large simulation: nine 4 µm holes on an 8 µm pitch
+with an 8 µm buffer is **36 µm across**, and at ξ = 150 nm that is
+240 × 240 × 9 — 457 k nodes. At ξ = 100 nm it is 1.8 M, and at ξ = 50 nm,
+15 M in 12 GB.
+
+The obvious way to get flux into the holes does not work, and that is the
+interesting part. **Ramping the field up, nothing enters until 3.15 mT** — and
+just above that, hundreds of vortices enter at once. Held at 3.6 mT, 567 of
+them pack the buffer into a triangular lattice while the array stays *fully
+Meissner-screened behind them*: the flux front stalls at the array perimeter
+and never reaches a hole. There is no applied field at which this film holds
+one or two vortices in equilibrium; it holds none, or it holds hundreds.
+
+[![Field ramp — the flux front stalls](docs/figures/nb_hole_array_entry.png)](docs/figures/nb_hole_array_entry.png)
+
+**Field-cooling** does what the experiment does. ψ grows from near zero with
+the field already on, so flux is trapped where it is rather than having to
+cross 8 µm of screening metal; the field then drops below the entry threshold
+and the state settles. Cooled at 4.0 mT and held at 2.0 mT, after 400 τ_GL:
+**3 vortices in the metal between the holes, 7 flux quanta trapped across the
+nine**, with the rest of the flux in the buffer lattice. An independent run of
+the same protocol at another noise seed gives 2 and 6, with the census flat
+from t = 293 to t = 400 — so this is a settled state, and not one particular
+realisation of the noise.
+
+| | |
+|:--:|:--:|
+| [![Field-cooled remanent state](docs/figures/nb_hole_array_trapped.png)](docs/figures/nb_hole_array_trapped.png) | [![Vortex entry animation](docs/figures/nb_hole_array_trapped.gif)](docs/figures/nb_hole_array_trapped.gif) |
+| **Remanent state** — the array clears while the holes keep their fluxoid. | **Getting there** — each hole labelled with the fluxoid it holds. |
+
+The holes hold about one quantum each rather than the `B·A/Φ₀ ≈ 19` the applied
+field would suggest, and the B_z map says why: 8 µm of buffer at λ = 300 nm
+leaves the array interior nearly field-free, so there is no local field there
+to support more. **Per-hole occupancy is set by how well the surround screens,
+not by the applied field** — which makes the buffer width and κ the levers.
+
+A vortex in the film and a fluxoid in a hole are counted differently, because
+they are different things: the first is a core, found from the gauge-invariant
+phase winding around a plaquette; the second has no core to find and is read
+from the winding on a contour drawn in the metal *around* the hole, which is an
+exact integer however little field threads the opening.
+
+Reproduce with [`packages/tdgl3d/examples/nb_hole_array.py`](packages/tdgl3d/examples/nb_hole_array.py),
+whose `--dry-run` prints the grid, the memory per frame and a wall-time
+estimate before you commit to a run.
+
 ### Flux expulsion by an S/I/S ring
 
 A 1 µm hole centred in a 4 µm S/I/S plane with 500 nm layers, at ξ = 100 nm —
@@ -109,6 +158,40 @@ parameter ψ and the gauge-invariant vector potential **A** (link variables
 
 The spatial discretisation uses **link variables** (Peierls phases) on a
 uniform Cartesian grid, exactly as described in the MATLAB predecessor.
+
+## Performance
+
+The device above is 1.8 M nodes at ξ = 100 nm, and it is the size that decides
+whether a study is an afternoon or a month. Measured on 4 cores, per unit of
+Ginzburg-Landau time, with forward Euler at 0.9 of the CFL limit:
+
+| ξ(T) | grid | interior nodes | per state vector | s per τ_GL | peak RSS |
+|---|---|---|---|---|---|
+| 150 nm | 240 × 240 × 9 | 457 k | 29 MB | 5.5 | 0.5 GB |
+| 100 nm | 360 × 360 × 15 | 1.80 M | 116 MB | 25.2 | 1.6 GB |
+| 70 nm | 514 × 514 × 21 | 5.26 M | 337 MB | 132 | 4.3 GB |
+| 50 nm | 720 × 720 × 30 | 15.0 M | 960 MB | 475 | 12.1 GB |
+
+All four were run, not extrapolated. Multiply by the simulated time you need:
+the S/I/S ring figure above resolves flux expulsion at `t_stop = 60`, which at
+ξ = 100 nm is 25 minutes per field value.
+
+**Use forward Euler.** `solve()` defaults to the implicit trapezoidal
+integrator, which on a grid this size costs roughly 8× more per unit simulated
+time. Its Newton-GCR inner solve is unpreconditioned, so the Krylov iteration
+count grows about as fast as the step size it buys and the larger step never
+pays for itself — swept over `dt` from 0.02 to 0.8, its cost bottoms out at
+2.8× Euler's. Every figure in `docs/figures/` uses Euler. A diagonal (Jacobi)
+preconditioner does not fix this and was measured not to: see
+[`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+
+Three knobs matter at scale:
+
+| Knob | What it does |
+|---|---|
+| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 3.1× on four. |
+| `solve(..., stream_path=...)` | Writes frames to HDF5 as they are produced, so memory holds one frame however long the run is. A frame is 960 MB at 15 M nodes, so sixty of them would otherwise be 58 GB. The file is a complete artifact `Solution.load` reads. |
+| `solve(..., precision="single")` | complex64 state — halves both the memory a mesh needs and the bandwidth the evaluation is limited by (25.9 → 17.5 s per τ_GL at 1.8 M nodes). Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
 
 ## Theoretical Background
 
@@ -282,21 +365,24 @@ requires, and the tolerance allowed.
 | **3D structured grid** | Uniform Cartesian mesh with configurable Nx×Ny×Nz |
 | **S/I/S trilayer** | Multi-material support via per-node κ and superconductor mask |
 | **Boundary conditions** | Zero-current BCs; applied B-field via link-variable BCs |
-| **Applied field ramp** | Linear ramp from 0 to full magnitude over a configurable fraction |
+| **Applied field ramp** | Linear ramp from 0 to full magnitude over a configurable fraction, or an arbitrary `field_func(t, t_stop)` schedule |
 | **Time integrators** | Forward Euler (explicit) and Trapezoidal (implicit, Newton-GCR) |
-| **Matrix-free Newton-GCR** | Jacobian-free Newton-Krylov solver for the implicit step |
-| **Sparse operators** | All discrete Laplacian and forcing operators built with `scipy.sparse` |
+| **Matrix-free Newton-GCR** | Jacobian-free Newton-Krylov solver for the implicit step, with a truncated Krylov basis |
+| **Threaded right-hand side** | Interior split across a thread pool sized by `TDGL3D_NUM_THREADS`; the evaluation is bandwidth-bound, so cores help |
+| **Single precision** | `precision="single"` runs the state in complex64 — half the memory, half the bandwidth |
+| **Streamed history** | `stream_path=` writes frames to HDF5 as produced, so a long run at a fine mesh is not limited by RAM |
+| **Sparse operators** | Discrete Laplacian and forcing operators available as `scipy.sparse` matrices; the solver applies them matrix-free |
 | **Post-processing** | B-field evaluation, order-parameter magnitude, vorticity |
 | **Visualization** | 2D slice plots, 3D isometric scatter plots, animated GIFs |
 | **HDF5 I/O** | Save/load solutions via h5py |
-| **Validation suite** | 273 tests carrying 294 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, interfaces and vacuum |
+| **Validation suite** | 337 tests carrying 294 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer, interfaces and vacuum |
 
 ## Installation
 
 ```bash
 cd tdgl3d
 pip install -e ".[dev]"
-pytest          # 273 tests
+pytest          # 337 tests
 ```
 
 **Requirements:** Python ≥ 3.10, numpy ≥ 1.24, scipy ≥ 1.10, matplotlib ≥ 3.7,
@@ -482,7 +568,7 @@ tdgl3d/
 ## Test suite
 
 ```bash
-pytest                  # all 273 tests
+pytest                  # all 337 tests
 pytest -k trilayer      # just trilayer tests
 pytest -k verification  # the physics verification suites only
 pytest --cov=tdgl3d     # with coverage

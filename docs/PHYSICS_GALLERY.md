@@ -42,6 +42,7 @@ tolerance allowed.
 | `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
 | `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt; B against the exact London series and \|ψ\| against the exact pair-breaking wall, both to second order in h |
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
+| `test_verification_vacuum.py` | the applied field is exact in vacuum; a κ contrast in a currentless region changes nothing; a lateral margin unpins the film edge; flux crowds beside it; the far field converges with padding |
 | `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents |
 
 > **A note on `kappa` in a non-superconducting layer.** The κ² that
@@ -369,16 +370,19 @@ the field whose flux through the hole is one Φ₀.
 **See also:** §13 runs the same device at micron scale, where the plane screens
 so well that the hole stops being the limiting element.
 
-**Two modelling traps this figure exists to avoid:**
-1. The oxide must be given a **non-zero κ**. With `kappa=0.0` the φ-equation
-   degenerates there (`LPHI ∝ κ² = 0`, `FPHI ∝ J_s ∝ ψ = 0`) and the gauge field
-   is frozen, so the layer blocks the field instead of transmitting it.
-2. The superconducting layers must be **thicker than the proximity length**.
-   The oxide suppresses ψ over roughly a coherence length on each side of the
-   interface, so a 1 ξ-thick layer is pair-broken all the way through: |ψ| falls
-   to ~1e-4 and every phase measured on it — fluxoid, winding, expulsion field —
-   is read off numerical noise. 4 ξ layers recover |ψ| ≈ 0.99 in their middle.
-   `test_the_ring_is_superconducting` guards this.
+**A modelling trap this figure exists to avoid:** the superconducting
+layers must be **thicker than the proximity length**.  The oxide suppresses ψ
+over roughly a coherence length on each side of the interface, so a 1 ξ-thick
+layer is pair-broken all the way through: |ψ| falls to ~1e-4 and every phase
+measured on it — fluxoid, winding, expulsion field — is read off numerical
+noise. 4 ξ layers recover |ψ| ≈ 0.99 in their middle.
+`test_the_ring_is_superconducting` guards this.
+
+(An earlier version of this note also warned that the oxide needed a
+**non-zero κ**, because a `kappa=0.0` layer froze the gauge field and blocked
+the field instead of transmitting it.  That was a solver bug, not a modelling
+constraint, and it is fixed: the Maxwell coefficient no longer reads the
+layer's κ at all.  See the note at the top of this gallery.)
 
 **Caveat:** the steps come in pairs, not single quanta. The device is
 C4-symmetric and the run starts from a noiseless state, so the possible entry
@@ -526,3 +530,78 @@ where neither effect dominates, the wall model holds.
 
 **Regenerating:** `python3 docs/figures/analytic_cross_sections.py` — about
 3 minutes (six relaxations plus the ring).
+
+---
+
+## 15. A 3×3 Array of 4 µm Holes — Trapping Flux at Device Scale
+
+![Field ramp — the flux front stalls](figures/nb_hole_array_entry.png)
+
+**Physical mechanism:** The coherence length fixes the grid spacing but
+lithography fixes the device, so a real hole array is a large simulation. Nine
+4 µm square holes on an 8 µm pitch with an 8 µm buffer of unbroken film is
+36 µm across — 240 × 240 × 9 at ξ = 150 nm, 1.8 M nodes at ξ = 100 nm, 15 M at
+ξ = 50 nm.
+
+**Parameters:** 36×36 µm plane, 3×3 array of 4×4 µm holes on an 8 µm pitch,
+8 µm buffer, S(500 nm)/I(500 nm)/S(500 nm), κ=2.0, ξ=150 nm, h=150 nm,
+240×240×9 grid, forward Euler at 0.9 CFL.
+
+### Ramping the field up: the flux front stalls
+
+Nothing enters until **3.15 mT** — and just above that, hundreds of vortices
+enter at once. Held at 3.6 mT for 200 τ_GL, 567 of them pack the buffer into a
+triangular lattice while the whole array stays *fully Meissner-screened behind
+them*. The front stops at the array perimeter and never reaches a hole.
+
+There is therefore **no applied field at which this film holds one or two
+vortices in equilibrium**: it holds none, or it holds hundreds. That is the
+same screening argument as §13 taken to a larger device — an 8 µm buffer is
+27 λ, and the array sits far behind it.
+
+### Field-cooling: flux locked into the holes
+
+| | |
+|:--:|:--:|
+| ![Field-cooled remanent state](figures/nb_hole_array_trapped.png) | ![Vortex entry animation](figures/nb_hole_array_trapped.gif) |
+
+ψ grows from near zero (|ψ| ≈ 0.02, random phase) with the field already on —
+the numerical stand-in for cooling through T_c — so flux is trapped where it
+already is rather than having to cross 8 µm of screening metal. The field then
+drops below the entry threshold, where nothing new can enter, and the state
+settles.
+
+**Validation metrics:** cooled at 4.0 mT and held at 2.0 mT, after 400 τ_GL,
+the figure above (noise seed 31) settles at **3 vortices in the metal between
+the holes** and **7 flux quanta trapped across the nine holes**. An independent
+run of the same protocol at seed 11 gives **2 and 6**, with 380 in the buffer
+and the census flat from t = 293 to t = 400 — so the result is a settled state,
+and is not one particular realisation of the noise.
+
+The census over time is what makes that readable, and both the figure script
+and the CLI print it: a hole that fills and then empties again looks identical,
+at the last frame, to one that never filled.
+
+**Per-hole occupancy is set by the screening, not by the field.** Each hole
+holds about one quantum, not the `B·A/Φ₀ ≈ 19` the applied field would suggest,
+and the B_z map says why: 8 µm of buffer at λ = 300 nm leaves the array
+interior nearly field-free. The levers are therefore the buffer width and κ —
+a narrower buffer, or a dirtier film (sputtered Nb runs κ ≈ 5–20 against the
+κ = 2 here), puts the array inside the screening length instead of far behind
+it. κ = 5 costs about 6× more per unit simulated time, since the explicit step
+limit goes as 1/κ².
+
+**Two populations, counted two ways.** A vortex in the film is a *core*: a
+plaquette carrying 2π of gauge-invariant phase winding, found directly. A hole
+has no core to find — what it holds is a *fluxoid*, read from the winding on a
+contour drawn in the metal around the hole, which comes out an exact integer
+however little field actually threads the opening. The animation labels each
+hole with its fluxoid because there is nothing else on screen to say what it is
+holding.
+
+**Regenerating:** `python3 docs/figures/nb_hole_array.py` — about 50 minutes
+(two runs of ~25 min each on four cores). Not part of the regenerate-everything
+loop above. `packages/tdgl3d/examples/nb_hole_array.py` is the same device as a
+CLI, with `--dry-run` for a cost estimate before committing to a run.
+
+---
