@@ -203,7 +203,7 @@ Three knobs matter at scale:
 
 | Knob | What it does |
 |---|---|
-| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 2.9× on four at 316 k nodes. Threads are off below 40 k nodes per thread, where the pool costs more than it saves. |
+| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 1.8× on two and 2.7× on four at 316 k nodes (it was 3.1× on four before the kernel got faster — the serial part it is scaling against shrank). Threads are off below 40 k nodes per thread, where the pool costs more than it saves. |
 | `solve(..., stream_path=...)` | Writes frames to HDF5 as they are produced, so memory holds one frame however long the run is. A frame is 960 MB at 15 M nodes, so sixty of them would otherwise be 58 GB. The file is a complete artifact `Solution.load` reads. |
 | `solve(..., precision="single")` | complex64 state — 1.6× to 2.3× faster than double and about 60% of the memory. Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
 
