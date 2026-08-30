@@ -44,6 +44,10 @@ SCRIPTS = [
         "nb_hole_array_trapped.png",
         "nb_hole_array_trapped.gif",
     ]),
+    ("sis_vortex_trapping_3d", [
+        "sis_vortex_trapping_3d.png",
+        "sis_vortex_trapping_sweep.png",
+    ]),
 ]
 
 

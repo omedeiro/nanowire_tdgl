@@ -43,7 +43,7 @@ tolerance allowed.
 | `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt; B against the exact London series and \|ψ\| against the exact pair-breaking wall, both to second order in h |
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
 | `test_verification_vacuum.py` | the applied field is exact in vacuum; a κ contrast in a currentless region changes nothing; a lateral margin unpins the film edge; flux crowds beside it; the far field converges with padding |
-| `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents |
+| `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents; a vortex trapped in one layer of an S/I/S stack while the other stays empty, the defect that pins it, and the fall of interlayer flux transfer with oxide thickness |
 
 > **A note on `kappa` in a non-superconducting layer.** The κ² that
 > multiplies `∇×(∇×A)` is the field energy `B²/2μ₀`, which belongs to the
@@ -603,5 +603,79 @@ holding.
 (two runs of ~25 min each on four cores). Not part of the regenerate-everything
 loop above. `packages/tdgl3d/examples/nb_hole_array.py` is the same device as a
 CLI, with `--dry-run` for a cost estimate before committing to a run.
+
+---
+
+## 16. A Vortex Trapped in One Layer of an S/I/S Stack
+
+![Trapped vortex, isometric](figures/sis_vortex_trapping_3d.png)
+
+**Physical mechanism:** The two metal layers of an S/I/S stack are coupled
+only through **A** — this model carries no Josephson term, so nothing but the
+magnetic field crosses the oxide. That allows a state the two films could not
+hold if they were one film: a quantum of flux threading the bottom layer while
+the top one stays vortex-free.
+
+The fluxoid is a topological integer, and it comes out **exactly 1 in the
+bottom layer and exactly 0 in the top one at every oxide thickness below**.
+What the thickness moves is the *field*, not the vorticity. The trapped
+quantum's flux is not confined to a tube: on leaving the metal it spreads over
+λ = κ ξ, so the share of it still inside a fixed radius by the time it reaches
+the top layer falls as the gap widens. That is what the field lines in the
+figure are doing — they leave the core as a tight bundle and flare across the
+oxide, and the wider the oxide the further they have flared by the time they
+cross the second film.
+
+**Why there is a defect.** At zero applied field a lone vortex in a finite
+film is pulled towards its image in the edge and leaves. Seeded dead centre in
+a noiseless square it survives only because every escape direction is
+degenerate — a fixed point held by symmetry, which is the trap `AGENTS.md`
+warns about, not a trapped vortex. A columnar non-superconducting inclusion
+through the bottom layer removes the core condensation energy at one spot and
+pins it for real: a vortex seeded 3 ξ off axis migrates onto the column and
+stays, and the same run without the column expels it. The column is carved
+with `MaterialMap.carve_hole_polygon` rather than `Device.add_hole`, so it
+takes the same path through the operators as the oxide and does not depend on
+the hole boundary condition that `docs/notes/HOLE_BC_STATUS.md` records as
+still open.
+
+![Trapped vortex, sweep](figures/sis_vortex_trapping_sweep.png)
+
+**Validates:** `test_physics_validation.py::test_vortex_trapped_in_one_layer_only`,
+`::test_vortex_is_pinned_by_the_columnar_defect`,
+`::test_interlayer_flux_transfer_falls_with_oxide_thickness`
+
+**Parameters:** metal span 4 ξ per layer, metal-to-metal oxide gap swept over
+3, 4, 6 and 10 ξ, film 20 ξ wide, 4 ξ lateral vacuum, 5 ξ vacuum above and
+below, a 2 ξ square pinning column through the bottom layer, κ = 2.0, h = 1 ξ
+(28×28×21 to 28×28×28), **no applied field**, relaxed 60 τ_GL to
+max |dX/dt| ≤ 9e-05.
+
+**Key features:**
+- Isometric figure: |ψ|² on each metal mid-plane — a dark core in the bottom
+  sheet, a flat top sheet — with the pinning column in cyan and B field lines
+  traced from the trapped core by RK4 on the interpolated field. Height is
+  measured from the bottom metal in both panels, and both share z-limits, so
+  only the top layer moves between them.
+- Sweep (a), (b): B_z on the vortex axis and the flux within r ≤ 6 ξ, against
+  height. The curves for the four gaps very nearly coincide — the field above
+  the bottom layer is the trapped vortex's own, and is barely changed by moving
+  the second film. What the gap decides is which point of that decaying profile
+  the top layer samples, marked ● on each curve.
+- Sweep (c): the flux reaching the top layer, against gap. The bottom layer
+  holds 0.59 Φ₀ within r ≤ 6 ξ at every gap.
+- Sweep (d): the radial profile at the top-layer mid-plane, normalised. What
+  arrives across a wide gap arrives spread wider.
+
+**Validation metrics:** the fluxoid is 1.000000 in the bottom layer and
+0.000000 in the top one at all four gaps. Flux within r ≤ 6 ξ at the
+top-layer mid-plane falls **0.097 → 0.077 → 0.050 → 0.023 Φ₀** across gaps of
+3, 4, 6 and 10 ξ — 16.5% of the bottom layer's flux down to 3.8% — while the
+bottom layer stays at 0.588–0.600 Φ₀ throughout. The state is a genuine steady
+state, not a snapshot: max |dX/dt| ≤ 9e-05, and the diagnostics are unchanged
+to four decimals between 60, 150 and 250 τ_GL.
+
+**Regenerating:** `python3 docs/figures/sis_vortex_trapping_3d.py` — about
+6 minutes for the four gaps.
 
 ---
