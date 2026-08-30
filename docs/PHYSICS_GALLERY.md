@@ -20,6 +20,32 @@ python docs/figures/meissner_screening.py
 pytest docs/figures/test_figures.py -v
 ```
 
+Every script pins the seed of the symmetry-breaking noise (`NOISE_SEED`, or an
+explicit `noise_amplitude=0.0`), so regenerating a figure reproduces the one
+committed here rather than a fresh realisation of the noise.  Without that a
+figure cannot be diffed against its predecessor, and a change in the physics
+is indistinguishable from a change in the random draw.
+
+## Two grids, and why maps drawn on the wrong one look asymmetric
+
+ψ is a **node** quantity and B is a **plaquette** quantity, and they are not
+interchangeable:
+
+* ψ lives on the interior nodes `1 … N-1`, a set the reflection `i → N-i` maps
+  onto itself.  It can be drawn at `i·h` and reflected as it stands.
+* B lives on plaquettes.  The plaquette anchored at node `i` spans
+  `[i·h, (i+1)·h]` and is centred at `(i+½)h`, and the array returned by
+  `Solution.bfield` holds anchors `1 … N-1`.  That set is **not** closed under
+  reflection: anchor `N-1` is the pinned boundary ring, and its mirror image is
+  the ghost anchor `0`, which the array does not carry.
+
+So a heat map of the raw B array puts the applied-field frame on the high sides
+only and displaces the whole picture half a cell — a perfectly C4-symmetric
+field draws lopsided.  The figures here drop the last anchor in each direction
+and plot what is left at the plaquette centres; the same trim is what
+`test_verification_symmetry.py` applies before comparing.  See
+`tdgl3d.physics.analytic.plaquette_positions`.
+
 ## Verification status
 
 The numeric verification of the physics lives in the test suite, not in this
@@ -72,7 +98,9 @@ in-plane directions. At h = 1ξ there are only two cells per penetration depth
 and the measured decay length is set by the stencil, not by the physics.
 
 **Key features:**
-- Left: 2D heatmap of Bz showing field penetration from the boundary
+- Left: 2D heatmap of Bz showing field penetration from the boundary, on the
+  mirrorable plaquette block at the plaquette centres (see the note above); the
+  four screening frames are equal, as C4 symmetry requires
 - Right: 1D Bz(x) profile at mid-y with cosh fit; fitted λ should be ≈ κ
 - Annotation box shows κ (set value), λ (fitted), and relative error
 
@@ -93,7 +121,8 @@ Each vortex carries one flux quantum Φ₀ = h/(2e) and has a ±2π phase windin
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_and_counting`
 
-**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=40 (Forward Euler)
+**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=40 (Forward Euler), 1% initial
+noise at seed 7
 
 H_c2 = 1 in these units, so the applied field must stay below 1; H_c1(κ=2) ≈ 0.15.
 
@@ -101,9 +130,18 @@ H_c2 = 1 in these units, so the applied field must stay below 1; H_c1(κ=2) ≈ 
 - Left: |ψ|² heatmap with vortex cores (dark spots) marked ×
 - Right: Phase arg(ψ) colormap showing ±2π winding; gray where |ψ|² ≈ 0
 
-**Validation metrics:** 69 vortices, every winding +1 (matching the sign of Bz), against an
+**Validation metrics:** 64 vortices, every winding +1 (matching the sign of Bz), against an
 upper bound of B·A/Φ₀ = 153. The flux front is still advancing at t = 40, leaving a
 vortex-free Meissner core — the Bean-Livingston surface barrier delays entry well above H_c1.
+
+**No mirror-symmetry residual is quoted for this figure, and that is
+deliberate.** Vortex nucleation is a symmetry-breaking instability: the run
+starts from a uniform state seeded with 1% noise, so which arrangement the flux
+front freezes into is set by the noise realisation. The residual would measure
+the seed, not the discretisation, and printing it beside the vortex count made
+a correct run look broken. The solver's exact symmetries — C4, mirror and
+B → −B to ~1e-16 — are pinned on *noiseless* runs in
+`test_verification_symmetry.py`, which is where a check that can fail belongs.
 
 ---
 
@@ -117,13 +155,35 @@ The order parameter |ψ|² is suppressed to zero inside the hole.
 
 **Validates:** `test_bfield_holes.py::test_applied_field_in_hole`
 
-**Parameters:** 30×30×1 grid, κ=2.0, Bz=0.3, t=15, 10×10 hole (Forward Euler)
+**Parameters:** 60×60×1 grid, κ=2.0, Bz=0.3, t=15, 20×20 ξ hole centred in the
+film (Forward Euler), 1% initial noise at seed 7
 
 **Key features:**
-- Left: Bz heatmap — field is enhanced inside the hole (red dashed outline)
-- Right: |ψ|² heatmap — order parameter is zero inside the hole
+- Left: Bz heatmap, titled "enhanced in hole" — but see the caveat below;
+  plotted on the mirrorable plaquette block (the note at the top), so the
+  applied-field frame appears on all four sides
+- Right: |ψ|² heatmap — order parameter is zero inside the hole (red dashed
+  outline), and the outline now sits on the carved region rather than half a
+  cell off it
 
-**Validation metrics:** Applied field penetrates hole without Meissner screening (test: `test_bfield_holes.py`)
+**Validation metrics:** |ψ|²(hole) = 0.0007, |ψ|²(SC) = 0.9458; Bz(SC) = 0.0400
+against an applied 0.3. The mirror residual of |ψ|² is **0.0000** — it was
+**0.54** before `fix(mesh): carve centred holes and stack layers symmetrically`,
+which is what made this figure visibly lopsided; the field map carried a further
+0.099 (a third of the applied field) purely from being drawn on the raw
+plaquette array. Measured on the corrected grids: Bz mirror residual 7e-06,
+C4 residual 1e-05.
+
+**Caveat — "enhanced in hole" overstates what this geometry shows, and the
+panel title and the annotation box have not been reconciled.** The hole does
+not screen, but it sits 20 ξ = 10 λ behind unbroken film, so almost nothing
+reaches it: the figure reads Bz(hole) = 0.0000 against an applied 0.3, and
+prints that gap as "Hole error: 0.3000" as though it were a failing check. The
+statement the test actually makes is *relative* —
+`test_bfield_holes.py::test_applied_field_in_hole` measures 0.0040 in the hole
+against 0.0002 in the surrounding metal, a factor of 20, both ~1% of the
+applied field — and it is the same screening argument as §13 and §15: what
+limits the field at the hole is the plane in front of it, not the hole.
 
 ---
 
@@ -137,7 +197,8 @@ boundary conditions at the hole edges.
 
 **Validates:** `test_current_density.py::test_current_in_hole`
 
-**Parameters:** 24×24×1 grid, κ=2.0, Bz=0.3, t=10, 6×6 hole (Forward Euler)
+**Parameters:** 48×48×1 grid, κ=2.0, Bz=0.3, t=10, 12×12 ξ hole centred in the
+film (Forward Euler), 1% initial noise at seed 7
 
 **Key features:**
 - Three panels: supercurrent |Js|, normal current |Jn|, total |J|
@@ -145,6 +206,15 @@ boundary conditions at the hole edges.
 - Current suppressed inside hole (dashed outline)
 
 **Validation metrics:** J_s = 0 inside hole, |Jn| = 0 everywhere (test: `test_current_density.py`)
+
+**Caveat — the annotation box on the left panel is vacuous.** The three panels
+come from `tdgl3d.visualization.plotting.plot_current_density` and are right,
+but the "J(hole) / J(SC) / Ratio" box is computed in the figure script from
+`Im(ψ* (ψ φ_x − ψ))`, using the **link variable** φ_x where the gauge-invariant
+current needs `U = e^{iφ_x}`. With φ real that expression is identically zero,
+so the box reads `0.0000 / 0.0000 / 0.00%` everywhere and would read the same
+whatever the solver did — the "tolerance that can never fail" case AGENTS.md
+rules out. `Solution.supercurrent_density` is the quantity it should be using.
 
 ---
 
@@ -207,15 +277,40 @@ pinned instead; it also puts a floor on the spacing, since a 3 ξ gap needs
 |ψ| is driven to zero by the -ψ/τ_relax suppression term, with exponential decay
 time constant τ_relax = 0.1 (built into the TDGL equation).
 
-**Validates:** `test_physics_validation.py::test_insulator_psi_exponential_decay`
+**Validates:** `test_physics_validation.py::test_insulator_psi_exponential_decay`,
+`test_verification_analytic.py::test_insulator_order_parameter_decays_with_the_stated_time_constant`
 
-**Parameters:** 8×8×6 grid (S/I/S: 2/2/2), κ=2.0, Bz=0, t=2 (Forward Euler)
+**Parameters:** 16×16×6 grid (S/I/S: 2/2/2), κ=2.0, Bz=0, t=1, dt=0.0025,
+every step saved (Forward Euler); noiseless initial state, |ψ| = 1 everywhere
+including the oxide
 
 **Key features:**
-- Left: |ψ|²_insulator(t) with exponential fit; fitted τ should be ≈ 0.1
+- Left: |ψ|²_insulator(t) with exponential fit
 - Right: |ψ|²(z) bar chart at final time showing suppression in insulator layer
 
-**Validation metrics:** τ_fit = 0.0885, τ_expected = 0.1000, error = 11.47%
+**Validation metrics:** τ_fit(|ψ|²) = 0.0495 against τ_relax/2 = 0.050, error
+**1.0%**; the two superconducting layers come out at |ψ|² = 0.2004 each, a
+mirror residual of **0.00%**.
+
+**Two things this figure used to get wrong, both now fixed.**
+
+*The stack was not symmetric.* `build_material_map` assigned each node to the
+cell range `[k_start, k_end)` containing it, which handed the lower S/I
+interface to the oxide and the upper one to the top metal — so the top layer
+had one more superconducting node than the bottom, and the bar chart read
+0.13 at the bottom against 0.61 at the top, a **130%** mirror error in a stack
+declared 2/2/2. Both interfaces go to the oxide now
+(`fix(mesh): carve centred holes and stack layers symmetrically`).
+
+*The decay was sampled too coarsely to measure, and compared against the wrong
+constant.* `save_every` counts **steps**, not time, so `int(t_stop / 0.05)`
+saved every 40th step — one sample every 0.4 τ_GL, on a decay that is over by
+t ≈ 0.5. Two points carried the whole fit. And the panel plots |ψ|² while the
+relaxation term −ψ/τ_relax acts on |ψ|, so |ψ|² decays *twice as fast*:
+comparing the fit against τ_relax itself reported a 50% error in a solver doing
+exactly the right thing. Sampling every step and comparing against τ_relax/2
+brings the residual to 1.0%, which is the first-order Euler error at
+dt = 0.0025 (it is 2.3% at dt = 0.005).
 
 ---
 
@@ -229,7 +324,8 @@ This guarantees thermodynamic consistency of the dynamics.
 
 **Validates:** `test_physics_validation.py::test_energy_dissipation_monotonic`
 
-**Parameters:** 12×12×1 grid, κ=2.0, Bz=0.5, 200 Euler steps
+**Parameters:** 24×24×1 grid, κ=2.0, Bz=0.5, 400 Euler steps at dt = 0.01,
+1% initial noise at seed 7
 
 **Key features:**
 - Left: F(t) showing monotonic decrease
@@ -251,14 +347,17 @@ sign indicating the direction of the circulating supercurrent.
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_and_counting`
 
-**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=15 (Forward Euler)
+**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=15 (Forward Euler), 1% initial
+noise at seed 7
 
 **Key features:**
 - Left: Phase arg(ψ) colormap (twilight) with vortex positions marked;
   gray overlay where |ψ|² ≈ 0
 - Right: |ψ|² heatmap with vortex core positions
 
-**Validation metrics:** All windings +1. `test_plaquette_vorticity_is_an_exact_integer` shows the
+**Validation metrics:** 47 vortices, all windings +1 (as in §2, the *arrangement*
+is set by the noise seed, so no mirror residual is quoted).
+`test_plaquette_vorticity_is_an_exact_integer` shows the
 winding is integral to 1e-16, and `test_fluxoid_equals_enclosed_vorticity_for_any_contour`
 confirms the lattice Stokes theorem holds for square and non-convex contours alike.
 
@@ -276,13 +375,17 @@ catastrophic numerical instability — the order parameter collapses.
 **Validates:** `test_verification_conservation.py::test_forward_euler_is_stable_below_the_cfl_limit`
 (parametrised over 2-D and 3-D)
 
-**Parameters:** 10×10×1 grid, κ=2.0, Bz=0.5
+**Parameters:** 20×20×1 grid, κ=2.0, Bz=0.5, t=2, 1% initial noise at seed 7
 
 **Key features:**
 - Left: Stable evolution (dt = 0.9 × CFL) — |ψ|² remains near equilibrium
 - Right: Unstable evolution (dt = 3.0 × CFL) — |ψ|² collapses
 
-**Validation metrics:** Stable: max|ψ|² = 1.0; Unstable: mean|ψ| = 1.01e-5 (collapsed)
+**Validation metrics:** stable run holds mean |ψ|² = 0.876 at t = 2 while it
+relaxes towards the field-suppressed equilibrium; the unstable run is at 0.060
+and still falling. The falsifiable form of this check —
+Forward Euler is stable below the limit and diverges above it, in both 2-D and
+3-D — is `test_forward_euler_is_stable_below_the_cfl_limit`.
 
 ---
 
@@ -325,7 +428,8 @@ steady-state lattice configuration.
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_dynamics`
 
-**Parameters:** 100×100×1 grid, κ=2.0, Bz=0.5, t=200 (Forward Euler)
+**Parameters:** 100×100×1 grid, κ=2.0, Bz=0.5, t=200 (Forward Euler), 1%
+initial noise at seed 7
 
 **Key features (animated GIF):**
 - Top-left: |ψ|² heatmap with vortex core markers (cyan ×)
