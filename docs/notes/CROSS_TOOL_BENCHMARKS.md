@@ -34,6 +34,8 @@ cost. Both facts are measured below rather than asserted.
 
 ## Benchmark 1 — a thin disk in a perpendicular field
 
+[![Cross-tool benchmarks](../figures/cross_tool_benchmark.png)](../figures/cross_tool_benchmark.png)
+
 Magnetostatics, which all three codes do, on the one geometry whose
 weak-screening solution is exact rather than approximate. In the London
 limit the thin-film equation is
@@ -74,6 +76,96 @@ the 0.5% as solver error would be wrong by a factor of fifteen.
 The benchmark fits a straight line in `R/Λ` through the weakly screening
 points and quotes the intercept, which the closed form *does* fix at 1.
 What is left is the code's own error.
+
+### What each code is worth against the exact limit
+
+Fitting the `O(R/Λ)` screening term out of the points with `Λ/R ≥ 5` and
+reading the intercept:
+
+| tool | μ extrapolated to Λ/R → ∞ | error | rms of `K_φ/K_London − 1` at the weakest screening |
+|---|---|---|---|
+| SuperScreen | 0.99968 | 3.2e-4 | 2.9e-3 |
+| pyTDGL | 1.00178 | 1.8e-3 | 1.8e-2 |
+| `tdgl3d` | 0.99670 | 3.3e-3 | 6.9e-2 |
+
+The last column is the same statement made about the current profile
+rather than its integral, so a moment that comes out right by
+cancellation does not pass it. The ordering is the same and the spread
+is wider, which is what one expects: SuperScreen solves the London
+equation directly on a mesh that resolves the disk exactly; pyTDGL
+solves it as the `|ψ| ≈ 1` limit of a time-dependent problem on the same
+kind of mesh; `tdgl3d` solves a different equation — full 3-D Maxwell
+around a film of real thickness — on a Cartesian grid whose disk is a
+staircase six cells in radius.
+
+### What each code is worth against the others
+
+| Λ/R | μ (SuperScreen) | μ (pyTDGL) | relative difference |
+|---|---|---|---|
+| 300 | 0.99927 | 1.00133 | 2.1e-3 |
+| 100 | 0.99828 | 1.00022 | 1.9e-3 |
+| 30 | 0.99482 | 0.99636 | 1.6e-3 |
+| 10 | 0.98510 | 0.98551 | 4.2e-4 |
+| 5 | 0.97088 | 0.96969 | 1.2e-3 |
+| 2 | 0.93072 | 0.92525 | 5.9e-3 |
+| 1 | 0.87109 | 0.85991 | 1.3e-2 |
+| 0.3 | 0.67377 | 0.64923 | 3.6e-2 |
+| 0.1 | 0.41619 | 0.38694 | 7.0e-2 |
+
+Two independent implementations of the *same* equation, and they agree
+to 2e-3 across the whole weakly screening half of the sweep — then come
+apart, by 1.3% at `Λ/R = 1` and 7% at `Λ/R = 0.1`. Nothing in that
+second half can be checked against a closed form, and the divergence has
+a plain cause: as Λ shrinks, the sheet current varies over Λ, and at
+`Λ/R = 0.1` the Pearl length is 0.5 µm against a mesh edge of 0.25 µm.
+Both codes are resolving a length with two elements, in different ways.
+A benchmark that stopped at the closed forms would have reported both
+codes as excellent and said nothing about this.
+
+| Λ_eff/R_eff | μ (`tdgl3d`) | μ (SuperScreen, interpolated) | relative difference |
+|---|---|---|---|
+| 28.6 | 0.99351 | 0.99441 | 9.0e-4 |
+| 18.3 | 0.99170 | 0.99046 | 1.3e-3 |
+| 10.3 | 0.98780 | 0.98536 | 2.5e-3 |
+| 7.16 | 0.98391 | 0.97823 | 5.8e-3 |
+| 4.58 | 0.97685 | 0.96704 | 1.0e-2 |
+| 2.58 | 0.96195 | 0.94182 | 2.1e-2 |
+
+The 3-D code converges onto the thin-film curve from the weak end and
+leaves it as screening strengthens, which is what a thin-film
+approximation does when the film stops being thin: the sweep runs κ from
+6 to 20 at a fixed 4 ξ thickness, so `d/λ` falls from 0.67 to 0.20 as
+`Λ/R` rises, and the two codes are describing the same object only at
+the top of that range.
+
+### What it costs `tdgl3d` to be on this axis at all
+
+`Λ/R` is an input for the two thin-film codes and an outcome for this
+one, and the run reports what it measures rather than what was asked
+for:
+
+| quantity | asked for | measured |
+|---|---|---|
+| disk radius | 6 ξ | 5.09 ξ |
+| sheet superfluid density `∫\|ψ\|²dz` | 4 ξ | 2.75 ξ |
+| Pearl length at κ = 8 | `κ²/d` = 16 ξ | 23.3 ξ |
+| peak `\|ψ\|` in the film | 1 | 0.938 |
+
+All four are the same fact: `tdgl3d` treats a non-superconducting region
+as pair-breaking, so the vacuum above, below and around the film
+suppresses ψ through its whole 4 ξ thickness and eats the outer ξ of its
+radius. The film is a *weaker* screener than `λ²/d` implies, by 46% in
+Λ. Feeding the nominal `λ²/d` into a thin-film code and comparing would
+have put every `tdgl3d` point in the wrong place on the axis by that
+much — larger than any of the differences the benchmark is trying to
+resolve. This is why `μ` is normalised by a London reference built from
+the measured `∫|ψ|²r²dV` rather than from the geometry.
+
+The complete-screening end of the axis is not reached and is not
+attempted. Getting there needs `κ² ≪ R·n_s d` at a thickness the vacuum
+has not pair-broken, inside a box whose walls are far compared with R;
+the three constraints pull against each other, and the two thin-film
+codes cover that end at a thousandth of the cost.
 
 ## Benchmark 2 — a pair-breaking wall
 
