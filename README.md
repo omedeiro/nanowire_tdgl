@@ -175,7 +175,7 @@ holds exactly — and says where each stops applying.
 | | |
 |:--:|:--:|
 | [![Field in a hole](docs/figures/hole_field_penetration.png)](docs/figures/hole_field_penetration.png) | [![Supercurrent around a hole](docs/figures/supercurrent_hole.png)](docs/figures/supercurrent_hole.png) |
-| **Field in a hole** — the applied field passes through unscreened. | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
+| **Field in a hole** — the hole carries no screening current, but how much field reaches it is set by the film in front of it (see the caveat in §3). | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
 | [![Energy dissipation](docs/figures/energy_dissipation.png)](docs/figures/energy_dissipation.png) | [![CFL instability](docs/figures/cfl_instability.png)](docs/figures/cfl_instability.png) |
 | **Free energy** — TDGL is a gradient flow, so F is non-increasing. | **Step-size limit** — stable below the CFL bound, collapse above it. |
 

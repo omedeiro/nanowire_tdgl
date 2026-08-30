@@ -17,6 +17,12 @@ import numpy as np
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
 from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
@@ -38,7 +44,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     sol = solve(
         device, dt=0.01, t_stop=t_stop, method="euler",
-        save_every=max(1, int(t_stop)), progress=False,
+        save_every=max(1, int(t_stop)), progress=False, noise_seed=NOISE_SEED,
     )
 
     psi2 = sol.psi_squared_2d(step=-1)
@@ -48,19 +54,14 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     area = (params.Nx * params.hx) * (params.Ny * params.hy)
     expected_vortices = float(Bz_applied * area / (2 * np.pi))
 
-    # Symmetry checks on |ψ|²
-    Nx_int, Ny_int = Nx - 1, Ny - 1
-    mid_x, mid_y = Nx_int // 2, Ny_int // 2
-
-    # x-symmetry: compare left vs right halves
-    psi2_left = psi2[:mid_x, :]
-    psi2_right = psi2[Nx_int - mid_x:Nx_int, :][::-1, :]
-    sym_x = float(np.max(np.abs(psi2_left - psi2_right))) if psi2_left.size > 0 else 0.0
-
-    # y-symmetry: compare bottom vs top halves
-    psi2_bottom = psi2[:, :mid_y]
-    psi2_top = psi2[:, Ny_int - mid_y:Ny_int][:, ::-1]
-    sym_y = float(np.max(np.abs(psi2_bottom - psi2_top))) if psi2_bottom.size > 0 else 0.0
+    # This figure used to print a mirror-symmetry residual of |ψ|² next to the
+    # vortex count, which read like a solver check but was not one.  Vortex
+    # nucleation is a symmetry-breaking instability: the run starts from a
+    # uniform state seeded with 1% noise, so *which* arrangement the flux front
+    # freezes into is set by the noise realisation, and the mirror residual
+    # measures the seed rather than the discretisation.  The solver's exact
+    # symmetries — C4, mirror and B → −B to ~1e-16 — are pinned on noiseless
+    # runs in ``test_verification_symmetry.py``, which is where they belong.
 
     # Winding number check
     all_unit = bool(np.all(np.abs(np.abs(windings) - 1.0) < 0.3)) if len(windings) > 0 else True
@@ -91,9 +92,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         f"Detected:    {n_vort}\n"
         f"Expected:    {expected_vortices:.0f}\n"
         f"Ratio:       {count_ratio:.1%}\n"
-        f"Sym-x:       {sym_x:.4f}\n"
-        f"Sym-y:       {sym_y:.4f}\n"
-        f"|w|=1:       {all_unit}"
+        f"|w|=1:       {all_unit}\n"
+        f"Noise seed:  {NOISE_SEED}"
     )
     ax.text(
         0.03, 0.03, text, transform=ax.transAxes,
