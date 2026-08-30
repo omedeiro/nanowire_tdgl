@@ -20,8 +20,8 @@ def eval_supercurrent_density(
     """Compute supercurrent density J_s = Im[ψ* (∇ - iA) ψ] at interior nodes.
 
     The supercurrent is computed using the gauge-covariant derivative on links:
-        J_s^x[i] = Im[ψ*[i] × exp(-iφ_x[i]) × ψ[i+1]]
-    and similarly for y and z components.
+        J_s^x[i] = Im[ψ*[i] × exp(-iφ_x[i]) × ψ[i+1]] / hx
+    and similarly for y and z, each with its own spacing.
 
     Parameters
     ----------
@@ -55,15 +55,27 @@ def eval_supercurrent_density(
     mj = params.mj  # Full-grid stride in j direction
     mk = params.mk  # Full-grid stride in k direction
 
-    # Supercurrent on x-links: J_sx = Im[ψ*[m] × exp(-iφ_x[m]) × ψ[m+1]]
-    Jx = np.imag(np.conj(psi_full[m]) * np.exp(-1j * phi_x_full[m]) * psi_full[m + 1])
+    # Supercurrent on x-links: J_sx = Im[ψ*[m] × exp(-iφ_x[m]) × ψ[m+1]] / hx.
+    #
+    # The division by the spacing is the covariant derivative's, and it is
+    # easy to lose: the ψ*ψ term of Im[ψ*(e^{-iφ}ψ' - ψ)/h] is real and
+    # drops out, which leaves an expression that looks complete without it.
+    # Each component carries its own spacing, so on a non-cubic grid the
+    # omission does not even scale the current vector — it rotates it.
+    Jx = np.imag(
+        np.conj(psi_full[m]) * np.exp(-1j * phi_x_full[m]) * psi_full[m + 1]
+    ) / params.hx
 
-    # Supercurrent on y-links: J_sy = Im[ψ*[m] × exp(-iφ_y[m]) × ψ[m+mj]]
-    Jy = np.imag(np.conj(psi_full[m]) * np.exp(-1j * phi_y_full[m]) * psi_full[m + mj])
+    # Supercurrent on y-links: J_sy = Im[ψ*[m] × exp(-iφ_y[m]) × ψ[m+mj]] / hy
+    Jy = np.imag(
+        np.conj(psi_full[m]) * np.exp(-1j * phi_y_full[m]) * psi_full[m + mj]
+    ) / params.hy
 
     if params.is_3d:
-        # Supercurrent on z-links: J_sz = Im[ψ*[m] × exp(-iφ_z[m]) × ψ[m+mk]]
-        Jz = np.imag(np.conj(psi_full[m]) * np.exp(-1j * phi_z_full[m]) * psi_full[m + mk])
+        # Supercurrent on z-links: J_sz = Im[ψ*[m] × exp(-iφ_z[m]) × ψ[m+mk]] / hz
+        Jz = np.imag(
+            np.conj(psi_full[m]) * np.exp(-1j * phi_z_full[m]) * psi_full[m + mk]
+        ) / params.hz
     else:
         Jz = np.zeros(params.n_interior, dtype=np.float64)
 
