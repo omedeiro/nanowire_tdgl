@@ -20,6 +20,39 @@ python docs/figures/meissner_screening.py
 pytest docs/figures/test_figures.py -v
 ```
 
+### Drawing conventions
+
+Every field here is sampled *at* nodes, and the matplotlib calls that draw a
+filled grid want cell *boundaries*.  Two of them fail quietly when handed node
+coordinates instead: `imshow(extent=...)` reads the extent as the outer edge of
+the image, squeezing n nodes into n-1 cells' worth of axis, and
+`plot_surface(facecolors=...)` colours the quad *between* nodes i and i+1, so an
+n x m grid becomes an (n-1) x (m-1) mesh with the last row and column never
+drawn at all.  Neither raises; both draw a mirror-symmetric device lopsided.
+
+`tdgl3d.visualization.plotting` carries `cell_edges`, `imshow_extent`,
+`pad_facecolors` and `surface_facecolors` for this, and
+`packages/tdgl3d/tests/test_cell_geometry.py` pins the behaviour they work
+around.  `pcolormesh(..., shading="auto")` already centres cells on nodes when
+`C` has the same shape as `X` and `Y`, so it needs none of them.
+
+### Which figures reproduce
+
+Most figure scripts leave `solve()` at its default `noise_seed=None`, so they
+draw a fresh noise realisation on every run and their committed PNG cannot be
+reproduced byte for byte: `vortex_entry`, `vortex_entry_dynamics`,
+`hole_field_penetration`, `supercurrent_hole`, `insulator_psi_decay`,
+`energy_dissipation`, `cfl_instability`, `hole_bc_verification` and
+`phase_winding`.  Re-running one of those changes the committed figure without
+making it any more correct, so regenerate them only when something they draw
+has actually changed.
+
+The rest are deterministic — either seeded (`nb_hole_array`, at 17 and 31) or
+run without noise (`trilayer_bfield`, `sis_hole_expulsion`,
+`analytic_cross_sections`, `sis_micron_ring`, `meissner_screening`,
+`sis_vortex_trapping_3d`) — and re-running them reproduces the committed file
+exactly.
+
 ## Verification status
 
 The numeric verification of the physics lives in the test suite, not in this

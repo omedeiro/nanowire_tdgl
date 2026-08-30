@@ -68,6 +68,7 @@ from tdgl3d import AppliedField, Device, Layer, SimulationParameters, Trilayer
 from tdgl3d.analysis.vortex_counting import count_vortices_polygon
 from tdgl3d.physics.applied_field import build_boundary_field_vectors
 from tdgl3d.physics.rhs import BoundaryVectors, eval_f
+from tdgl3d.visualization.plotting import cell_edges, surface_facecolors
 
 # --------------------------------------------------------------------------- #
 # Device, in xi
@@ -412,32 +413,23 @@ def _paint_layer(ax, params, device, solution, slice_z, cmap, norm, *, alpha=1.0
                  z_offset=0.0):
     """Paint |psi|^2 of one layer as a horizontal sheet at its own height.
 
-    Each node is drawn as the cell it owns, centred on its own coordinate,
-    which takes some care.  ``plot_surface`` colours the quad *between* nodes
-    ``i`` and ``i+1`` with ``facecolors[i, j]``, so an n x m grid becomes an
-    (n-1) x (m-1) quad mesh: passing node coordinates straight in would shift
-    every colour half a cell towards +x and +y and silently drop the last row
-    and column altogether.  On a film that is mirror-symmetric about its own
-    centre that shows up as a lopsided edge -- the vacuum-adjacent dark band
-    drawn in full on the low side and one cell short on the high side.
-
-    Passing cell *edges* instead, with the colour array padded by the row and
-    column ``plot_surface`` never reads, draws all n x m values in the right
-    places and keeps a symmetric sheet symmetric.
+    Each node is drawn as the cell it owns, centred on its own coordinate.
+    ``cell_edges`` and ``surface_facecolors`` are what make that come out
+    right: ``plot_surface`` colours the quad *between* nodes ``i`` and
+    ``i+1``, so node coordinates would shift every colour half a cell towards
+    +x and +y and drop the last row and column altogether -- which on a film
+    that is mirror-symmetric about its own centre draws the vacuum-adjacent
+    dark band full width on the low edge and one cell short on the high edge.
     """
     nx, ny, nz = _interior_shape(params)
     xs, ys, zs = _interior_axes(params)
     i0, i1, j0, j1 = _film_extent(params, device, slice_z)
     psi2 = np.abs(solution.psi(-1).reshape(nx, ny, nz)[i0:i1, j0:j1, slice_z]) ** 2
 
-    x_edges = np.append(xs[i0:i1] - 0.5 * params.hx, xs[i1 - 1] + 0.5 * params.hx)
-    y_edges = np.append(ys[j0:j1] - 0.5 * params.hy, ys[j1 - 1] + 0.5 * params.hy)
+    x_edges, y_edges = cell_edges(xs[i0:i1]), cell_edges(ys[j0:j1])
     X, Y = np.meshgrid(x_edges, y_edges, indexing="ij")
-
-    colours = np.zeros(X.shape + (4,))
-    colours[:-1, :-1] = cmap(norm(psi2))
     ax.plot_surface(X, Y, np.full_like(X, zs[slice_z] - z_offset),
-                    facecolors=colours, shade=False,
+                    facecolors=surface_facecolors(psi2, cmap, norm), shade=False,
                     rstride=1, cstride=1, alpha=alpha, zorder=1)
     return x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]
 

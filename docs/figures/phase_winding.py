@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
 from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
+from tdgl3d.visualization.plotting import imshow_extent
 
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
@@ -81,7 +82,10 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     # Overlay |psi|^2 as alpha mask
     alpha = np.clip(1.0 - psi2, 0, 0.7)
-    ax.imshow(alpha, extent=[xs[0], xs[-1], ys[0], ys[-1]],
+    # imshow takes the extent as the *outer* edge of the image, so node
+    # coordinates would squeeze n nodes into n-1 cells and offset the overlay
+    # half a cell against the pcolormesh underneath it.
+    ax.imshow(alpha, extent=imshow_extent(xs, ys),
               origin="lower", cmap="gray_r", alpha=0.3, aspect="auto")
 
     if n_vort > 0 and positions.size > 0:
