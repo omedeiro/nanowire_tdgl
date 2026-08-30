@@ -576,13 +576,15 @@ def test_centred_hole_is_centred(length, hole, h, phys_log):
 # A vortex trapped in one layer of the stack
 # ---------------------------------------------------------------------------
 #
-# The two superconducting layers are coupled only through **A** -- this model
-# carries no Josephson term -- so nothing but the magnetic field crosses the
-# oxide.  That allows a state the layers could not hold if they were one film:
-# a quantum of flux threading the bottom layer while the top one stays
-# vortex-free.  The checks below are that the state exists, that it is held by
-# a pinning site rather than by symmetry, and that thickening the oxide moves
-# the *field* without touching the topology.
+# One square hole is carved straight through the stack, so *both* metal layers
+# carry the same hole and are geometrically identical.  The two layers are
+# coupled only through **A** -- this model carries no Josephson term -- so
+# nothing but the magnetic field crosses the oxide.  That allows a state the
+# layers could not hold if they were one film: the bottom hole holding a
+# fluxoid of 1 while the top hole, the same hole, holds 0.  The checks below
+# are that the state exists, that it is held by the hole rather than by
+# symmetry, and that thickening the oxide moves the *field* without touching
+# the topology.
 
 TRAP_KAPPA = 2.0
 TRAP_METAL_CELLS = 5        # 4 xi of realised metal per layer
@@ -593,10 +595,14 @@ TRAP_DT = 0.015             # below h^2 / (4 kappa^2 (d-1)) = 1/32 in 3-D
 TRAP_RADIUS = 4.0           # flux disc / fluxoid contour half-width, in xi
 
 
-def _trap_stack(oxide_cells: int, *, defect: bool = True):
-    """S/I/S stack with an optional pinning column through the bottom layer.
+def _trap_stack(oxide_cells: int, *, hole: bool = True):
+    """S/I/S stack with an optional hole running through *both* metal layers.
 
-    The column is carved with ``MaterialMap.carve_hole_polygon`` rather than
+    The z-range spans the whole stack, and the oxide nodes between the two
+    metals are already non-superconducting, so this is exactly "the same hole
+    in the bottom film and in the top film".
+
+    It is carved with ``MaterialMap.carve_hole_polygon`` rather than
     ``Device.add_hole``: it is a non-superconducting *inclusion*, taking the
     same path through the operators as the oxide, not a geometric void needing
     the hole boundary condition that ``docs/notes/HOLE_BC_STATUS.md`` records
@@ -619,13 +625,12 @@ def _trap_stack(oxide_cells: int, *, defect: bool = True):
         applied_field=AppliedField(Bz=0.0, t_on_fraction=1.0),
         trilayer=trilayer,
     )
-    if defect:
+    if hole:
         cx, cy = params.Nx / 2.0, params.Ny / 2.0
-        k_start, k_end = trilayer.z_ranges()["bottom"]
         device.material.carve_hole_polygon(
             [(cx - 1.0, cy - 1.0), (cx + 1.0, cy - 1.0),
              (cx + 1.0, cy + 1.0), (cx - 1.0, cy + 1.0)],
-            (k_start, k_end - 1), params, device.idx,
+            trilayer.stack_z_range, params, device.idx,
         )
     return params, device, trilayer
 
@@ -683,9 +688,9 @@ def _vorticity_centroid(solution, params, slice_z: int):
     """(x, y) of the winding centroid in a z-plane, in xi, or None if empty.
 
     Located from the plaquette winding, not from the |psi|^2 minimum: the
-    trapped vortex sits on the defect column, whose nodes carry psi = 0 by
-    construction, and the film corners -- suppressed by vacuum on two sides --
-    would win a bare argmin outright.
+    trapped vortex sits on the hole, whose nodes carry psi = 0 by construction,
+    and the film corners -- suppressed by vacuum on two sides -- would win a
+    bare argmin outright.
     """
     from tdgl3d.analysis.vortex_counting import plaquette_vorticity
 
@@ -707,10 +712,11 @@ def _relax_trap(device, x0, t_stop: float):
 
 
 def test_vortex_trapped_in_one_layer_only(phys_log):
-    """One layer holds a flux quantum while the other stays vortex-free.
+    """Two identical holes, one holding a flux quantum and one empty.
 
-    The fluxoid is a topological integer, so the two layers must come out at
-    exactly 1 and exactly 0 -- not 0.9 and 0.1.  Both checks are trivially
+    The hole runs through both metal layers, so the layers differ in nothing
+    but their flux state.  The fluxoid is a topological integer, so they must
+    come out at exactly 1 and exactly 0 -- not 0.9 and 0.1.  Both checks are trivially
     satisfiable by a dead simulation (psi = 0 everywhere gives 0 and 0, and a
     field-free box gives no flux to transfer at all), so the scale is asserted
     too: the metal must not be pair-broken, and the trapped quantum must
@@ -730,7 +736,8 @@ def test_vortex_trapped_in_one_layer_only(phys_log):
         "test_vortex_trapped_in_one_layer_only",
         {"Nx": params.Nx, "Nz": params.Nz, "kappa": TRAP_KAPPA,
          "oxide_gap_xi": 6.0, "Bz_applied": 0.0},
-        "an S/I/S stack can hold a vortex in one layer with the other empty",
+        "one hole through both layers of an S/I/S stack can hold a fluxoid in "
+        "the bottom film and none in the top",
     ) as log:
         log["fluxoid_bottom"] = fluxoid_bottom
         log["fluxoid_top"] = fluxoid_top
@@ -756,21 +763,21 @@ def test_vortex_trapped_in_one_layer_only(phys_log):
         )
 
 
-def test_vortex_is_pinned_by_the_columnar_defect(phys_log):
-    """The defect is what traps the vortex; symmetry alone would not.
+def test_vortex_is_pinned_by_the_hole(phys_log):
+    """The hole is what traps the vortex; symmetry alone would not.
 
     At zero applied field a lone vortex in a finite film is pulled towards its
     image in the edge and leaves.  Seeded dead centre in a noiseless square it
     survives only because every escape direction is degenerate -- a fixed point
     held by symmetry, not a trapped vortex.  So the seed here is deliberately
-    3 xi off axis, and the same run is done with and without the column: with
-    it the vortex migrates onto the defect and stays, without it the film
-    expels it.  The pair is the point -- either half alone proves nothing.
+    3 xi off axis, and the same run is done with and without the hole: with it
+    the vortex migrates onto the hole and stays, without it the film expels it.
+    The pair is the point -- either half alone proves nothing.
     """
     offset = 3.0
     results = {}
-    for defect in (True, False):
-        params, device, trilayer = _trap_stack(oxide_cells=1, defect=defect)
+    for hole in (True, False):
+        params, device, trilayer = _trap_stack(oxide_cells=1, hole=hole)
         solution = _relax_trap(
             device,
             _seed_one_layer_vortex(params, device, trilayer, offset=offset),
@@ -779,7 +786,7 @@ def test_vortex_is_pinned_by_the_columnar_defect(phys_log):
         k_bottom, _ = _trap_midplanes(trilayer)
         axis = params.Nx * params.hx / 2.0
         centroid = _vorticity_centroid(solution, params, k_bottom)
-        results[defect] = {
+        results[hole] = {
             "fluxoid": _trap_fluxoid(solution, device, params, k_bottom),
             "centroid": centroid,
             "displacement": (
@@ -789,27 +796,27 @@ def test_vortex_is_pinned_by_the_columnar_defect(phys_log):
         }
 
     with phys_log.test(
-        "test_vortex_is_pinned_by_the_columnar_defect",
+        "test_vortex_is_pinned_by_the_hole",
         {"Nx": 14, "kappa": TRAP_KAPPA, "seed_offset_xi": offset,
-         "defect_side_xi": 2.0, "Bz_applied": 0.0},
-        "a columnar defect pins the vortex; without it the film expels it",
+         "hole_side_xi": 2.0, "Bz_applied": 0.0},
+        "the hole pins the vortex; without it the film expels it",
     ) as log:
-        log["with_defect"] = results[True]
-        log["without_defect"] = results[False]
+        log["with_hole"] = results[True]
+        log["without_hole"] = results[False]
         log.check_close(
-            "fluxoid with the defect", results[True]["fluxoid"], 1.0, atol=1e-6,
+            "fluxoid with the hole", results[True]["fluxoid"], 1.0, atol=1e-6,
             detail="the vortex is still there after relaxing",
         )
         log.check_below(
-            "distance from the defect axis", results[True]["displacement"], 1.5,
+            "distance from the hole axis", results[True]["displacement"], 1.5,
             units="xi",
             detail=(
                 f"seeded {offset:g} xi off axis, it migrates onto the 2 xi "
-                "column and stops there"
+                "hole and stops there"
             ),
         )
         log.check_close(
-            "fluxoid without the defect", results[False]["fluxoid"], 0.0, atol=1e-6,
+            "fluxoid without the hole", results[False]["fluxoid"], 0.0, atol=1e-6,
             detail="nothing pins it, so the same seed leaves the film",
         )
 
@@ -823,8 +830,8 @@ def test_interlayer_flux_transfer_falls_with_oxide_thickness(phys_log):
     fluxoids stay pinned at 1 and 0 throughout -- they are integers, and no
     amount of magnetic leakage moves them.
 
-    Measured here: 12% of the bottom layer's flux reaches the top one across a
-    3 xi gap, 4% across 6 xi.  The thresholds below are set well outside those,
+    Measured here: 12.3% of the bottom layer's flux reaches the top one across
+    a 3 xi gap, 4.3% across 6 xi.  The thresholds below are set well outside those,
     and the transfer is asserted to be non-zero as well as falling, so a run
     that simply lost its field could not pass.
     """
@@ -853,11 +860,11 @@ def test_interlayer_flux_transfer_falls_with_oxide_thickness(phys_log):
         log["fluxoids"] = {str(k): list(v) for k, v in fluxoids.items()}
         log.check_within(
             "flux transfer across a 3 xi gap", transfers[3.0], 0.04, 0.25,
-            detail="measured 0.117 — non-zero, so the layers are coupled",
+            detail="measured 0.123 — non-zero, so the layers are coupled",
         )
         log.check_within(
             "flux transfer across a 6 xi gap", transfers[6.0], 0.01, 0.09,
-            detail="measured 0.041",
+            detail="measured 0.043",
         )
         log.check_above(
             "transfer(3 xi) / transfer(6 xi)", transfers[3.0] / transfers[6.0], 2.0,

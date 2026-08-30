@@ -1,49 +1,52 @@
 """A vortex trapped in one layer of an S/I/S stack, and where its flux goes.
 
-The stack is superconductor / oxide / superconductor with vacuum around it.
-A columnar non-superconducting defect is carved through the **bottom** layer
-only, and a single vortex is seeded on it; the top layer starts, and stays,
-in the vortex-free state.  What the figures show is the field that
-configuration produces.
+The stack is superconductor / oxide / superconductor with vacuum around it,
+and one square hole is carved straight through it, so **both** metal layers
+carry the same hole.  A single vortex is seeded on the bottom layer's hole;
+the top layer starts, and stays, in the vortex-free state.
 
-Why the defect is there.  At zero applied field a lone vortex in a finite
-film is pulled towards its own image in the edge, so it leaves.  Seeded at
-the exact centre of a noiseless square it survives only because every escape
-direction is degenerate — a fixed point held by symmetry, which is the trap
-``AGENTS.md`` warns about, not a trapped vortex.  The defect removes the core
-condensation energy at one spot and pins it for real: a vortex seeded 3 ξ off
-axis migrates onto the defect and stays, and the same run without the defect
-expels it (``test_vortex_is_pinned_by_the_columnar_defect``).
+The two layers are therefore geometrically identical, and the only thing that
+tells them apart is the flux state: the bottom hole holds a fluxoid of 1, the
+top hole a fluxoid of 0.  Neither number is a matter of degree -- the fluxoid
+is a topological integer -- so this is not "more flux here than there", it is
+two identical holes in two different quantum states.
+
+Why the hole is there.  At zero applied field a lone vortex in a finite film
+is pulled towards its own image in the edge, so it leaves.  Seeded at the
+exact centre of a noiseless square it survives only because every escape
+direction is degenerate -- a fixed point held by symmetry, which is the trap
+``AGENTS.md`` warns about, not a trapped vortex.  The hole removes the core
+condensation energy at one spot and pins it for real: a vortex seeded 3 xi off
+axis migrates onto the hole and stays, and the same run with no hole at all
+expels it (``test_vortex_is_pinned_by_the_hole``).
 
 What the oxide thickness does.  The two layers here are coupled only through
-**A** — this model has no Josephson term, so nothing but the magnetic field
-crosses the oxide.  The trapped vortex carries one flux quantum, but that
-flux is not confined to a tube: on leaving the bottom layer it spreads over
-the scale λ = κ ξ, so the fraction of it still inside the vortex radius by
-the time it reaches the top layer falls off as the gap widens.  Sweeping the
-gap is therefore a direct measurement of how the two layers decouple, and it
-is the reason the top layer can sit in the vortex-free state at all while
-its neighbour holds a quantum of flux.
+**A** -- this model has no Josephson term, so nothing but the magnetic field
+crosses the oxide.  The trapped vortex carries one flux quantum, but that flux
+is not confined to a tube: on leaving the bottom layer it spreads over the
+scale lambda = kappa xi, so the fraction of it still inside the vortex radius
+by the time it reaches the top layer falls off as the gap widens.  Sweeping
+the gap is therefore a direct measurement of how the two layers decouple, and
+it is the reason the top layer can sit in the vortex-free state at all while
+its neighbour holds a quantum of flux through the same opening.
 
-Note that the fluxoid is exactly 1 in the bottom layer and exactly 0 in the
-top one at every gap.  Those are topological integers and no amount of
-magnetic leakage changes them; what the sweep moves is the *field*, not the
-vorticity.
+Note that the fluxoids stay at exactly 1 and exactly 0 at every gap.  What the
+sweep moves is the *field*, not the vorticity.
 
 Two figures:
 
 ``sis_vortex_trapping_3d.png``
-    Isometric views of the stack at the thinnest and the thickest oxide,
-    with |ψ|² painted on the mid-plane of each superconducting layer and
-    B field lines traced from the trapped core.  The dark core in the
-    bottom sheet and the flat top sheet are the trapping; the flare of the
-    field lines across the oxide is the bending.
+    Isometric views of the stack at the thinnest and the thickest oxide, with
+    |psi|^2 painted on the mid-plane of each metal layer and B field lines
+    traced from the trapped core.  Both sheets show the same hole; only the
+    bottom one has a vortex on it, and the flare of the field lines across the
+    oxide is the bending.
 
 ``sis_vortex_trapping_sweep.png``
     The same runs read quantitatively: B_z on the vortex axis through the
-    stack, the flux still inside a fixed radius as a function of height,
-    how much of it survives to the top layer, and how far it has spread
-    laterally once it gets there.
+    stack, the flux still inside a fixed radius as a function of height, how
+    much of it survives to the top layer, and how far it has spread laterally
+    once it gets there.
 
 Runtime: about 6 minutes at the default size.
 """
@@ -74,7 +77,7 @@ METAL = 4.0        # realised thickness of each superconducting layer
 WIDTH = 20.0       # film width in x and y
 MARGIN = 4.0       # vacuum either side of the film
 PAD = 5.0          # vacuum above and below the stack
-DEFECT = 2.0       # side of the square defect column, in xi
+HOLE = 2.0         # side of the square hole, in xi
 
 # Metal-to-metal oxide gaps to sweep.  These are *realised* gaps: the
 # declared cell count is inverted for them in _cells_for.
@@ -132,8 +135,14 @@ def _build(gap: float, h: float, *, width=WIDTH, margin=MARGIN, pad=PAD):
     return params, device, trilayer
 
 
-def _carve_defect(params, device, trilayer, *, side=DEFECT):
-    """Carve the pinning column through the bottom layer only.
+def _carve_hole(params, device, trilayer, *, side=HOLE):
+    """Carve one hole straight through the stack, so *both* layers carry it.
+
+    The z-range spans the whole stack.  The oxide nodes between the two metals
+    are already non-superconducting, so this is exactly "the same hole in the
+    bottom film and in the top film" -- the two layers come out geometrically
+    identical, and the only thing that distinguishes them is which one holds a
+    fluxoid.
 
     ``MaterialMap.carve_hole_polygon`` is called directly rather than
     ``Device.add_hole``: this is a non-superconducting *inclusion*, which the
@@ -143,10 +152,9 @@ def _carve_defect(params, device, trilayer, *, side=DEFECT):
     """
     cx, cy = _axis(params)
     r = side / 2.0
-    k0, k1 = trilayer.z_ranges()["bottom"]
     device.material.carve_hole_polygon(
         [(cx - r, cy - r), (cx + r, cy - r), (cx + r, cy + r), (cx - r, cy + r)],
-        (k0, k1 - 1), params, device.idx,
+        trilayer.stack_z_range, params, device.idx,
     )
 
 
@@ -466,11 +474,11 @@ def plot_isometric(runs, output_dir: Path) -> Path:
         for z in (zs[kb], zs[kt]):
             _outline(ax, x0, x1, y0, y1, z, color="0.25", lw=1.0, zorder=3)
 
-        # The pinning column, through the bottom layer only.
+        # The hole, running through both metal layers.
         cx, cy = _axis(params)
-        r = DEFECT / 2.0
-        zb0 = ranges["bottom"][0] * params.hz - dz
-        zb1 = ranges["bottom"][1] * params.hz - dz
+        r = HOLE / 2.0
+        zb0 = trilayer.stack_z_range[0] * params.hz - dz
+        zb1 = trilayer.stack_z_range[1] * params.hz - dz
         for dx, dy in ((-r, -r), (r, -r), (r, r), (-r, r)):
             ax.plot([cx + dx] * 2, [cy + dy] * 2, [zb0, zb1],
                     color="#00e5ff", lw=1.4, zorder=6)
@@ -487,7 +495,9 @@ def plot_isometric(runs, output_dir: Path) -> Path:
         # is no ambiguity about which is which, and nothing lands on the core.
         ax.text2D(
             0.02, 0.92,
-            "upper sheet — top metal, empty\nlower sheet — bottom metal, holds the vortex",
+            "both sheets carry the same hole\n"
+            "upper — top metal, fluxoid 0\n"
+            "lower — bottom metal, fluxoid 1 (the trapped vortex)",
             transform=ax.transAxes, fontsize=9.5, color="0.15", va="top",
             bbox=dict(facecolor="white", alpha=0.8, edgecolor="0.8", pad=3.0),
         )
@@ -514,9 +524,9 @@ def plot_isometric(runs, output_dir: Path) -> Path:
     cbar.set_label("|ψ|²  on each metal mid-plane")
 
     fig.suptitle(
-        "One trapped vortex in the bottom layer of an S/I/S stack — "
-        f"κ = {KAPPA:g}, λ = {KAPPA:g} ξ, no applied field.\n"
-        "Cyan = the pinning column (bottom layer only); blue = B field lines "
+        "One hole through both layers of an S/I/S stack, a trapped vortex in "
+        f"only one of them — κ = {KAPPA:g}, λ = {KAPPA:g} ξ, no applied field.\n"
+        "Cyan = the hole, running through both metals; blue = B field lines "
         "from the trapped core.",
         fontsize=12.5, y=0.99,
     )
@@ -645,7 +655,7 @@ def main(output_dir: Path | str = Path("."), small: bool = False, *,
     runs = []
     for gap in gaps:
         params, device, trilayer = _build(gap, h, **geometry)
-        _carve_defect(params, device, trilayer)
+        _carve_hole(params, device, trilayer)
         x0 = _seed_bottom_vortex(params, device, trilayer)
         solution, residual = _relax(params, device, x0, t_stop)
 

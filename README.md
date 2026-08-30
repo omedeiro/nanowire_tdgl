@@ -91,26 +91,30 @@ survives refinement.
 | [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
 | **Fluxoid vs time**** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S in a perpendicular field** — the metal screens, the oxide transmits, and the expelled flux crowds into the vacuum beside the film. |
 
-### A vortex trapped in one layer of an S/I/S stack
+### One hole through both layers of an S/I/S stack — a vortex in only one
 
-The two metal layers of an S/I/S stack are coupled only through **A** — this
-model carries no Josephson term, so nothing but the magnetic field crosses the
-oxide. That allows a state the two films could not hold if they were one film:
-**a quantum of flux threading the bottom layer while the top one stays
-vortex-free**. A columnar non-superconducting inclusion through the bottom
-layer pins it — without one, a vortex seeded 3 ξ off axis is pulled to its own
-image in the film edge and leaves, and a vortex seeded dead centre survives
-only by symmetry, which is a fixed point rather than a trapped vortex.
+One square hole carved straight through an S/I/S stack, so both metal layers
+carry the *same* hole and are geometrically identical. The layers are coupled
+only through **A** — this model carries no Josephson term, so nothing but the
+magnetic field crosses the oxide — and that allows a state the two films could
+not hold if they were one film: **the bottom hole holds a fluxoid of 1 while
+the top hole holds 0**. The fluxoid is a topological integer, so this is not
+"more flux here than there"; it is two identical openings in two different
+quantum states.
+
+A hole is what makes it a *trapped* state at all. Without one, a vortex seeded
+3 ξ off axis is pulled to its own image in the film edge and leaves, and a
+vortex seeded dead centre survives only by symmetry — a fixed point, not a
+trapped vortex.
 
 [![Trapped vortex in one layer](docs/figures/sis_vortex_trapping_3d.png)](docs/figures/sis_vortex_trapping_3d.png)
 
 Sweeping the oxide **3 → 10 ξ** moves the field without touching the topology.
-The fluxoid stays exactly 1 in the bottom layer and exactly 0 in the top one at
-every gap — those are integers. What changes is how much of the trapped
-quantum's flux is still bundled by the time it reaches the second film: the
-flux within r ≤ 6 ξ at the top layer falls **0.097 → 0.023 Φ₀**, from 16.5% of
-the bottom layer's share down to 3.8%, while the bottom layer holds 0.59 Φ₀
-throughout.
+The fluxoid stays exactly 1 and exactly 0 at every gap. What changes is how
+much of the trapped quantum's flux is still bundled by the time it reaches the
+second film: the flux within r ≤ 6 ξ at the top layer falls
+**0.098 → 0.023 Φ₀**, from 16.7% of the bottom layer's share down to 3.8%,
+while the bottom layer holds ~0.59 Φ₀ throughout.
 
 The profiles above the bottom layer very nearly coincide across all four gaps,
 which is the whole mechanism in one sentence: the field there is the trapped
