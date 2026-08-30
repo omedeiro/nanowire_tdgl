@@ -16,6 +16,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
@@ -31,7 +37,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     dt = 0.01
     t_stop = n_steps * dt
-    sol = solve(device, dt=dt, t_stop=t_stop, method="euler", save_every=1, progress=False)
+    sol = solve(device, dt=dt, t_stop=t_stop, method="euler", save_every=1,
+                progress=False, noise_seed=NOISE_SEED)
 
     # Compute energy at each saved step
     energies = []
