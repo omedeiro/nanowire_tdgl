@@ -167,6 +167,43 @@ has not pair-broken, inside a box whose walls are far compared with R;
 the three constraints pull against each other, and the two thin-film
 codes cover that end at a thousandth of the cost.
 
+### Which approximation is costing what
+
+The sweep makes two approximations that a mesh code does not: the pinned
+walls of the box stand in for infinity, and the disk is a staircase.
+Changing one at a time, all at κ = 8 on the same 6 ξ disk:
+
+| h (ξ) | box (ξ) | interior nodes | Λ_eff/R_eff | ∫\|ψ\|²dz | μ | distance from SuperScreen | seconds |
+|---|---|---|---|---|---|---|---|
+| 1 | 20×14 | 4 693 | 4.58 | 2.75 | 0.97580 | 9.1e-3 | 33 |
+| 1 | 28×20 | 13 851 | 4.58 | 2.75 | 0.97685 | — | 191 |
+| 1 | 40×28 | 41 067 | 4.58 | 2.75 | 0.97721 | 1.05e-2 | 1 268 |
+| 0.5 | 20×14 | 41 067 | 6.77 | 1.95 | 0.98532 | 8.4e-3 | 1 322 |
+
+(The 28 ξ row is the sweep's own setting.)
+
+**The box is not the problem.** Doubling it from 20 ξ to 40 ξ moves μ by
+1.4e-3, and the second doubling contributes 3.7e-4 of that, so the
+sweep's 28 ξ box carries a few times 1e-4 of far-field error against a
+disagreement with the thin-film codes of 1e-2. Nine times the nodes
+buys almost nothing here, which is the useful thing to know.
+
+**Neither is the staircase.** Halving h moves the distance from the
+thin-film curve from 9.1e-3 to 8.4e-3. What is left at `Λ/R ≈ 5` is a
+difference of model, not of discretisation: `d/λ = 0.5` there, and the
+equation the other two codes solve assumes `d ≪ λ`.
+
+**But the pair-breaking interface is not grid-converged**, and that is
+the finding worth carrying away. Refining h leaves `∫|ψ|²dz` 29% smaller
+and Λ_eff 48% larger. The insulator relaxes ψ over `√τ = √0.1 ≈ 0.32 ξ`
+(`INSULATOR_RELAXATION_TIME` in `operators/sparse_operators.py`), which
+`h = 1` does not resolve at all and `h = 0.5` barely does, so how hard
+the vacuum pair-breaks the film is still partly a property of the grid.
+The point moves *along* the axis under refinement rather than towards
+the curve — which is why the benchmark measures Λ from ψ instead of
+assuming it, and why a superconducting layer only a few ξ thick is worth
+treating with suspicion in this solver generally.
+
 ## Benchmark 2 — a pair-breaking wall
 
 The order-parameter equation on its own, which is the half of the

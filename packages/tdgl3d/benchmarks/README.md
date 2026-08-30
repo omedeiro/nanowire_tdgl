@@ -64,7 +64,8 @@ pip install tdgl superscreen        # pyTDGL and SuperScreen
 cd packages/tdgl3d
 python3 -m benchmarks.run superscreen   # ~1 minute
 python3 -m benchmarks.run pytdgl        # ~20 minutes
-python3 -m benchmarks.run tdgl3d        # ~20 minutes
+python3 -m benchmarks.run tdgl3d        # ~25 minutes
+python3 -m benchmarks.run tdgl3d-convergence   # ~45 minutes
 python3 -m benchmarks.run wall          # ~5 minutes
 python3 -m benchmarks.run report        # writes REPORT.md
 python3 ../../docs/figures/cross_tool_benchmark.py
@@ -92,4 +93,13 @@ fails half way through does not lose the half that finished.
 * **tdgl3d's vacuum is pair-breaking**, so a film a few ξ thick has
   `|ψ| < 1` everywhere and its sheet superfluid density is not the
   geometric thickness. The runner measures `∫|ψ|²dz` and reports Λ from
-  that rather than from `κ²/d`.
+  that rather than from `κ²/d` — for the sweep's film the two differ by
+  46%. That interface is also not grid-converged at `h = 1`: the
+  insulator relaxes ψ over `√0.1 ≈ 0.32 ξ`, so how hard the vacuum
+  pair-breaks the film still depends on the spacing.
+* **`h = 1` hides unit bugs.** Two of the errors this benchmark found —
+  the missing `1/h` in the supercurrent, and a κ² cached across a change
+  of κ — are exactly the identity on a unit cubic grid, which is what
+  every test, example and figure in the repository uses. The
+  grid-refinement probe is there for that reason and not only for
+  accuracy.

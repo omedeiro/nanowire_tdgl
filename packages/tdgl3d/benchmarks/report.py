@@ -146,6 +146,35 @@ def pairwise_table(data) -> str:
     return "\n".join(lines)
 
 
+def convergence_table(data) -> str:
+    """The two approximations the tdgl3d sweep makes, changed one at a time."""
+    rows = data.get("tdgl3d_convergence", [])
+    if not rows:
+        return "_Not run._"
+    reference = {r["lambda_over_r"]: r["mu"] for r in data.get("superscreen", [])}
+    xs = np.array(sorted(reference))
+    mus = np.array([reference[x] for x in xs])
+    lines = [
+        "| h (ξ) | box (ξ) | interior nodes | Λ_eff/R_eff | ∫\\|ψ\\|²dz | μ "
+        "| distance from SuperScreen | seconds |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        box = f"{row['lateral_cells'] * row['spacing']:.0f}×{row['z_cells'] * row['spacing']:.0f}"
+        gap = float("nan")
+        if xs.size:
+            interpolated = float(
+                np.interp(np.log(row["lambda_over_r"]), np.log(xs), mus)
+            )
+            gap = abs(row["mu"] - interpolated) / abs(interpolated)
+        lines.append(
+            f"| {_fmt(row['spacing'])} | {box} | {row['interior_nodes']} "
+            f"| {_fmt(row['lambda_over_r'], 4)} | {_fmt(row['sheet_ns'], 4)} "
+            f"| {_fmt(row['mu'], 5)} | {_fmt(gap, 3)} | {row['seconds']:.0f} |"
+        )
+    return "\n".join(lines)
+
+
 def wall_table(data) -> str:
     lines = [
         "| tool | h (ξ) | rms of ψ' - (1-ψ²)/√2 | fitted healing length (exact √2 = 1.41421) |",
@@ -170,6 +199,8 @@ def write(results: Path) -> str:
         closed_form_table(data),
         "## Thin disk: the codes against each other",
         pairwise_table(data),
+        "## Thin disk: what the tdgl3d approximations cost",
+        convergence_table(data),
         "## Pair-breaking wall: the order-parameter equation",
         wall_table(data),
         "",
