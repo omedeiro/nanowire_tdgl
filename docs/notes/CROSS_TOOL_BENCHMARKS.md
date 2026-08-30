@@ -65,10 +65,11 @@ each other instead.
 ### μ = 1 is an asymptote, not a value
 
 Screening pulls `μ` below 1 at any finite Λ, and the first correction is
-linear in `R/Λ` — the measured coefficient is 0.147, which is `3π/64`.
-So `|μ - 1|` at, say, `Λ/R = 30` is 0.5%, and essentially all of it is
-physics. Quoting that as solver error would be wrong by an order of
-magnitude.
+linear in `R/Λ` with a measured coefficient of about 0.145 — close to
+`3π/64 = 0.1473`, the same combination that sets where the two
+asymptotes cross. So `|μ - 1|` at `Λ/R = 30` is 0.5%, and essentially
+all of it is physics: SuperScreen's own error there is 3e-4, so quoting
+the 0.5% as solver error would be wrong by a factor of fifteen.
 
 The benchmark fits a straight line in `R/Λ` through the weakly screening
 points and quotes the intercept, which the closed form *does* fix at 1.
