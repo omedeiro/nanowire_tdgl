@@ -229,6 +229,37 @@ O(h) error of its own. The benchmark measures the code together with the
 way its answer is extracted, and here the two cannot be separated
 without going below pyTDGL's public API.
 
+## What the comparison caught
+
+Both benchmarks are new, and between them they turned up two bugs in
+this solver that the existing verification suite could not see. Both
+were invisible for the same reason: every grid in the tests, examples
+and figures has `h = 1` and a cubic cell, and both errors are exactly
+the identity there.
+
+* **The Maxwell coefficient ignored a change of κ.** `GridIndices`
+  returns one scratch dict per grid and does not look at the parameters
+  it is handed, and the cached `κ²` was keyed on the material map alone.
+  A second solve on the same grid and material at a different κ kept the
+  first one's κ². The disk benchmark relaxes ψ once at `κ = 1` — the
+  ψ-equation has no κ in it, so that is forty times cheaper and gives the
+  same profile — and then solves the field at the real κ, which walked
+  straight into it. What came out was a film expelling 81% of the applied
+  flux where London allows 1.4%, and a converged state whose `B` and `J`
+  disagreed with `κ²∇×B = J` by a factor of 64.
+* **The supercurrent was `J·h`, not `J`.** The covariant derivative's
+  `1/h` was missing from `eval_supercurrent_density`; the `ψ*ψ` term is
+  real and drops out, which leaves an expression that looks finished
+  without it. The grid-refinement probe below found it: the same
+  physical disk at `h = 1` and `h = 0.5` gave moments a factor of two
+  apart, both converged to a residual below 1e-9. Each component carries
+  its own spacing, so on a non-cubic grid the omission rotates the
+  current vector rather than scaling it.
+
+Neither is the sort of thing a self-consistency check finds. Both codes
+were internally consistent and reported converged; what exposed them was
+having a second implementation and an exact answer to walk towards.
+
 ## Reproducing
 
 The two reference codes are optional dependencies of `tdgl3d`:
