@@ -48,8 +48,14 @@ def kappa_sq_interior(
 
     Six of the operators need this on every right-hand-side evaluation and it
     never changes during a run, so it is gathered once and kept.  The cache is
-    keyed on the material map it was built from, so swapping materials on a
-    device rebuilds it rather than returning a stale array.
+    keyed on the material map it was built from *and* on ``params.kappa`` —
+    the two things the answer depends on — so changing either rebuilds it
+    rather than returning a stale array.  The second half of that key matters:
+    :meth:`GridIndices.neighbours` does not look at the parameters it is
+    handed, so without it a second solve on the same grid and material at a
+    different κ silently keeps the first one's κ.  That is not a small error
+    but the wrong penetration depth, and it shows up as a device that screens
+    as though λ were whatever κ ran first.
 
     This is the *node* form, correct only where the coefficient is
     uniform — which is the default, since ``magnetic_kappa`` is unset
@@ -58,10 +64,10 @@ def kappa_sq_interior(
     """
     st = idx.neighbours(params)
     cached = st.get("_kappa_sq")
-    if cached is not None and cached[0] is material:
+    if cached is not None and cached[0] is material and cached[2] == params.kappa:
         return cached[1]
     kappa_sq = _kappa_at(st["m"], params, material) ** 2
-    st["_kappa_sq"] = (material, kappa_sq)
+    st["_kappa_sq"] = (material, kappa_sq, params.kappa)
     return kappa_sq
 
 
@@ -628,7 +634,12 @@ def _material_in_grid_order(
     st = idx.neighbours(params)
     real_dtype = np.dtype(real_dtype)
     cached = st.get("_material_grid_order")
-    if cached is not None and cached[0] is material and cached[3] == real_dtype:
+    if (
+        cached is not None
+        and cached[0] is material
+        and cached[3] == real_dtype
+        and cached[4] == params.kappa
+    ):
         return cached[1], cached[2]
 
     order, _ = grid_order(params, idx)
@@ -639,7 +650,7 @@ def _material_in_grid_order(
         None if material is None
         else material.interior_sc_mask[order].astype(real_dtype, copy=False)
     )
-    st["_material_grid_order"] = (material, kappa_sq, sc, real_dtype)
+    st["_material_grid_order"] = (material, kappa_sq, sc, real_dtype, params.kappa)
     return kappa_sq, sc
 
 
