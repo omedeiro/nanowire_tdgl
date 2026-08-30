@@ -410,16 +410,36 @@ def _film_extent(params, device, slice_z: int):
 
 def _paint_layer(ax, params, device, solution, slice_z, cmap, norm, *, alpha=1.0,
                  z_offset=0.0):
-    """Paint |psi|^2 of one layer as a horizontal sheet at its own height."""
+    """Paint |psi|^2 of one layer as a horizontal sheet at its own height.
+
+    Each node is drawn as the cell it owns, centred on its own coordinate,
+    which takes some care.  ``plot_surface`` colours the quad *between* nodes
+    ``i`` and ``i+1`` with ``facecolors[i, j]``, so an n x m grid becomes an
+    (n-1) x (m-1) quad mesh: passing node coordinates straight in would shift
+    every colour half a cell towards +x and +y and silently drop the last row
+    and column altogether.  On a film that is mirror-symmetric about its own
+    centre that shows up as a lopsided edge -- the vacuum-adjacent dark band
+    drawn in full on the low side and one cell short on the high side.
+
+    Passing cell *edges* instead, with the colour array padded by the row and
+    column ``plot_surface`` never reads, draws all n x m values in the right
+    places and keeps a symmetric sheet symmetric.
+    """
     nx, ny, nz = _interior_shape(params)
     xs, ys, zs = _interior_axes(params)
     i0, i1, j0, j1 = _film_extent(params, device, slice_z)
     psi2 = np.abs(solution.psi(-1).reshape(nx, ny, nz)[i0:i1, j0:j1, slice_z]) ** 2
-    X, Y = np.meshgrid(xs[i0:i1], ys[j0:j1], indexing="ij")
+
+    x_edges = np.append(xs[i0:i1] - 0.5 * params.hx, xs[i1 - 1] + 0.5 * params.hx)
+    y_edges = np.append(ys[j0:j1] - 0.5 * params.hy, ys[j1 - 1] + 0.5 * params.hy)
+    X, Y = np.meshgrid(x_edges, y_edges, indexing="ij")
+
+    colours = np.zeros(X.shape + (4,))
+    colours[:-1, :-1] = cmap(norm(psi2))
     ax.plot_surface(X, Y, np.full_like(X, zs[slice_z] - z_offset),
-                    facecolors=cmap(norm(psi2)), shade=False,
+                    facecolors=colours, shade=False,
                     rstride=1, cstride=1, alpha=alpha, zorder=1)
-    return xs[i0], xs[i1 - 1], ys[j0], ys[j1 - 1]
+    return x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]
 
 
 def _outline(ax, x0, x1, y0, y1, z, **kw):
