@@ -39,6 +39,9 @@ SCRIPTS = [
     ]),
     ("vortex_entry_dynamics", ["vortex_entry_dynamics.gif"]),
     ("analytic_cross_sections", ["analytic_cross_sections.png"]),
+    # Draws the stored cross-tool benchmark results; runs no simulation, so
+    # `small` has nothing to shrink and it costs nothing to include.
+    ("cross_tool_benchmark", ["cross_tool_benchmark.png"]),
     ("nb_hole_array", [
         "nb_hole_array_entry.png",
         "nb_hole_array_trapped.png",
