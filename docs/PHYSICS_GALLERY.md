@@ -26,6 +26,34 @@ committed here rather than a fresh realisation of the noise.  Without that a
 figure cannot be diffed against its predecessor, and a change in the physics
 is indistinguishable from a change in the random draw.
 
+### Drawing conventions
+
+Two things have to be right for a symmetric device to draw symmetric: the
+quantity has to be plotted on **its own grid** (the next section), and the
+plotting call has to be given **cell boundaries** rather than node coordinates.
+
+Every field here is sampled *at* points, and the matplotlib calls that fill a
+grid want the boundaries between cells.  Two of them fail quietly when handed
+the sample coordinates instead: `imshow(extent=...)` reads the extent as the
+outer edge of the image, squeezing n samples into n-1 cells' worth of axis, and
+`plot_surface(facecolors=...)` colours the quad *between* samples i and i+1, so
+an n x m grid becomes an (n-1) x (m-1) mesh with the last row and column never
+drawn at all.  Neither raises; both draw a mirror-symmetric device lopsided,
+with the boundary band full width on the low edge and short on the high one.
+
+`tdgl3d.visualization.plotting` carries `cell_edges`, `imshow_extent`,
+`pad_facecolors` and `surface_facecolors` for this, and
+`packages/tdgl3d/tests/test_cell_geometry.py` pins the matplotlib behaviour
+they work around.  `pcolormesh(..., shading="auto")` already centres cells on
+its samples when `C` has the same shape as `X` and `Y`, so it needs none of
+them.
+
+Every script pins the seed of the symmetry-breaking noise (`NOISE_SEED`, or an
+explicit `noise_amplitude=0.0`), so regenerating a figure reproduces the one
+committed here rather than a fresh realisation of the noise.  Without that a
+figure cannot be diffed against its predecessor, and a change in the physics
+is indistinguishable from a change in the random draw.
+
 ## Two grids, and why maps drawn on the wrong one look asymmetric
 
 ψ is a **node** quantity and B is a **plaquette** quantity, and they are not
@@ -69,7 +97,7 @@ tolerance allowed.
 | `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt; B against the exact London series and \|ψ\| against the exact pair-breaking wall, both to second order in h |
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
 | `test_verification_vacuum.py` | the applied field is exact in vacuum; a κ contrast in a currentless region changes nothing; a lateral margin unpins the film edge; flux crowds beside it; the far field converges with padding |
-| `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents |
+| `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents; one hole through both layers of an S/I/S stack holding a fluxoid in the bottom film and none in the top, the pinning that makes it a trapped state rather than a symmetric one, and the fall of interlayer flux transfer with oxide thickness |
 
 > **A note on `kappa` in a non-superconducting layer.** The κ² that
 > multiplies `∇×(∇×A)` is the field energy `B²/2μ₀`, which belongs to the
@@ -707,5 +735,91 @@ holding.
 (two runs of ~25 min each on four cores). Not part of the regenerate-everything
 loop above. `packages/tdgl3d/examples/nb_hole_array.py` is the same device as a
 CLI, with `--dry-run` for a cost estimate before committing to a run.
+
+---
+
+## 16. One Hole Through Both Layers of an S/I/S Stack, a Vortex in Only One
+
+![Trapped vortex, isometric](figures/sis_vortex_trapping_3d.png)
+
+**Physical mechanism:** One square hole is carved straight through an S/I/S
+stack, so both metal layers carry the same hole and are geometrically
+identical. A single vortex is seeded on the bottom layer's hole; the top layer
+starts, and stays, in the vortex-free state.
+
+The two layers are coupled only through **A** — this model carries no
+Josephson term, so nothing but the magnetic field crosses the oxide. That
+allows a state the two films could not hold if they were one film: **the
+bottom hole holding a fluxoid of 1 while the top hole, the same hole, holds
+0**. Neither number is a matter of degree — the fluxoid is a topological
+integer — so this is not "more flux here than there", it is two identical
+openings in two different quantum states, and it stays that way at every oxide
+thickness below.
+
+What the thickness moves is the *field*. The trapped quantum's flux is not
+confined to a tube: on leaving the metal it spreads over λ = κ ξ, so the share
+of it still inside a fixed radius by the time it reaches the top layer falls as
+the gap widens. That is what the field lines in the figure are doing — they
+leave the core as a tight bundle and flare across the oxide, and the wider the
+oxide the further they have flared by the time they cross the second film.
+
+**Why there is a hole.** At zero applied field a lone vortex in a finite film
+is pulled towards its image in the edge and leaves. Seeded dead centre in a
+noiseless square it survives only because every escape direction is degenerate
+— a fixed point held by symmetry, which is the trap `AGENTS.md` warns about,
+not a trapped vortex. The hole removes the core condensation energy at one
+spot and pins it for real: a vortex seeded 3 ξ off axis migrates onto the hole
+and stays, and the same run with no hole at all expels it. The hole is carved
+with `MaterialMap.carve_hole_polygon` rather than `Device.add_hole`, so it
+takes the same path through the operators as the oxide and does not depend on
+the hole boundary condition that `docs/notes/HOLE_BC_STATUS.md` records as
+still open.
+
+![Trapped vortex, sweep](figures/sis_vortex_trapping_sweep.png)
+
+**Validates:** `test_physics_validation.py::test_vortex_trapped_in_one_layer_only`,
+`::test_vortex_is_pinned_by_the_hole`,
+`::test_interlayer_flux_transfer_falls_with_oxide_thickness`
+
+**Parameters:** metal span 4 ξ per layer, metal-to-metal oxide gap swept over
+3, 4, 6 and 10 ξ, film 20 ξ wide, 4 ξ lateral vacuum, 5 ξ vacuum above and
+below, a 2 ξ square hole through the whole stack, κ = 2.0, h = 1 ξ (28×28×21
+to 28×28×28), **no applied field**, relaxed 60 τ_GL to max |dX/dt| ≤ 9.5e-05.
+
+**Key features:**
+- Isometric figure: |ψ|² on each metal mid-plane — the same hole in both
+  sheets, a vortex on only the lower one — with the hole outlined in cyan and
+  B field lines traced from the trapped core by RK4 on the interpolated field.
+  Height is measured from the bottom metal in both panels, and both share
+  z-limits, so only the top layer moves between them.
+- Sweep (a), (b): B_z on the vortex axis and the flux within r ≤ 6 ξ, against
+  height. The curves for the four gaps very nearly coincide — the field above
+  the bottom layer is the trapped vortex's own, and is barely changed by moving
+  the second film. What the gap decides is which point of that decaying profile
+  the top layer samples, marked ● on each curve.
+- Sweep (c): the flux reaching the top layer, against gap. The bottom layer
+  holds about 0.59 Φ₀ within r ≤ 6 ξ at every gap.
+- Sweep (d): the radial profile at the top-layer mid-plane, normalised. What
+  arrives across a wide gap arrives spread wider.
+
+**Validation metrics:** the fluxoid is 1.00000000 in the bottom layer and
+0.00000000 in the top one at all four gaps. Flux within r ≤ 6 ξ at the
+top-layer mid-plane falls **0.098 → 0.078 → 0.050 → 0.023 Φ₀** across gaps of
+3, 4, 6 and 10 ξ — 16.7% of the bottom layer's flux down to 3.8% — while the
+bottom layer stays at 0.588–0.600 Φ₀ throughout. max |ψ| = 0.941, so the metal
+is nowhere near pair-broken. The state is a genuine steady state, not a
+snapshot: at the 6 ξ gap the diagnostics are unchanged to five decimals between
+60, 150 and 250 τ_GL, and the residual falls from 1.1e-07 to 4.8e-12 over that
+window.
+
+**A note on the top hole.** Adding the hole to the top layer barely moves the
+transfer numbers (0.097 → 0.098 Φ₀ at the 3 ξ gap against a bottom-only
+column), and that is itself the point: by the time the flux reaches the second
+film it is spread over λ = 2 ξ, much wider than the 2 ξ opening, so a hole that
+size has little left to funnel. The hole earns its place by making the two
+layers *identical*, not by changing what crosses the oxide.
+
+**Regenerating:** `python3 docs/figures/sis_vortex_trapping_3d.py` — about
+6 minutes for the four gaps.
 
 ---

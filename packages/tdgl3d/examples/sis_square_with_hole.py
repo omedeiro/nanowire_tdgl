@@ -31,6 +31,7 @@ import numpy as np
 import tdgl3d
 from matplotlib.colors import Normalize
 from tdgl3d.core.solution import Solution
+from tdgl3d.visualization.plotting import cell_edges, pad_facecolors
 
 # ── Physical constants ─────────────────────────────────────────────────
 XI_NM = 100.0                     # coherence length ξ = 100 nm
@@ -243,18 +244,31 @@ def _paint_surfaces(ax, solution, data_fn, cmap_obj, norm_obj, xs, ys, zs,
     """Paint visible faces of the film onto *ax*.  Sentinel 999 → dark gray."""
     p = solution.params
     nx_int, _ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
-    XX, YY = np.meshgrid(xs, ys, indexing="ij")
+    # Faces are drawn on cell *edges*, so every node keeps the cell it owns:
+    # plot_surface colours the quad between nodes i and i+1, so node
+    # coordinates would shift the picture half a cell and drop the last row
+    # and column outright.  See tdgl3d.visualization.plotting.cell_edges.
+    # Clamped to the box: these are four faces of one solid, so their
+    # outermost cells must stop at the corners rather than overhang.
+    x_e = cell_edges(xs, (x_lo, x_hi))
+    y_e = cell_edges(ys, (y_lo, y_hi))
+    z_e = cell_edges(zs, (z_lo, z_hi))
+    XX, YY = np.meshgrid(x_e, y_e, indexing="ij")
 
     GRAY = np.array([0.15, 0.15, 0.15, 1.0])
 
     def _colors(data):
-        """Map data through norm+cmap; sentinel 999 or NaN → dark gray."""
+        """Map data through norm+cmap; sentinel 999 or NaN → dark gray.
+
+        Padded for plot_surface, which reads one fewer row and column than it
+        is handed.
+        """
         mask = (data > 900) | np.isnan(data)
         clipped = np.where(mask, 0.0, data)
         normed = norm_obj(clipped)
         rgba = cmap_obj(normed)
         rgba[mask] = GRAY
-        return rgba
+        return pad_facecolors(rgba)
 
     # Top face (z = z_hi)
     d = data_fn("z", nz_int - 1)
@@ -267,13 +281,13 @@ def _paint_surfaces(ax, solution, data_fn, cmap_obj, norm_obj, xs, ys, zs,
                     facecolors=_colors(d),
                     shade=False, alpha=0.45, rstride=1, cstride=1)
     # Front face (y = y_lo)
-    XF, ZF = np.meshgrid(xs, zs, indexing="ij")
+    XF, ZF = np.meshgrid(x_e, z_e, indexing="ij")
     d = data_fn("y", 0)
     ax.plot_surface(XF, np.full_like(XF, y_lo), ZF,
                     facecolors=_colors(d),
                     shade=False, alpha=0.85, rstride=1, cstride=1)
     # Right face (x = x_hi)
-    YR, ZR = np.meshgrid(ys, zs, indexing="ij")
+    YR, ZR = np.meshgrid(y_e, z_e, indexing="ij")
     d = data_fn("x", nx_int - 1)
     ax.plot_surface(np.full_like(YR, x_hi), YR, ZR,
                     facecolors=_colors(d),
