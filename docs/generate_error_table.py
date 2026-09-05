@@ -433,7 +433,8 @@ EXACT: list[Reference] = [
     ),
     Reference(
         "LPHI_x diagonal = −2κ²(1/h_y² + 1/h_z²)",
-        "a spatially varying κ enters the operator node by node",
+        "the Maxwell coefficient is the vacuum field energy, so it is the "
+        "same coefficient in the oxide as in the metal",
         "test_trilayer_kappa_discontinuity",
         "LPHI_x diagonal in the superconductor",
         "S/I/S, κ = 2",
@@ -444,6 +445,48 @@ EXACT: list[Reference] = [
         "test_stack_is_mirror_symmetric_about_its_midplane[(4, 2)]",
         "κ asymmetry under z → Nz − z",
         "4/2/4 cells",
+    ),
+    Reference(
+        "an empty box carries the applied field",
+        "the ghost-link boundary condition is exact where there is no metal",
+        "test_empty_box_reproduces_the_applied_field[Bz]",
+        "max |Bz - applied| / applied",
+        "8×8×8 vacuum, direct steady-state solve",
+    ),
+    Reference(
+        "a κ contrast with no current changes nothing",
+        "the Maxwell coefficient belongs to the vacuum, not to the material",
+        "test_kappa_contrast_without_current_changes_nothing",
+        "max |Bz - applied| / applied, declared κ = 4.0",
+        "8×8×12, slab declaring κ = 4 in vacuum",
+    ),
+    Reference(
+        "a declared oxide κ is inert",
+        "κ_ox = 0 and κ_ox = κ_SC must give the same field, node for node",
+        "test_declared_oxide_kappa_does_not_change_the_field",
+        "max |Bz(κ_ox = 0) − Bz(κ_ox = κ_SC)| / applied",
+        "S/I/S stack, 4/4/4 cells, B = 0.1",
+    ),
+    Reference(
+        "a padded stack is mirror symmetric in z",
+        "vacuum above and below a symmetric stack keeps the symmetry exact",
+        "test_padded_stack_is_mirror_symmetric",
+        "max |Bz(z) - Bz(-z)| / applied",
+        "3/2/3 layers, 5 vacuum cells",
+    ),
+    Reference(
+        "a seeded fluxoid stays exactly one quantum",
+        "a winding number is topological and cannot leak away",
+        "test_vortex_trapped_in_one_layer_only",
+        "fluxoid in the bottom layer",
+        "S/I/S stack, 6 ξ oxide, B = 0",
+    ),
+    Reference(
+        "the layer without a vortex holds none",
+        "the same statement in the layer the winding was not seeded in",
+        "test_vortex_trapped_in_one_layer_only",
+        "fluxoid in the top layer",
+        "S/I/S stack, 6 ξ oxide, B = 0",
     ),
     Reference(
         "a hole at [3, 7] is centred on the film",
@@ -546,6 +589,27 @@ BOUNDS: list[Reference] = [
         "S/I/S ring, 4 ξ hole, h = 1 ξ",
     ),
     Reference(
+        "a lateral margin unpins the film edge",
+        "with metal at the wall the edge field is prescribed, not solved for",
+        "test_lateral_vacuum_unpins_the_film_edge",
+        "max Bz over metal nodes / applied, with a lateral margin",
+        "3-cell lateral margin",
+    ),
+    Reference(
+        "flux crowds into the vacuum beside the film",
+        "flux expelled from the film has to go somewhere",
+        "test_flux_crowds_into_the_vacuum_beside_the_film",
+        "peak Bz in the vacuum beside the film / applied",
+        "3-cell margin, 5 vacuum cells",
+    ),
+    Reference(
+        "the far field converges as the padding grows",
+        "doubling the padding must not make the far field worse",
+        "test_far_field_converges",
+        "far-field error at 8 cells / error at 4 cells",
+        "paddings of 2, 4 and 8 cells",
+    ),
+    Reference(
         "a larger hole expels less",
         "more flux gathered per unit field, so the threshold falls",
         "test_a_larger_hole_expels_less",
@@ -569,6 +633,16 @@ class Section:
 
     An observed order of accuracy *is* the quantity of interest; reporting how
     far it sits from the expected order would hide it.
+    """
+
+    budgeted: bool = True
+    """Whether the requirement is an error budget at all.
+
+    A threshold set near the quantity's natural value — "screened below the
+    applied field", "the ratio must fall" — is a statement about direction, not
+    about accuracy.  Dividing by it produces a number that looks maxed out while
+    the physical margin is comfortable, so those sections report no fraction and
+    are left out of the summary of the rows with the least room left.
     """
 
 
@@ -610,6 +684,7 @@ SECTIONS: list[Section] = [
         "Value",
         BOUNDS,
         raw_value=True,
+        budgeted=False,
     ),
     Section(
         "The reference models, checked against themselves",
@@ -780,6 +855,8 @@ def _render(
         value, requirement, used = _measurement(check)
         if section.raw_value:
             value = float(check["measured"])
+        if not section.budgeted:
+            used = None
         status = "PASS" if check["passed"] else "**FAIL**"
         lines.append(
             head + f"| {_fmt(value)} | {_escape(requirement)} | {_fmt(used)} | {status} |"
@@ -811,6 +888,11 @@ def generate_table(log_dir: Path) -> tuple[str, list[str]]:
         "cannot influence, which is the subset that can say the solver is *right*",
         "rather than merely self-consistent.",
         "",
+        "This covers the checks the test suites record. The solver is also measured",
+        "against the closed-form thin-disk limits and against pyTDGL and SuperScreen",
+        "by a separate harness in `packages/tdgl3d/benchmarks/`, reported in",
+        "[`notes/CROSS_TOOL_BENCHMARKS.md`](notes/CROSS_TOOL_BENCHMARKS.md).",
+        "",
         "**Error** is the deviation from the known result: `|measured − known|`",
         "where the check names a value, and the residual itself where the check",
         "bounds one. The sections whose fourth column reads *Observed* or *Value*",
@@ -820,8 +902,9 @@ def generate_table(log_dir: Path) -> tuple[str, list[str]]:
         "**Budget used** is the error over the tolerance the test allowed. It is",
         "the review column: a value near 1 marks a check with no room left, and a",
         "value of 1e-6 marks a tolerance that is not bounding anything. A",
-        "requirement written `≥`, or an interval, is not an error budget, so those",
-        "rows report no fraction.",
+        "requirement written `≥`, an interval, or a threshold set near the",
+        "quantity's natural value is not an error budget, so those rows report no",
+        "fraction.",
         "",
     ]
 
@@ -841,7 +924,9 @@ def generate_table(log_dir: Path) -> tuple[str, list[str]]:
         lines.append(
             "The rows using the most of their error budget. These are where the "
             "suite would notice a regression first — and where a change that "
-            "moves the physics slightly will fail before anything else does."
+            "moves the physics slightly will fail before anything else does. "
+            "Rows whose requirement is a direction rather than an accuracy are "
+            "not ranked here; see the bounds section for those."
         )
         lines.append("")
         for used, description in tightest:
