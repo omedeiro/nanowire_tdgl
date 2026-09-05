@@ -74,7 +74,11 @@ The physics is verified by five suites in `packages/tdgl3d/tests/`:
 plus `test_physics_validation.py` for heterostructures. They assert through the
 `check_*` helpers on the `phys_log` fixture, which record measured value,
 expected value and tolerance into `logs/test_*.json` for
-`docs/generate_test_report.py`.
+`docs/generate_test_report.py` (every check) and `docs/generate_error_table.py`
+(only the checks anchored to a known solution, with the fraction of each error
+budget used, and the known solutions still uncovered). The error table's
+reference list is curated in that script and it exits non-zero when a test or
+check label it names no longer exists, so regenerate it after renaming either.
 
 Two rules for adding checks there:
 

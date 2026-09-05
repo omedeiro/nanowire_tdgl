@@ -1,8 +1,8 @@
 # Physics Verification Report
 
-**Run timestamp:** 2026-08-29T17:59:25.538942
-**Tests:** 87/87 passed, 0 failed
-**Checks:** 294/294 passed (0 failed)
+**Run timestamp:** 2026-09-05T16:12:40.296642
+**Tests:** 90/90 passed, 0 failed
+**Checks:** 308/308 passed (0 failed)
 
 Each check records the measured value, the value physics requires and the tolerance allowed, so every line below is falsifiable. Tolerances near machine precision mark exact discrete identities; the wider ones are discretisation error bounds stated up front rather than fitted to the measurement.
 
@@ -45,7 +45,7 @@ Each check records the measured value, the value physics requires and the tolera
 | vortices present (test would be vacuous otherwise) | 8 | >= 1 | 1 | PASS |
 | vortex count after gauge change | 8 | 8 | 0 | PASS |
 | max Δ(plaquette vorticity) | 2.297e-16 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|winding change\| | 1.110e-16 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|winding change\| | 0 | <= 1e-09 | 1.000e-09 | PASS |
 
 ### Conservation laws and identities
 
@@ -247,16 +247,16 @@ Each check records the measured value, the value physics requires and the tolera
 | Check | Measured | Expected | Tolerance | Status |
 |-------|----------|----------|-----------|--------|
 | **test_fluxoid_equals_enclosed_vorticity_for_any_contour** | | | | |
-| max \|fluxoid − nearest integer\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
-| max \|fluxoid − enclosed vorticity\| | 1.776e-15 | <= 1e-09 | 1.000e-09 | PASS |
-| \|staircase fluxoid − enclosed vorticity\| | 2.665e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − nearest integer\| | 3.553e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|fluxoid − enclosed vorticity\| | 3.553e-15 | <= 1e-09 | 1.000e-09 | PASS |
+| \|staircase fluxoid − enclosed vorticity\| | 8.882e-16 | <= 1e-09 | 1.000e-09 | PASS |
 | **test_no_vortices_in_the_meissner_state** | | | | |
 | vortex count | 0 | 0 | 0 | PASS |
-| max \|vorticity\| anywhere | 1.657e-18 | <= 1e-09 | 1.000e-09 | PASS |
+| max \|vorticity\| anywhere | 2.761e-18 | <= 1e-09 | 1.000e-09 | PASS |
 | min \|ψ\| | 0.999159 | >= 0.95 | 0.95 | PASS |
 | **test_plaquette_vorticity_is_an_exact_integer** | | | | |
 | plaquettes carrying vorticity | 8 | >= 1 | 1 | PASS |
-| max \|vorticity − nearest integer\| | 2.474e-16 | <= 1e-10 | 1.000e-10 | PASS |
+| max \|vorticity − nearest integer\| | 2.297e-16 | <= 1e-10 | 1.000e-10 | PASS |
 | **test_vortex_count_increases_with_the_applied_field** | | | | |
 | largest decrease in count along the sweep | -4 | <= 0 | 0 | PASS |
 | increase from the lowest to the highest field | 12 | >= 1 | 1 | PASS |
@@ -264,7 +264,7 @@ Each check records the measured value, the value physics requires and the tolera
 | count / (B·A/Φ₀) at Bz = 0.5 | 0.19635 | <= 1 | 1 | PASS |
 | count / (B·A/Φ₀) at Bz = 0.7 | 0.420749 | <= 1 | 1 | PASS |
 | mean interior Bz / applied at Bz = 0.35 | 0.42922 | <= 1 | 1 | PASS |
-| mean interior Bz / applied at Bz = 0.5 | 0.681309 | <= 1 | 1 | PASS |
+| mean interior Bz / applied at Bz = 0.5 | 0.68131 | <= 1 | 1 | PASS |
 | mean interior Bz / applied at Bz = 0.7 | 0.853044 | <= 1 | 1 | PASS |
 | **test_vortex_winding_sign_follows_the_applied_field[Bz=-0.5]** | | | | |
 | vortices detected | 8 | >= 1 | 1 | PASS |
@@ -329,6 +329,14 @@ Each check records the measured value, the value physics requires and the tolera
 | mean \|ψ\| in the insulator | 0.0243144 | <= 0.15 | 0.15 | PASS |
 | max \|ψ\| in the superconductor | 0.965494 | >= 0.95 | 0.95 | PASS |
 | mean \|ψ\| in the superconductor | 0.843018 | >= 0.75 | 0.75 | PASS |
+| **test_interlayer_flux_transfer_falls_with_oxide_thickness** | | | | |
+| flux transfer across a 3 xi gap | 0.122832 | [0.04, 0.25] | [0.04, 0.25] | PASS |
+| flux transfer across a 6 xi gap | 0.0430499 | [0.01, 0.09] | [0.01, 0.09] | PASS |
+| transfer(3 xi) / transfer(6 xi) | 2.85324 | >= 2 | 2 | PASS |
+| fluxoid in the bottom layer at a 3 xi gap | 1 | 1 | 1.000e-06 | PASS |
+| fluxoid in the top layer at a 3 xi gap | -1.380e-19 | 0 | 1.000e-06 | PASS |
+| fluxoid in the bottom layer at a 6 xi gap | 1 | 1 | 1.000e-06 | PASS |
+| fluxoid in the top layer at a 6 xi gap | -1.035e-19 | 0 | 1.000e-06 | PASS |
 | **test_magnetic_kappa_override_is_plaquette_centred** | | | | |
 | max \|M - Mᵀ\| / \|M\| | 0 | <= 1e-12 | 1.000e-12 | PASS |
 | largest eigenvalue of the symmetric part | 1.690e-13 | <= 2.56e-07 | 2.560e-07 | PASS |
@@ -355,6 +363,15 @@ Each check records the measured value, the value physics requires and the tolera
 | Bz in the top Nb layer / applied | 0.861574 | <= 0.98 | 0.98 | PASS |
 | Bz in the bottom Nb layer / applied | 0.852883 | >= 0 | 0 | PASS |
 | top/bottom screening asymmetry | 1.01019 | 1 | 0.15 | PASS |
+| **test_vortex_is_pinned_by_the_hole** | | | | |
+| fluxoid with the hole | 1 | 1 | 1.000e-06 | PASS |
+| distance from the hole axis | 0.707107 | <= 1.5 | 1.5 | PASS |
+| fluxoid without the hole | -3.534e-17 | 0 | 1.000e-06 | PASS |
+| **test_vortex_trapped_in_one_layer_only** | | | | |
+| fluxoid in the bottom layer | 1 | 1 | 1.000e-06 | PASS |
+| fluxoid in the top layer | -1.035e-19 | 0 | 1.000e-06 | PASS |
+| max \|psi\| | 0.832347 | >= 0.5 | 0.5 | PASS |
+| flux within r <= 4 xi at the bottom mid-plane | 0.267973 | >= 0.15 | 0.15 | PASS |
 
 ### Flux expulsion by a ring
 
@@ -860,11 +877,11 @@ _the fluxoid is a topological invariant of the region, not of the path_
 - **Status:** PASS
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
-- **PASS** max |fluxoid − nearest integer|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |fluxoid − enclosed vorticity|: measured 1.776e-15, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** |staircase fluxoid − enclosed vorticity|: measured 2.665e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − nearest integer|: measured 3.553e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |fluxoid − enclosed vorticity|: measured 3.553e-15, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** |staircase fluxoid − enclosed vorticity|: measured 8.882e-16, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
-  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=-3.534e-17, enclosed_vorticity=0
+  - `contours`: square_pad2=fluxoid=8, enclosed_vorticity=8, square_pad4=fluxoid=8, enclosed_vorticity=8, square_pad6=fluxoid=-8.835e-18, enclosed_vorticity=0
   - `staircase_fluxoid`: 6
   - `staircase_enclosed`: 6
 
@@ -1054,6 +1071,24 @@ _interior arrays are C-ordered over (Nx-1, Ny-1, Nz-1)_
 - **Diagnostics:**
   - `strides`: [4, 1, 1]
 
+### test_interlayer_flux_transfer_falls_with_oxide_thickness
+
+_the oxide thickness sets how much of the trapped flux reaches the far layer, and does not touch the fluxoid_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=14, kappa=2, gaps_xi=[3, 6], metal_xi=4, Bz_applied=0
+- **PASS** flux transfer across a 3 xi gap: measured 0.122832, expected [0.04, 0.25] — measured 0.123 — non-zero, so the layers are coupled
+- **PASS** flux transfer across a 6 xi gap: measured 0.0430499, expected [0.01, 0.09] — measured 0.043
+- **PASS** transfer(3 xi) / transfer(6 xi): measured 2.85324, expected >= 2 — measured 2.85 — doubling the gap more than halves the transfer
+- **PASS** fluxoid in the bottom layer at a 3 xi gap: measured 1, expected 1 — |measured - expected| <= 1e-06
+- **PASS** fluxoid in the top layer at a 3 xi gap: measured -1.380e-19, expected 0 — |measured - expected| <= 1e-06
+- **PASS** fluxoid in the bottom layer at a 6 xi gap: measured 1, expected 1 — |measured - expected| <= 1e-06
+- **PASS** fluxoid in the top layer at a 6 xi gap: measured -1.035e-19, expected 0 — |measured - expected| <= 1e-06
+- **Diagnostics:**
+  - `transfer_fraction`: 3.0=0.122832, 6.0=0.0430499
+  - `fluxoids`: 3.0=[1, -1.380e-19], 6.0=[1, -1.035e-19]
+
 ### test_kappa_contrast_without_current_changes_nothing
 
 _the Maxwell coefficient is a property of the vacuum, not of the material_
@@ -1115,7 +1150,7 @@ _λ = κ in these units — the field decays as exp(-x/κ) into the bulk_
 _the analytical model must solve the equation it claims to solve_
 
 - **Status:** PASS
-- **Duration:** 0.263s
+- **Duration:** 0.304s
 - **Parameters:** width=16, lambda=2, n_grid=[200, 400]
 - **PASS** max |∇²B − B/λ²| at the finer grid: measured 2.400e-05, expected <= 0.0001 — dominated by the five-point stencil used to check it
 - **PASS** residual ratio on halving the check grid: measured 4.00022, expected 4 — O(h²) means the residual belongs to the difference stencil
@@ -1212,7 +1247,7 @@ _below H_c1 flux is expelled and the order parameter stays uniform_
 - **Duration:** 0.000s
 - **Parameters:** Nx=16, kappa=2, Bz=0.03
 - **PASS** vortex count: measured 0, expected 0 — |measured - expected| <= 0
-- **PASS** max |vorticity| anywhere: measured 1.657e-18, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |vorticity| anywhere: measured 2.761e-18, expected <= 1e-09 — must not exceed 1e-09
 - **PASS** min |ψ|: measured 0.999159, expected >= 0.95 — no cores means no suppression of the order parameter
 - **Diagnostics:**
   - `n_vortices`: 0
@@ -1336,7 +1371,7 @@ _Σ wrap(Δθ − φ) + Φ_plaquette is exactly 2π × integer_
 - **Duration:** 0.000s
 - **Parameters:** Nx=20, kappa=2, Bz=0.5
 - **PASS** plaquettes carrying vorticity: measured 8, expected >= 1 — must be at least 1
-- **PASS** max |vorticity − nearest integer|: measured 2.474e-16, expected <= 1e-10 — must not exceed 1e-10
+- **PASS** max |vorticity − nearest integer|: measured 2.297e-16, expected <= 1e-10 — must not exceed 1e-10
 - **Diagnostics:**
   - `n_charged_plaquettes`: 8
   - `vorticity_values`: [0, 1]
@@ -1466,7 +1501,7 @@ _∂(∇·A)/∂t = ∇·J_s, so a stationary gauge field forces a solenoidal cu
 - **PASS** state drift between saved steps: measured 8.183e-12, expected <= 1e-06 — must not exceed 1e-06
 - **PASS** max|∇·J_s| · h / max|J_s|: measured 5.588e-14, expected <= 1e-06 — must not exceed 1e-06
 - **Diagnostics:**
-  - `J_scale`: 0.0795678
+  - `J_scale`: 0.159136
   - `state_drift_between_saves`: 8.183e-12
 
 ### test_the_relaxed_ring_is_symmetric
@@ -1599,7 +1634,7 @@ _the mixed state admits more flux quanta as the applied field rises_
 - **PASS** count / (B·A/Φ₀) at Bz = 0.5: measured 0.19635, expected <= 1 — screening keeps the interior field below the applied field
 - **PASS** count / (B·A/Φ₀) at Bz = 0.7: measured 0.420749, expected <= 1 — screening keeps the interior field below the applied field
 - **PASS** mean interior Bz / applied at Bz = 0.35: measured 0.42922, expected <= 1 — the sample still screens in the mixed state
-- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.681309, expected <= 1 — the sample still screens in the mixed state
+- **PASS** mean interior Bz / applied at Bz = 0.5: measured 0.68131, expected <= 1 — the sample still screens in the mixed state
 - **PASS** mean interior Bz / applied at Bz = 0.7: measured 0.853044, expected <= 1 — the sample still screens in the mixed state
 - **Diagnostics:**
   - `vortex_counts`: [0, 4, 12]
@@ -1616,10 +1651,41 @@ _plaquette vorticity is a topological invariant of the gauge-field configuration
 - **PASS** vortices present (test would be vacuous otherwise): measured 8, expected >= 1 — must be at least 1
 - **PASS** vortex count after gauge change: measured 8, expected 8 — |measured - expected| <= 0
 - **PASS** max Δ(plaquette vorticity): measured 2.297e-16, expected <= 1e-09 — must not exceed 1e-09
-- **PASS** max |winding change|: measured 1.110e-16, expected <= 1e-09 — must not exceed 1e-09
+- **PASS** max |winding change|: measured 0, expected <= 1e-09 — must not exceed 1e-09
 - **Diagnostics:**
   - `n_vortices`: 8
   - `windings`: [1, 1, 1, 1, 1, 1, 1, 1]
+
+### test_vortex_is_pinned_by_the_hole
+
+_the hole pins the vortex; without it the film expels it_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=14, kappa=2, seed_offset_xi=3, hole_side_xi=2, Bz_applied=0
+- **PASS** fluxoid with the hole: measured 1, expected 1 — the vortex is still there after relaxing
+- **PASS** distance from the hole axis: measured 0.707107, expected <= 1.5 — seeded 3 xi off axis, it migrates onto the 2 xi hole and stops there
+- **PASS** fluxoid without the hole: measured -3.534e-17, expected 0 — nothing pins it, so the same seed leaves the film
+- **Diagnostics:**
+  - `with_hole`: fluxoid=1, centroid=[7.5, 6.5], displacement=0.707107
+  - `without_hole`: fluxoid=-3.534e-17, centroid=—, displacement=—
+
+### test_vortex_trapped_in_one_layer_only
+
+_one hole through both layers of an S/I/S stack can hold a fluxoid in the bottom film and none in the top_
+
+- **Status:** PASS
+- **Duration:** 0.000s
+- **Parameters:** Nx=14, Nz=20, kappa=2, oxide_gap_xi=6, Bz_applied=0
+- **PASS** fluxoid in the bottom layer: measured 1, expected 1 — the seeded winding is topological and cannot leak away
+- **PASS** fluxoid in the top layer: measured -1.035e-19, expected 0 — the top layer never nucleates a vortex of its own
+- **PASS** max |psi|: measured 0.832347, expected >= 0.5 — a pair-broken stack would report 0 and 0 for free
+- **PASS** flux within r <= 4 xi at the bottom mid-plane: measured 0.267973, expected >= 0.15 — the trapped quantum really does put field through the layer
+- **Diagnostics:**
+  - `fluxoid_bottom`: 1
+  - `fluxoid_top`: -1.035e-19
+  - `flux_bottom_phi0`: 0.267973
+  - `psi_abs_max`: 0.832347
 
 ### test_vortex_winding_sign_follows_the_applied_field[Bz=-0.5]
 
