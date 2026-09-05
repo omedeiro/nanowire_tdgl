@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/omedeiro/nanowire_tdgl/compare/tdgl3d-schema-v0.2.0...tdgl3d-schema-v0.3.0) (2026-09-05)
+
+
+### Added
+
+* **tdgl3d:** vacuum padding around a stack, and refuse periodic+applied field ([56ca63c](https://github.com/omedeiro/nanowire_tdgl/commit/56ca63c6c699d9e23824ea0423f032f9de7df304))
+
 ## [0.2.0](https://github.com/omedeiro/nanowire_tdgl/compare/tdgl3d-schema-v0.1.0...tdgl3d-schema-v0.2.0) (2026-07-25)
 
 

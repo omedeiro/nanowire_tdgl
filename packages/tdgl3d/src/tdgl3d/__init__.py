@@ -38,7 +38,7 @@ from .physics.applied_field import AppliedField
 from .physics.free_energy import gl_free_energy, gl_free_energy_terms
 from .solvers.runner import solve
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "SimulationParameters",
