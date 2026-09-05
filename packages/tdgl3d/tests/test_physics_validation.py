@@ -570,3 +570,312 @@ def test_centred_hole_is_centred(length, hole, h, phys_log):
             "material map asymmetry under z → −z",
             float(np.max(np.abs(mask - mask[:, :, ::-1]))), 0.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# A vortex trapped in one layer of the stack
+# ---------------------------------------------------------------------------
+#
+# One square hole is carved straight through the stack, so *both* metal layers
+# carry the same hole and are geometrically identical.  The two layers are
+# coupled only through **A** -- this model carries no Josephson term -- so
+# nothing but the magnetic field crosses the oxide.  That allows a state the
+# layers could not hold if they were one film: the bottom hole holding a
+# fluxoid of 1 while the top hole, the same hole, holds 0.  The checks below
+# are that the state exists, that it is held by the hole rather than by
+# symmetry, and that thickening the oxide moves the *field* without touching
+# the topology.
+
+TRAP_KAPPA = 2.0
+TRAP_METAL_CELLS = 5        # 4 xi of realised metal per layer
+TRAP_WIDTH = 10             # film width in cells
+TRAP_MARGIN = 2             # lateral vacuum, in cells
+TRAP_PAD = 3                # vacuum above and below, in cells
+TRAP_DT = 0.015             # below h^2 / (4 kappa^2 (d-1)) = 1/32 in 3-D
+TRAP_RADIUS = 4.0           # flux disc / fluxoid contour half-width, in xi
+
+
+def _trap_stack(oxide_cells: int, *, hole: bool = True):
+    """S/I/S stack with an optional hole running through *both* metal layers.
+
+    The z-range spans the whole stack, and the oxide nodes between the two
+    metals are already non-superconducting, so this is exactly "the same hole
+    in the bottom film and in the top film".
+
+    It is carved with ``MaterialMap.carve_hole_polygon`` rather than
+    ``Device.add_hole``: it is a non-superconducting *inclusion*, taking the
+    same path through the operators as the oxide, not a geometric void needing
+    the hole boundary condition that ``docs/notes/HOLE_BC_STATUS.md`` records
+    as still open.
+    """
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=TRAP_METAL_CELLS, kappa=TRAP_KAPPA),
+        insulator=Layer(thickness_z=oxide_cells, kappa=TRAP_KAPPA,
+                        is_superconductor=False),
+        top=Layer(thickness_z=TRAP_METAL_CELLS, kappa=TRAP_KAPPA),
+        vacuum_below=TRAP_PAD, vacuum_above=TRAP_PAD, lateral_margin=TRAP_MARGIN,
+    )
+    n_lateral = TRAP_WIDTH + 2 * TRAP_MARGIN
+    params = SimulationParameters(
+        Nx=n_lateral, Ny=n_lateral, Nz=trilayer.Nz, kappa=TRAP_KAPPA
+    )
+    device = Device(
+        params,
+        # No applied field: the only flux in the box is the trapped quantum.
+        applied_field=AppliedField(Bz=0.0, t_on_fraction=1.0),
+        trilayer=trilayer,
+    )
+    if hole:
+        cx, cy = params.Nx / 2.0, params.Ny / 2.0
+        device.material.carve_hole_polygon(
+            [(cx - 1.0, cy - 1.0), (cx + 1.0, cy - 1.0),
+             (cx + 1.0, cy + 1.0), (cx - 1.0, cy + 1.0)],
+            trilayer.stack_z_range, params, device.idx,
+        )
+    return params, device, trilayer
+
+
+def _seed_one_layer_vortex(params, device, trilayer, *, offset: float = 0.0):
+    """Uniform state carrying one +1 phase winding in the bottom layer only."""
+    state = device.initial_state(noise_amplitude=0.0)
+    nx, ny, nz = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    psi = state.psi.reshape(nx, ny, nz).copy()
+
+    cx, cy = params.Nx * params.hx / 2.0, params.Ny * params.hy / 2.0
+    X, Y = np.meshgrid(np.arange(1, params.Nx) * params.hx,
+                       np.arange(1, params.Ny) * params.hy, indexing="ij")
+    vx = cx + offset
+    winding = np.tanh(np.hypot(X - vx, Y - cy) / 1.5) * np.exp(
+        1j * np.arctan2(Y - cy, X - vx)
+    )
+    for k_full in range(*trilayer.z_ranges()["bottom"]):
+        psi[:, :, k_full - 1] = winding
+    state.psi = psi.ravel()
+    return state
+
+
+def _trap_midplanes(trilayer) -> tuple[int, int]:
+    ranges = trilayer.z_ranges()
+    return sum(ranges["bottom"]) // 2 - 1, sum(ranges["top"]) // 2 - 1
+
+
+def _trap_fluxoid(solution, device, params, slice_z: int) -> float:
+    """Fluxoid on a square contour about the axis -- a topological integer."""
+    from tdgl3d.analysis.vortex_counting import count_vortices_polygon
+
+    cx, cy = params.Nx * params.hx / 2.0, params.Ny * params.hy / 2.0
+    r = TRAP_RADIUS
+    contour = np.array([[cx - r, cy - r], [cx + r, cy - r],
+                        [cx + r, cy + r], [cx - r, cy + r]])
+    return float(count_vortices_polygon(solution, device, contour, slice_z=slice_z))
+
+
+def _trap_flux(solution, params, slice_z: int) -> float:
+    """Magnetic flux through a disc of radius TRAP_RADIUS about the axis, in Phi_0.
+
+    Not quantised -- this is the quantity the oxide thickness moves.
+    """
+    nx, ny, nz = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    Bz = solution.bfield(step=-1, full_interior=True)[2].reshape(nx, ny, nz)
+    cx, cy = params.Nx * params.hx / 2.0, params.Ny * params.hy / 2.0
+    X, Y = np.meshgrid(np.arange(1, params.Nx) * params.hx,
+                       np.arange(1, params.Ny) * params.hy, indexing="ij")
+    disc = np.hypot(X - cx, Y - cy) <= TRAP_RADIUS
+    return float(Bz[:, :, slice_z][disc].sum() * params.hx * params.hy / (2 * np.pi))
+
+
+def _vorticity_centroid(solution, params, slice_z: int):
+    """(x, y) of the winding centroid in a z-plane, in xi, or None if empty.
+
+    Located from the plaquette winding, not from the |psi|^2 minimum: the
+    trapped vortex sits on the hole, whose nodes carry psi = 0 by construction,
+    and the film corners -- suppressed by vacuum on two sides -- would win a
+    bare argmin outright.
+    """
+    from tdgl3d.analysis.vortex_counting import plaquette_vorticity
+
+    vorticity, _ = plaquette_vorticity(solution, slice_z=slice_z, step=-1)
+    weight = np.where(np.abs(vorticity) > 0.5, vorticity, 0.0)
+    total = weight.sum()
+    if abs(total) < 0.5:
+        return None
+    centres = (np.arange(1, params.Nx - 1) + 0.5) * params.hx
+    X, Y = np.meshgrid(centres, centres, indexing="ij")
+    return float((weight * X).sum() / total), float((weight * Y).sum() / total)
+
+
+def _relax_trap(device, x0, t_stop: float):
+    import tdgl3d as _t
+
+    return _t.solve(device, t_start=0.0, t_stop=t_stop, dt=TRAP_DT, method="euler",
+                    x0=x0, save_every=10**9, progress=False, log_metadata=False)
+
+
+def test_vortex_trapped_in_one_layer_only(phys_log):
+    """Two identical holes, one holding a flux quantum and one empty.
+
+    The hole runs through both metal layers, so the layers differ in nothing
+    but their flux state.  The fluxoid is a topological integer, so they must
+    come out at exactly 1 and exactly 0 -- not 0.9 and 0.1.  Both checks are trivially
+    satisfiable by a dead simulation (psi = 0 everywhere gives 0 and 0, and a
+    field-free box gives no flux to transfer at all), so the scale is asserted
+    too: the metal must not be pair-broken, and the trapped quantum must
+    actually put flux through the bottom layer.
+    """
+    params, device, trilayer = _trap_stack(oxide_cells=4)   # 6 xi metal-to-metal
+    solution = _relax_trap(device, _seed_one_layer_vortex(params, device, trilayer),
+                           t_stop=15.0)
+    k_bottom, k_top = _trap_midplanes(trilayer)
+
+    fluxoid_bottom = _trap_fluxoid(solution, device, params, k_bottom)
+    fluxoid_top = _trap_fluxoid(solution, device, params, k_top)
+    flux_bottom = _trap_flux(solution, params, k_bottom)
+    psi_max = float(np.abs(solution.psi(-1)).max())
+
+    with phys_log.test(
+        "test_vortex_trapped_in_one_layer_only",
+        {"Nx": params.Nx, "Nz": params.Nz, "kappa": TRAP_KAPPA,
+         "oxide_gap_xi": 6.0, "Bz_applied": 0.0},
+        "one hole through both layers of an S/I/S stack can hold a fluxoid in "
+        "the bottom film and none in the top",
+    ) as log:
+        log["fluxoid_bottom"] = fluxoid_bottom
+        log["fluxoid_top"] = fluxoid_top
+        log["flux_bottom_phi0"] = flux_bottom
+        log["psi_abs_max"] = psi_max
+        log.check_close(
+            "fluxoid in the bottom layer", fluxoid_bottom, 1.0, atol=1e-6,
+            detail="the seeded winding is topological and cannot leak away",
+        )
+        log.check_close(
+            "fluxoid in the top layer", fluxoid_top, 0.0, atol=1e-6,
+            detail="the top layer never nucleates a vortex of its own",
+        )
+        # Non-vacuous: there is a real condensate, and real flux to transfer.
+        log.check_above(
+            "max |psi|", psi_max, 0.5,
+            detail="a pair-broken stack would report 0 and 0 for free",
+        )
+        log.check_above(
+            f"flux within r <= {TRAP_RADIUS:g} xi at the bottom mid-plane",
+            flux_bottom, 0.15, units="Phi_0",
+            detail="the trapped quantum really does put field through the layer",
+        )
+
+
+def test_vortex_is_pinned_by_the_hole(phys_log):
+    """The hole is what traps the vortex; symmetry alone would not.
+
+    At zero applied field a lone vortex in a finite film is pulled towards its
+    image in the edge and leaves.  Seeded dead centre in a noiseless square it
+    survives only because every escape direction is degenerate -- a fixed point
+    held by symmetry, not a trapped vortex.  So the seed here is deliberately
+    3 xi off axis, and the same run is done with and without the hole: with it
+    the vortex migrates onto the hole and stays, without it the film expels it.
+    The pair is the point -- either half alone proves nothing.
+    """
+    offset = 3.0
+    results = {}
+    for hole in (True, False):
+        params, device, trilayer = _trap_stack(oxide_cells=1, hole=hole)
+        solution = _relax_trap(
+            device,
+            _seed_one_layer_vortex(params, device, trilayer, offset=offset),
+            t_stop=15.0,
+        )
+        k_bottom, _ = _trap_midplanes(trilayer)
+        axis = params.Nx * params.hx / 2.0
+        centroid = _vorticity_centroid(solution, params, k_bottom)
+        results[hole] = {
+            "fluxoid": _trap_fluxoid(solution, device, params, k_bottom),
+            "centroid": centroid,
+            "displacement": (
+                None if centroid is None
+                else float(np.hypot(centroid[0] - axis, centroid[1] - axis))
+            ),
+        }
+
+    with phys_log.test(
+        "test_vortex_is_pinned_by_the_hole",
+        {"Nx": 14, "kappa": TRAP_KAPPA, "seed_offset_xi": offset,
+         "hole_side_xi": 2.0, "Bz_applied": 0.0},
+        "the hole pins the vortex; without it the film expels it",
+    ) as log:
+        log["with_hole"] = results[True]
+        log["without_hole"] = results[False]
+        log.check_close(
+            "fluxoid with the hole", results[True]["fluxoid"], 1.0, atol=1e-6,
+            detail="the vortex is still there after relaxing",
+        )
+        log.check_below(
+            "distance from the hole axis", results[True]["displacement"], 1.5,
+            units="xi",
+            detail=(
+                f"seeded {offset:g} xi off axis, it migrates onto the 2 xi "
+                "hole and stops there"
+            ),
+        )
+        log.check_close(
+            "fluxoid without the hole", results[False]["fluxoid"], 0.0, atol=1e-6,
+            detail="nothing pins it, so the same seed leaves the film",
+        )
+
+
+def test_interlayer_flux_transfer_falls_with_oxide_thickness(phys_log):
+    """Thickening the oxide moves the field, not the topology.
+
+    The trapped quantum's flux is not confined to a tube: on leaving the metal
+    it spreads over lambda = kappa xi, so the share of it still inside a fixed
+    radius by the time it reaches the top layer falls as the gap widens.  The
+    fluxoids stay pinned at 1 and 0 throughout -- they are integers, and no
+    amount of magnetic leakage moves them.
+
+    Measured here: 12.3% of the bottom layer's flux reaches the top one across
+    a 3 xi gap, 4.3% across 6 xi.  The thresholds below are set well outside those,
+    and the transfer is asserted to be non-zero as well as falling, so a run
+    that simply lost its field could not pass.
+    """
+    transfers, fluxoids = {}, {}
+    for gap_xi, oxide_cells in ((3.0, 1), (6.0, 4)):
+        params, device, trilayer = _trap_stack(oxide_cells=oxide_cells)
+        solution = _relax_trap(
+            device, _seed_one_layer_vortex(params, device, trilayer), t_stop=15.0
+        )
+        k_bottom, k_top = _trap_midplanes(trilayer)
+        bottom = _trap_flux(solution, params, k_bottom)
+        transfers[gap_xi] = _trap_flux(solution, params, k_top) / bottom
+        fluxoids[gap_xi] = (
+            _trap_fluxoid(solution, device, params, k_bottom),
+            _trap_fluxoid(solution, device, params, k_top),
+        )
+
+    with phys_log.test(
+        "test_interlayer_flux_transfer_falls_with_oxide_thickness",
+        {"Nx": 14, "kappa": TRAP_KAPPA, "gaps_xi": [3.0, 6.0],
+         "metal_xi": 4.0, "Bz_applied": 0.0},
+        "the oxide thickness sets how much of the trapped flux reaches the "
+        "far layer, and does not touch the fluxoid",
+        ) as log:
+        log["transfer_fraction"] = {str(k): v for k, v in transfers.items()}
+        log["fluxoids"] = {str(k): list(v) for k, v in fluxoids.items()}
+        log.check_within(
+            "flux transfer across a 3 xi gap", transfers[3.0], 0.04, 0.25,
+            detail="measured 0.123 — non-zero, so the layers are coupled",
+        )
+        log.check_within(
+            "flux transfer across a 6 xi gap", transfers[6.0], 0.01, 0.09,
+            detail="measured 0.043",
+        )
+        log.check_above(
+            "transfer(3 xi) / transfer(6 xi)", transfers[3.0] / transfers[6.0], 2.0,
+            detail="measured 2.85 — doubling the gap more than halves the transfer",
+        )
+        for gap_xi, (bottom, top) in fluxoids.items():
+            log.check_close(
+                f"fluxoid in the bottom layer at a {gap_xi:g} xi gap", bottom,
+                1.0, atol=1e-6,
+            )
+            log.check_close(
+                f"fluxoid in the top layer at a {gap_xi:g} xi gap", top,
+                0.0, atol=1e-6,
+            )

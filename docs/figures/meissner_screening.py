@@ -17,6 +17,12 @@ import numpy as np
 from scipy.optimize import curve_fit
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     kappa = 2.0
@@ -42,7 +48,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     save_every = max(1, int(t_stop / dt / 20))
     sol = solve(
         device, dt=dt, t_stop=t_stop, method="euler",
-        save_every=save_every, progress=False,
+        save_every=save_every, progress=False, noise_seed=NOISE_SEED,
     )
 
     # Extract Bz profile along x at mid-y
@@ -109,12 +115,22 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     # --- Figure ---
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    # Left: Bz heatmap
     ax = axes[0]
-    xs = np.arange(1, Nx) * params.hx
-    ys = np.arange(1, Ny) * params.hy
+
+    # Left: Bz heatmap, on the same mirrorable plaquette block as the symmetry
+    # check above.  Two things have to be right or a perfectly symmetric field
+    # draws lopsided:
+    #
+    #   * the anchor-(N-1) row and column are the *pinned* boundary ring, and
+    #     their mirror images — the ghost anchors at 0 — are not in the array.
+    #     Drawing them puts the applied-field frame on the high sides only.
+    #   * the plaquette anchored at node i is centred at (i + ½)h, not at i·h.
+    #     Placing it on the node displaces the whole map by half a cell.
+    bz_map = np.real(Bz_2d[:-1, :-1])
+    xs = (np.arange(1, Nx - 1) + 0.5) * params.hx
+    ys = (np.arange(1, Ny - 1) + 0.5) * params.hy
     xx, yy = np.meshgrid(xs, ys, indexing="ij")
-    im = ax.pcolormesh(xx, yy, np.real(Bz_2d), cmap="RdBu_r", shading="auto")
+    im = ax.pcolormesh(xx, yy, bz_map, cmap="RdBu_r", shading="auto")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Bz")
     # Mark center line used for profile
     ax.axhline(ys[mid_y], color="white", ls="--", alpha=0.5, linewidth=1)

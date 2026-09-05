@@ -91,6 +91,41 @@ survives refinement.
 | [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
 | **Fluxoid vs time**** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S in a perpendicular field** — the metal screens, the oxide transmits, and the expelled flux crowds into the vacuum beside the film. |
 
+### One hole through both layers of an S/I/S stack — a vortex in only one
+
+One square hole carved straight through an S/I/S stack, so both metal layers
+carry the *same* hole and are geometrically identical. The layers are coupled
+only through **A** — this model carries no Josephson term, so nothing but the
+magnetic field crosses the oxide — and that allows a state the two films could
+not hold if they were one film: **the bottom hole holds a fluxoid of 1 while
+the top hole holds 0**. The fluxoid is a topological integer, so this is not
+"more flux here than there"; it is two identical openings in two different
+quantum states.
+
+A hole is what makes it a *trapped* state at all. Without one, a vortex seeded
+3 ξ off axis is pulled to its own image in the film edge and leaves, and a
+vortex seeded dead centre survives only by symmetry — a fixed point, not a
+trapped vortex.
+
+[![Trapped vortex in one layer](docs/figures/sis_vortex_trapping_3d.png)](docs/figures/sis_vortex_trapping_3d.png)
+
+Sweeping the oxide **3 → 10 ξ** moves the field without touching the topology.
+The fluxoid stays exactly 1 and exactly 0 at every gap. What changes is how
+much of the trapped quantum's flux is still bundled by the time it reaches the
+second film: the flux within r ≤ 6 ξ at the top layer falls
+**0.098 → 0.023 Φ₀**, from 16.7% of the bottom layer's share down to 3.8%,
+while the bottom layer holds ~0.59 Φ₀ throughout.
+
+The profiles above the bottom layer very nearly coincide across all four gaps,
+which is the whole mechanism in one sentence: the field there is the trapped
+vortex's own, spreading over λ = κ ξ once it leaves the metal, and **the gap
+only decides which point of that decaying profile the top layer samples**.
+
+[![Interlayer flux transfer vs oxide thickness](docs/figures/sis_vortex_trapping_sweep.png)](docs/figures/sis_vortex_trapping_sweep.png)
+
+Reproduce with [`docs/figures/sis_vortex_trapping_3d.py`](docs/figures/sis_vortex_trapping_3d.py)
+(about 6 minutes); `--gaps`, `--width`, `--h` and `--t-stop` drive the sweep.
+
 ### Checks against exact solutions
 
 Two limits of the coupled equations have closed-form solutions, and between them
@@ -182,7 +217,7 @@ in [`docs/notes/CROSS_TOOL_BENCHMARKS.md`](docs/notes/CROSS_TOOL_BENCHMARKS.md).
 | | |
 |:--:|:--:|
 | [![Field in a hole](docs/figures/hole_field_penetration.png)](docs/figures/hole_field_penetration.png) | [![Supercurrent around a hole](docs/figures/supercurrent_hole.png)](docs/figures/supercurrent_hole.png) |
-| **Field in a hole** — the applied field passes through unscreened. | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
+| **Field in a hole** — the hole carries no screening current, but how much field reaches it is set by the film in front of it (see the caveat in §3). | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
 | [![Energy dissipation](docs/figures/energy_dissipation.png)](docs/figures/energy_dissipation.png) | [![CFL instability](docs/figures/cfl_instability.png)](docs/figures/cfl_instability.png) |
 | **Free energy** — TDGL is a gradient flow, so F is non-increasing. | **Step-size limit** — stable below the CFL bound, collapse above it. |
 
