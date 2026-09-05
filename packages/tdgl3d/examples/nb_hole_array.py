@@ -60,18 +60,20 @@ units; the published S/I/S ring figure uses ``t_stop = 60``):
 ξ            grid                interior nodes  s/τ_GL      s/τ_GL      peak RSS
                                                  (double)    (single)    (double / single)
 ===========  ==================  ==============  ==========  ==========  ===================
-150 nm       240 × 240 × 9              457 k         3.1         1.8     0.41 / 0.29 GB
-100 nm       360 × 360 × 15            1.80 M        14.1         8.7     1.35 / 0.90 GB
-70 nm        514 × 514 × 21            5.26 M        66.1        29.0     3.44 / 2.13 GB
-50 nm        720 × 720 × 30           15.0 M          187         106     9.60 / 5.73 GB
+150 nm       240 × 240 × 9              457 k         3.3         2.0     0.41 / 0.29 GB
+100 nm       360 × 360 × 15            1.80 M          16         9.5     1.35 / 0.90 GB
+70 nm        514 × 514 × 21            5.26 M          70          28     3.46 / 2.13 GB
+50 nm        720 × 720 × 30           15.0 M          187         106     9.58 / 5.73 GB
 ===========  ==================  ==============  ==========  ==========  ===================
 
-``--precision single`` runs the state in complex64: 1.6× to 2.3× faster and
-about 60% of the memory, with the divergence from a double run saturating near
-1e-6 relative rather than accumulating.  Confirm anything you intend to publish
-at double precision.
+Two significant figures is as much as these carry — the machine they were
+measured on drifts by around 15% between runs minutes apart — so the estimate
+below is a planning number, not a benchmark.  ``--precision single`` runs the
+state in complex64: about 1.7x faster and 60% of the memory, with the
+divergence from a double run saturating near 1e-6 relative rather than
+accumulating.  Confirm anything you intend to publish at double precision.
 
-So the default here — ξ = 100 nm, t_stop = 60 — is about 14 minutes.  Sweeping
+So the default here — ξ = 100 nm, t_stop = 60 — is about 16 minutes.  Sweeping
 applied field is embarrassingly parallel across field values, but the solver
 already threads across cores: run field values one after another on a whole
 machine rather than several at once on shares of it.  ``TDGL3D_NUM_THREADS``
@@ -136,10 +138,10 @@ CFL_SAFETY = 0.9
 #: doubles from the smallest grid to the largest as the working set outgrows
 #: cache — so the estimate interpolates these rather than scaling one of them.
 _MEASURED_STEP_COST = [
-    (456_968, 0.0869),
-    (1_804_334, 0.3975),
-    (5_263_380, 1.8596),
-    (14_991_869, 5.2623),
+    (456_968, 0.0928),
+    (1_804_334, 0.4556),
+    (5_263_380, 1.9688),
+    (14_991_869, 5.2734),
 ]
 
 #: How much more the implicit integrator costs per unit simulated time, measured

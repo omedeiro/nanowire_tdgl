@@ -246,23 +246,30 @@ Sapphire Rapids (AVX-512, 2 MB L2 per core), reproduced by
 
 | ξ(T) | grid | interior nodes | per state vector | s per τ_GL (double) | s per τ_GL (single) | peak RSS (double / single) |
 |---|---|---|---|---|---|---|
-| 150 nm | 240 × 240 × 9 | 457 k | 29 MB | 3.1 | 1.8 | 0.41 / 0.29 GB |
-| 100 nm | 360 × 360 × 15 | 1.80 M | 116 MB | 14.1 | 8.7 | 1.35 / 0.90 GB |
-| 70 nm | 514 × 514 × 21 | 5.26 M | 337 MB | 66.1 | 29.0 | 3.44 / 2.13 GB |
-| 50 nm | 720 × 720 × 30 | 15.0 M | 960 MB | 187 | 106 | 9.60 / 5.73 GB |
+| 150 nm | 240 × 240 × 9 | 457 k | 29 MB | 3.3 | 2.0 | 0.41 / 0.29 GB |
+| 100 nm | 360 × 360 × 15 | 1.80 M | 116 MB | 16 | 9.5 | 1.35 / 0.90 GB |
+| 70 nm | 514 × 514 × 21 | 5.26 M | 337 MB | 70 | 28 | 3.46 / 2.13 GB |
+| 50 nm | 720 × 720 × 30 | 15.0 M | 960 MB | 187 | 106 | 9.58 / 5.73 GB |
 
-All eight were run, not extrapolated. Multiply by the simulated time you need:
-the S/I/S ring figure above resolves flux expulsion at `t_stop = 60`, which at
-ξ = 100 nm is 14 minutes per field value in double precision.
+All eight were run, not extrapolated. Two significant figures is as much as
+they carry: this machine drifts by around 15% between runs minutes apart, so
+treat them as planning numbers rather than a benchmark. The memory column does
+not drift — it is set by what the solver allocates. Multiply by the simulated
+time you need: the S/I/S ring figure above resolves flux expulsion at
+`t_stop = 60`, which at ξ = 100 nm is about 16 minutes per field value in
+double precision.
 
-The numbers moved in the last performance pass, and the same machine was used
-for both sides of the comparison — double precision by 1.12× to 1.42× (the
-stencil reads strided views of the state instead of gathering it through index
-arrays, and the boundary conditions stopped copying the whole grid four times
-per evaluation), single precision by 1.9× to 2.9×. Single used to be no faster
-than double, and at 5.26 M nodes was *slower*, because NumPy's `complex64`
-`exp` is worse than its `complex128` one; the kernel now builds the Peierls
-factor out of real `sin`/`cos`, which NumPy does vectorise at float32.
+The last performance pass moved these by **1.3× at double precision and 2.2× at
+single**, measured as the median of three interleaved before/after pairs at
+457 k and 1.80 M nodes — interleaved because the drift above is larger than the
+effect at double precision, and a single pair of runs put the same ratio
+anywhere between 1.09× and 1.42×. Double gained from the stencil reading
+strided views of the state instead of gathering it through index arrays, and
+from the boundary conditions no longer copying the whole grid four times per
+evaluation. Single gained more because it had been broken: it was no faster
+than double, and at 5.26 M nodes slower, since NumPy's `complex64` `exp` is
+worse than its `complex128` one. The kernel now builds the Peierls factor out
+of real `sin`/`cos`, which NumPy does vectorise at float32.
 
 **Use forward Euler.** `solve()` defaults to the implicit trapezoidal
 integrator, which on a grid this size costs roughly 8× more per unit simulated
@@ -280,9 +287,9 @@ Three knobs matter at scale:
 
 | Knob | What it does |
 |---|---|
-| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 1.8× on two and 2.7× on four at 316 k nodes (it was 3.1× on four before the kernel got faster — the serial part it is scaling against shrank). Threads are off below 40 k nodes per thread, where the pool costs more than it saves. |
+| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 1.8× on two and 2.7× on four at 316 k nodes. Threads are off below 40 k nodes per thread, where the pool costs more than it saves. |
 | `solve(..., stream_path=...)` | Writes frames to HDF5 as they are produced, so memory holds one frame however long the run is. A frame is 960 MB at 15 M nodes, so sixty of them would otherwise be 58 GB. The file is a complete artifact `Solution.load` reads. |
-| `solve(..., precision="single")` | complex64 state — 1.6× to 2.3× faster than double and about 60% of the memory. Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
+| `solve(..., precision="single")` | complex64 state — about 1.7× faster than double and 60% of the memory. Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
 
 The right-hand side is where essentially all the time goes (63–90% of an
 evaluation is the interior stencil, the rest is scattering the state onto the
