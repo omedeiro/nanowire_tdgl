@@ -161,6 +161,48 @@ field varies across z-slices by **2e-16** and differs from the 2D run by
 The bottom row applies the same two models to the micron ring, where neither
 holds exactly — and says where each stops applying.
 
+### Against pyTDGL and SuperScreen
+
+An exact solution says whether a code is right in a limit. It does not say
+whether two codes agree in the middle, where the physics people actually
+simulate lives and where nothing can be checked analytically. Both are
+measured in [`packages/tdgl3d/benchmarks/`](packages/tdgl3d/benchmarks/),
+against [pyTDGL](https://py-tdgl.readthedocs.io) — 2-D TDGL on a
+triangular mesh — and [SuperScreen](https://superscreen.readthedocs.io) —
+thin-film London magnetostatics, no order parameter.
+
+[![Cross-tool benchmarks](docs/figures/cross_tool_benchmark.png)](docs/figures/cross_tool_benchmark.png)
+
+On a **thin disk in a perpendicular field**, all three codes are put on
+one dimensionless curve: `μ = m/m_London`, the magnetic moment over its
+weak-screening closed form computed in each code's own units, against
+`Λ/R`. It has an exact answer at each end — `μ → 1` in the London limit,
+and the perfectly diamagnetic disk `m = -(8/3)H_a R³` in the other. But
+`μ = 1` is an asymptote, not a value: screening pulls μ below it by about
+`0.145 R/Λ`, so `|μ - 1|` at finite Λ is mostly physics. Fitting that term
+out leaves each code's own error against the exact limit — **3.2e-4 for
+SuperScreen, 1.8e-3 for pyTDGL, 3.3e-3 for tdgl3d**.
+
+Agreeing with the closed form in the limit is not the same as agreeing
+with each other away from it. pyTDGL and SuperScreen — the same
+thin-film equation, two independent implementations — stay within 2e-3
+of each other across the weakly screening half of the sweep, and then
+drift apart as screening strengthens, to 0.6% at `Λ/R = 2` and 1.3% at
+`Λ/R = 1`. That is the crossover, and it is exactly where no closed form
+exists to say which of them is closer.
+
+On a **pair-breaking wall**, where the field drops out and
+`ψ' = (1 - ψ²)/√2` holds pointwise, the two codes that have an order
+parameter both land on the √2: **1.4139 for tdgl3d and 1.4150 for pyTDGL**
+against an exact 1.41421, and the residual falls by a clean factor of four
+per halving of h for the structured grid. SuperScreen has no ψ and sits
+this one out — which is the point of running it: everything in the disk
+benchmark is magnetostatics, and a code can get all of that right with the
+wrong condensate.
+
+The full error tables, and what it costs to make the comparison fair, are
+in [`docs/notes/CROSS_TOOL_BENCHMARKS.md`](docs/notes/CROSS_TOOL_BENCHMARKS.md).
+
 ### Meissner screening and vortices
 
 | | |
@@ -385,6 +427,20 @@ cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
 
 The report lists every check with its measured value, the value physics
 requires, and the tolerance allowed.
+
+Beyond the exact solutions, the solver is measured against two independent
+codes — pyTDGL and SuperScreen — on problems each pair can both solve, and
+against the closed forms of those problems. Those runs need optional
+dependencies and about an hour, so they are not part of CI:
+
+```bash
+pip install -e "packages/tdgl3d[benchmarks]"
+cd packages/tdgl3d && python3 -m benchmarks.run all
+```
+
+See [`docs/notes/CROSS_TOOL_BENCHMARKS.md`](docs/notes/CROSS_TOOL_BENCHMARKS.md)
+for what is compared with what, and why the three codes cannot all be put on
+every problem.
 
 ### Further Reading
 

@@ -119,3 +119,73 @@ class TestFPHI:
         p, idx, x, y = setup_2d
         F = construct_FPHI_z(x, y, y, y, p, idx)
         np.testing.assert_allclose(F, 0.0)
+
+
+class TestKappaCache:
+    """The κ² cache must notice when κ changes.
+
+    ``GridIndices.neighbours`` ignores the parameters it is handed and
+    returns one scratch dict per grid, so anything cached in there that
+    depends on ``params.kappa`` has to carry κ in its key.  It did not,
+    and the consequence was not a small error: a second solve on the
+    same grid and material at a different κ kept the first one's κ² in
+    the Maxwell term and screened with the wrong penetration depth,
+    silently.
+    """
+
+    def test_kappa_squared_follows_params_on_a_reused_grid(self):
+        from tdgl3d.core.material import MaterialMap
+        from tdgl3d.operators.sparse_operators import kappa_sq_interior
+
+        params = SimulationParameters(Nx=6, Ny=6, Nz=6, kappa=1.0)
+        idx = construct_indices(params)
+        material = MaterialMap(
+            kappa=np.full(params.dim_x, 1.0),
+            sc_mask=np.ones(params.dim_x),
+            interior_sc_mask=np.ones(params.n_interior),
+        )
+
+        first = kappa_sq_interior(params, idx, material)
+        assert np.allclose(first, 1.0)
+
+        # Same grid, same material object, different κ.
+        hotter = params.copy()
+        hotter.kappa = 8.0
+        second = kappa_sq_interior(hotter, idx, material)
+        assert np.allclose(second, 64.0)
+
+        # And back again, so the cache is not merely one-shot.
+        assert np.allclose(kappa_sq_interior(params, idx, material), 1.0)
+
+    def test_maxwell_term_scales_with_kappa_squared_on_a_reused_grid(self):
+        """End to end: dφ/dt from a curved **A** must scale as κ².
+
+        The unit test above checks the cached array; this checks that the
+        array actually reaching the right-hand side is the fresh one, via
+        the grid-ordered copy that has its own cache.
+        """
+        from tdgl3d.core.material import MaterialMap
+        from tdgl3d.physics.rhs import BoundaryVectors, eval_f
+
+        params = SimulationParameters(Nx=6, Ny=6, Nz=6, kappa=1.0)
+        idx = construct_indices(params)
+        material = MaterialMap(
+            kappa=np.full(params.dim_x, 1.0),
+            sc_mask=np.zeros(params.dim_x),           # ψ = 0: no supercurrent
+            interior_sc_mask=np.zeros(params.n_interior),
+        )
+        zero = np.zeros(params.dim_x)
+        boundary = BoundaryVectors(zero, zero.copy(), zero.copy())
+
+        rng = np.random.default_rng(0)
+        state = np.zeros(params.n_state, dtype=np.complex128)
+        state[params.n_interior:] = rng.standard_normal(3 * params.n_interior)
+
+        n = params.n_interior
+        at_one = eval_f(state, params, idx, boundary, material)[n:]
+        hotter = params.copy()
+        hotter.kappa = 8.0
+        at_eight = eval_f(state, hotter, idx, boundary, material)[n:]
+
+        assert np.abs(at_one).max() > 1e-6            # non-vacuous
+        assert np.allclose(at_eight, 64.0 * at_one, rtol=1e-12, atol=1e-12)
