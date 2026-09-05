@@ -20,6 +20,7 @@ import tdgl3d
 from matplotlib.colors import Normalize
 from tdgl3d.core.parameters import SimulationParameters
 from tdgl3d.core.solution import Solution
+from tdgl3d.visualization.plotting import cell_edges, surface_facecolors
 
 # ── Physical dimensions ────────────────────────────────────────────────
 # Film: 100 nm × 100 nm × 20 nm
@@ -170,29 +171,38 @@ def _paint_surfaces(ax, solution, data_fn, cmap_obj, norm_obj, xs, ys, zs,
     """Paint four visible faces of the film onto *ax*."""
     p = solution.params
     nx_int, _ny_int, nz_int = p.Nx-1, p.Ny-1, max(p.Nz-1, 1)
-    XX, YY = np.meshgrid(xs, ys, indexing="ij")
+    # Faces are drawn on cell *edges*, so every node keeps the cell it owns:
+    # plot_surface colours the quad between nodes i and i+1, so node
+    # coordinates would shift the picture half a cell and drop the last row
+    # and column outright.  See tdgl3d.visualization.plotting.cell_edges.
+    # Clamped to the box: these are four faces of one solid, so their
+    # outermost cells must stop at the corners rather than overhang.
+    x_e = cell_edges(xs, (x_lo, x_hi))
+    y_e = cell_edges(ys, (y_lo, y_hi))
+    z_e = cell_edges(zs, (z_lo, z_hi))
+    XX, YY = np.meshgrid(x_e, y_e, indexing="ij")
 
     # Top
     d = np.clip(data_fn("z", nz_int - 1), norm_obj.vmin, norm_obj.vmax)
     ax.plot_surface(XX, YY, np.full_like(XX, z_hi),
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=surface_facecolors(d, cmap_obj, norm_obj),
                     shade=False, alpha=0.95, rstride=1, cstride=1)
     # Bottom
     d = np.clip(data_fn("z", 0), norm_obj.vmin, norm_obj.vmax)
     ax.plot_surface(XX, YY, np.full_like(XX, z_lo),
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=surface_facecolors(d, cmap_obj, norm_obj),
                     shade=False, alpha=0.45, rstride=1, cstride=1)
     # Front (y = y_lo)
-    XF, ZF = np.meshgrid(xs, zs, indexing="ij")
+    XF, ZF = np.meshgrid(x_e, z_e, indexing="ij")
     d = np.clip(data_fn("y", 0), norm_obj.vmin, norm_obj.vmax)
     ax.plot_surface(XF, np.full_like(XF, y_lo), ZF,
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=surface_facecolors(d, cmap_obj, norm_obj),
                     shade=False, alpha=0.85, rstride=1, cstride=1)
     # Right (x = x_hi)
-    YR, ZR = np.meshgrid(ys, zs, indexing="ij")
+    YR, ZR = np.meshgrid(y_e, z_e, indexing="ij")
     d = np.clip(data_fn("x", nx_int - 1), norm_obj.vmin, norm_obj.vmax)
     ax.plot_surface(np.full_like(YR, x_hi), YR, ZR,
-                    facecolors=cmap_obj(norm_obj(d)),
+                    facecolors=surface_facecolors(d, cmap_obj, norm_obj),
                     shade=False, alpha=0.85, rstride=1, cstride=1)
 
 

@@ -26,6 +26,12 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.1",
 ]
+# Reference implementations for the cross-tool benchmarks in benchmarks/.
+# Not needed to run the solver or its tests.
+benchmarks = [
+    "tdgl>=0.8",
+    "superscreen>=0.10",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

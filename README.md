@@ -13,6 +13,55 @@ Every figure is produced by a standalone script in [`docs/figures/`](docs/figure
 and annotated with the number it is meant to demonstrate. Full descriptions and
 the physics behind each one: [`docs/PHYSICS_GALLERY.md`](docs/PHYSICS_GALLERY.md).
 
+### A 3×3 array of 4 µm holes — where lithography sets the size
+
+The coherence length fixes the grid spacing, but fabrication fixes the device,
+so a real hole array is a large simulation: nine 4 µm holes on an 8 µm pitch
+with an 8 µm buffer is **36 µm across**, and at ξ = 150 nm that is
+240 × 240 × 9 — 457 k nodes. At ξ = 100 nm it is 1.8 M, and at ξ = 50 nm,
+15 M in 12 GB.
+
+The obvious way to get flux into the holes does not work, and that is the
+interesting part. **Ramping the field up, nothing enters until 3.15 mT** — and
+just above that, hundreds of vortices enter at once. Held at 3.6 mT, 567 of
+them pack the buffer into a triangular lattice while the array stays *fully
+Meissner-screened behind them*: the flux front stalls at the array perimeter
+and never reaches a hole. There is no applied field at which this film holds
+one or two vortices in equilibrium; it holds none, or it holds hundreds.
+
+[![Field ramp — the flux front stalls](docs/figures/nb_hole_array_entry.png)](docs/figures/nb_hole_array_entry.png)
+
+**Field-cooling** does what the experiment does. ψ grows from near zero with
+the field already on, so flux is trapped where it is rather than having to
+cross 8 µm of screening metal; the field then drops below the entry threshold
+and the state settles. Cooled at 4.0 mT and held at 2.0 mT, after 400 τ_GL:
+**3 vortices in the metal between the holes, 7 flux quanta trapped across the
+nine**, with the rest of the flux in the buffer lattice. An independent run of
+the same protocol at another noise seed gives 2 and 6, with the census flat
+from t = 293 to t = 400 — so this is a settled state, and not one particular
+realisation of the noise.
+
+| | |
+|:--:|:--:|
+| [![Field-cooled remanent state](docs/figures/nb_hole_array_trapped.png)](docs/figures/nb_hole_array_trapped.png) | [![Vortex entry animation](docs/figures/nb_hole_array_trapped.gif)](docs/figures/nb_hole_array_trapped.gif) |
+| **Remanent state** — the array clears while the holes keep their fluxoid. | **Getting there** — each hole labelled with the fluxoid it holds. |
+
+The holes hold about one quantum each rather than the `B·A/Φ₀ ≈ 19` the applied
+field would suggest, and the B_z map says why: 8 µm of buffer at λ = 300 nm
+leaves the array interior nearly field-free, so there is no local field there
+to support more. **Per-hole occupancy is set by how well the surround screens,
+not by the applied field** — which makes the buffer width and κ the levers.
+
+A vortex in the film and a fluxoid in a hole are counted differently, because
+they are different things: the first is a core, found from the gauge-invariant
+phase winding around a plaquette; the second has no core to find and is read
+from the winding on a contour drawn in the metal *around* the hole, which is an
+exact integer however little field threads the opening.
+
+Reproduce with [`packages/tdgl3d/examples/nb_hole_array.py`](packages/tdgl3d/examples/nb_hole_array.py),
+whose `--dry-run` prints the grid, the memory per frame and a wall-time
+estimate before you commit to a run.
+
 ### Flux expulsion by an S/I/S ring
 
 A 1 µm hole centred in a 4 µm S/I/S plane with 500 nm layers, at ξ = 100 nm —
@@ -40,7 +89,42 @@ survives refinement.
 | | |
 |:--:|:--:|
 | [![Fluxoid history](docs/figures/sis_hole_fluxoid_history.png)](docs/figures/sis_hole_fluxoid_history.png) | [![Trilayer B-field](docs/figures/trilayer_bfield.png)](docs/figures/trilayer_bfield.png) |
-| **Fluxoid vs time** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S screening** — the Nb layers screen; the oxide transmits, provided it is given a non-zero κ. |
+| **Fluxoid vs time**** — flat at zero below threshold; above it, a step at a time that shortens as the field rises. | **S/I/S in a perpendicular field** — the metal screens, the oxide transmits, and the expelled flux crowds into the vacuum beside the film. |
+
+### One hole through both layers of an S/I/S stack — a vortex in only one
+
+One square hole carved straight through an S/I/S stack, so both metal layers
+carry the *same* hole and are geometrically identical. The layers are coupled
+only through **A** — this model carries no Josephson term, so nothing but the
+magnetic field crosses the oxide — and that allows a state the two films could
+not hold if they were one film: **the bottom hole holds a fluxoid of 1 while
+the top hole holds 0**. The fluxoid is a topological integer, so this is not
+"more flux here than there"; it is two identical openings in two different
+quantum states.
+
+A hole is what makes it a *trapped* state at all. Without one, a vortex seeded
+3 ξ off axis is pulled to its own image in the film edge and leaves, and a
+vortex seeded dead centre survives only by symmetry — a fixed point, not a
+trapped vortex.
+
+[![Trapped vortex in one layer](docs/figures/sis_vortex_trapping_3d.png)](docs/figures/sis_vortex_trapping_3d.png)
+
+Sweeping the oxide **3 → 10 ξ** moves the field without touching the topology.
+The fluxoid stays exactly 1 and exactly 0 at every gap. What changes is how
+much of the trapped quantum's flux is still bundled by the time it reaches the
+second film: the flux within r ≤ 6 ξ at the top layer falls
+**0.098 → 0.023 Φ₀**, from 16.7% of the bottom layer's share down to 3.8%,
+while the bottom layer holds ~0.59 Φ₀ throughout.
+
+The profiles above the bottom layer very nearly coincide across all four gaps,
+which is the whole mechanism in one sentence: the field there is the trapped
+vortex's own, spreading over λ = κ ξ once it leaves the metal, and **the gap
+only decides which point of that decaying profile the top layer samples**.
+
+[![Interlayer flux transfer vs oxide thickness](docs/figures/sis_vortex_trapping_sweep.png)](docs/figures/sis_vortex_trapping_sweep.png)
+
+Reproduce with [`docs/figures/sis_vortex_trapping_3d.py`](docs/figures/sis_vortex_trapping_3d.py)
+(about 6 minutes); `--gaps`, `--width`, `--h` and `--t-stop` drive the sweep.
 
 ### Checks against exact solutions
 
@@ -77,6 +161,48 @@ field varies across z-slices by **2e-16** and differs from the 2D run by
 The bottom row applies the same two models to the micron ring, where neither
 holds exactly — and says where each stops applying.
 
+### Against pyTDGL and SuperScreen
+
+An exact solution says whether a code is right in a limit. It does not say
+whether two codes agree in the middle, where the physics people actually
+simulate lives and where nothing can be checked analytically. Both are
+measured in [`packages/tdgl3d/benchmarks/`](packages/tdgl3d/benchmarks/),
+against [pyTDGL](https://py-tdgl.readthedocs.io) — 2-D TDGL on a
+triangular mesh — and [SuperScreen](https://superscreen.readthedocs.io) —
+thin-film London magnetostatics, no order parameter.
+
+[![Cross-tool benchmarks](docs/figures/cross_tool_benchmark.png)](docs/figures/cross_tool_benchmark.png)
+
+On a **thin disk in a perpendicular field**, all three codes are put on
+one dimensionless curve: `μ = m/m_London`, the magnetic moment over its
+weak-screening closed form computed in each code's own units, against
+`Λ/R`. It has an exact answer at each end — `μ → 1` in the London limit,
+and the perfectly diamagnetic disk `m = -(8/3)H_a R³` in the other. But
+`μ = 1` is an asymptote, not a value: screening pulls μ below it by about
+`0.145 R/Λ`, so `|μ - 1|` at finite Λ is mostly physics. Fitting that term
+out leaves each code's own error against the exact limit — **3.2e-4 for
+SuperScreen, 1.8e-3 for pyTDGL, 3.3e-3 for tdgl3d**.
+
+Agreeing with the closed form in the limit is not the same as agreeing
+with each other away from it. pyTDGL and SuperScreen — the same
+thin-film equation, two independent implementations — stay within 2e-3
+of each other across the weakly screening half of the sweep, and then
+drift apart as screening strengthens, to 0.6% at `Λ/R = 2` and 1.3% at
+`Λ/R = 1`. That is the crossover, and it is exactly where no closed form
+exists to say which of them is closer.
+
+On a **pair-breaking wall**, where the field drops out and
+`ψ' = (1 - ψ²)/√2` holds pointwise, the two codes that have an order
+parameter both land on the √2: **1.4139 for tdgl3d and 1.4150 for pyTDGL**
+against an exact 1.41421, and the residual falls by a clean factor of four
+per halving of h for the structured grid. SuperScreen has no ψ and sits
+this one out — which is the point of running it: everything in the disk
+benchmark is magnetostatics, and a code can get all of that right with the
+wrong condensate.
+
+The full error tables, and what it costs to make the comparison fair, are
+in [`docs/notes/CROSS_TOOL_BENCHMARKS.md`](docs/notes/CROSS_TOOL_BENCHMARKS.md).
+
 ### Meissner screening and vortices
 
 | | |
@@ -91,7 +217,7 @@ holds exactly — and says where each stops applying.
 | | |
 |:--:|:--:|
 | [![Field in a hole](docs/figures/hole_field_penetration.png)](docs/figures/hole_field_penetration.png) | [![Supercurrent around a hole](docs/figures/supercurrent_hole.png)](docs/figures/supercurrent_hole.png) |
-| **Field in a hole** — the applied field passes through unscreened. | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
+| **Field in a hole** — the hole carries no screening current, but how much field reaches it is set by the film in front of it (see the caveat in §3). | **Screening currents** — J_s circulates around the hole and vanishes inside it. |
 | [![Energy dissipation](docs/figures/energy_dissipation.png)](docs/figures/energy_dissipation.png) | [![CFL instability](docs/figures/cfl_instability.png)](docs/figures/cfl_instability.png) |
 | **Free energy** — TDGL is a gradient flow, so F is non-increasing. | **Step-size limit** — stable below the CFL bound, collapse above it. |
 
@@ -109,6 +235,40 @@ parameter ψ and the gauge-invariant vector potential **A** (link variables
 
 The spatial discretisation uses **link variables** (Peierls phases) on a
 uniform Cartesian grid, exactly as described in the MATLAB predecessor.
+
+## Performance
+
+The device above is 1.8 M nodes at ξ = 100 nm, and it is the size that decides
+whether a study is an afternoon or a month. Measured on 4 cores, per unit of
+Ginzburg-Landau time, with forward Euler at 0.9 of the CFL limit:
+
+| ξ(T) | grid | interior nodes | per state vector | s per τ_GL | peak RSS |
+|---|---|---|---|---|---|
+| 150 nm | 240 × 240 × 9 | 457 k | 29 MB | 5.5 | 0.5 GB |
+| 100 nm | 360 × 360 × 15 | 1.80 M | 116 MB | 25.2 | 1.6 GB |
+| 70 nm | 514 × 514 × 21 | 5.26 M | 337 MB | 132 | 4.3 GB |
+| 50 nm | 720 × 720 × 30 | 15.0 M | 960 MB | 475 | 12.1 GB |
+
+All four were run, not extrapolated. Multiply by the simulated time you need:
+the S/I/S ring figure above resolves flux expulsion at `t_stop = 60`, which at
+ξ = 100 nm is 25 minutes per field value.
+
+**Use forward Euler.** `solve()` defaults to the implicit trapezoidal
+integrator, which on a grid this size costs roughly 8× more per unit simulated
+time. Its Newton-GCR inner solve is unpreconditioned, so the Krylov iteration
+count grows about as fast as the step size it buys and the larger step never
+pays for itself — swept over `dt` from 0.02 to 0.8, its cost bottoms out at
+2.8× Euler's. Every figure in `docs/figures/` uses Euler. A diagonal (Jacobi)
+preconditioner does not fix this and was measured not to: see
+[`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+
+Three knobs matter at scale:
+
+| Knob | What it does |
+|---|---|
+| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 3.1× on four. |
+| `solve(..., stream_path=...)` | Writes frames to HDF5 as they are produced, so memory holds one frame however long the run is. A frame is 960 MB at 15 M nodes, so sixty of them would otherwise be 58 GB. The file is a complete artifact `Solution.load` reads. |
+| `solve(..., precision="single")` | complex64 state — halves both the memory a mesh needs and the bandwidth the evaluation is limited by (25.9 → 17.5 s per τ_GL at 1.8 M nodes). Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
 
 ## Theoretical Background
 
@@ -181,7 +341,7 @@ where `φ_x[m]` is the Peierls phase (line integral of **A**) on the link from n
 Non-superconducting regions (insulators, holes) are modeled by:
 
 1. **Suppressing ψ**: Adding a relaxation term `−ψ/τ_relax` (τ = 0.1) drives ψ → 0
-2. **Preserving gauge dynamics**: Keeping κ non-zero so the vector potential **A** still evolves
+2. **Leaving the Maxwell term alone**: the `κ²∇×∇×A` coefficient is the field energy `B²/2μ₀`, which belongs to the field rather than to the material, so it keeps the reference `params.kappa` in an insulator, in a hole and in vacuum.  A decldeclared `kappa` of 0 would zero that term, which would degenerate the φ-equation and freeze **A** — so the layer would neither screen nor transmit.
 
 This allows **magnetic flux penetration** into holes without screening:
 ```
@@ -251,6 +411,7 @@ by principle rather than by feature:
 | `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
 | `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt |
 | `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field sign; lattice Stokes |
+| `test_verification_vacuum.py` | the applied field is exact in vacuum; a κ contrast in a currentless region changes nothing; a lateral margin unpins the film edge; flux crowds beside it; the far field converges with padding |
 
 Three numbers anchor the normalisation: **Φ₀ = 2π**, **λ = κ** (in ξ), and
 **H_c2 = 1**. An applied field above 1 leaves a normal metal, not a vortex
@@ -267,6 +428,20 @@ cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
 The report lists every check with its measured value, the value physics
 requires, and the tolerance allowed.
 
+Beyond the exact solutions, the solver is measured against two independent
+codes — pyTDGL and SuperScreen — on problems each pair can both solve, and
+against the closed forms of those problems. Those runs need optional
+dependencies and about an hour, so they are not part of CI:
+
+```bash
+pip install -e "packages/tdgl3d[benchmarks]"
+cd packages/tdgl3d && python3 -m benchmarks.run all
+```
+
+See [`docs/notes/CROSS_TOOL_BENCHMARKS.md`](docs/notes/CROSS_TOOL_BENCHMARKS.md)
+for what is compared with what, and why the three codes cannot all be put on
+every problem.
+
 ### Further Reading
 
 - **Original theory**: Ginzburg & Landau, *Zh. Eksp. Teor. Fiz.* **20**, 1064 (1950)
@@ -281,21 +456,24 @@ requires, and the tolerance allowed.
 | **3D structured grid** | Uniform Cartesian mesh with configurable Nx×Ny×Nz |
 | **S/I/S trilayer** | Multi-material support via per-node κ and superconductor mask |
 | **Boundary conditions** | Zero-current BCs; applied B-field via link-variable BCs |
-| **Applied field ramp** | Linear ramp from 0 to full magnitude over a configurable fraction |
+| **Applied field ramp** | Linear ramp from 0 to full magnitude over a configurable fraction, or an arbitrary `field_func(t, t_stop)` schedule |
 | **Time integrators** | Forward Euler (explicit) and Trapezoidal (implicit, Newton-GCR) |
-| **Matrix-free Newton-GCR** | Jacobian-free Newton-Krylov solver for the implicit step |
-| **Sparse operators** | All discrete Laplacian and forcing operators built with `scipy.sparse` |
+| **Matrix-free Newton-GCR** | Jacobian-free Newton-Krylov solver for the implicit step, with a truncated Krylov basis |
+| **Threaded right-hand side** | Interior split across a thread pool sized by `TDGL3D_NUM_THREADS`; the evaluation is bandwidth-bound, so cores help |
+| **Single precision** | `precision="single"` runs the state in complex64 — half the memory, half the bandwidth |
+| **Streamed history** | `stream_path=` writes frames to HDF5 as produced, so a long run at a fine mesh is not limited by RAM |
+| **Sparse operators** | Discrete Laplacian and forcing operators available as `scipy.sparse` matrices; the solver applies them matrix-free |
 | **Post-processing** | B-field evaluation, order-parameter magnitude, vorticity |
 | **Visualization** | 2D slice plots, 3D isometric scatter plots, animated GIFs |
 | **HDF5 I/O** | Save/load solutions via h5py |
-| **Validation suite** | 261 tests carrying 274 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer |
+| **Validation suite** | 337 tests carrying 294 recorded physics checks — gauge invariance, exact discrete identities, symmetry, closed-form limits, fluxoid quantisation, trilayer, interfaces and vacuum |
 
 ## Installation
 
 ```bash
 cd tdgl3d
 pip install -e ".[dev]"
-pytest          # 261 tests
+pytest          # 337 tests
 ```
 
 **Requirements:** Python ≥ 3.10, numpy ≥ 1.24, scipy ≥ 1.10, matplotlib ≥ 3.7,
@@ -328,6 +506,8 @@ import tdgl3d
 
 trilayer = tdgl3d.Trilayer(
     bottom=tdgl3d.Layer(thickness_z=3, kappa=2.0),
+    # κ is is recorded but carries no physics in a non-superconducting
+    # layer: the Maxwell term takes the vacuum coefficient everywhere.
     insulator=tdgl3d.Layer(thickness_z=1, kappa=0.0, is_superconductor=False),
     top=tdgl3d.Layer(thickness_z=3, kappa=2.0),
 )
@@ -408,6 +588,17 @@ Solution(times, states, params, idx)     (core/solution.py)
   all operators fall back to the uniform `params.kappa`.
 - **Insulator suppression:** In `construct_FPSI`, insulator nodes get an
   extra `−ψ/τ_relax` (τ_relax = 0.1) driving ψ → 0 without hard discontinuity.
+- **Maxwell coefficient is the vacuum's:** the κ² multiplying `∇×(∇×A)`
+  is the field energy `B²/2μ₀`, not a material property, so it
+  is uniform — the superconductor's `params.kappa` everywhere,
+  insulators and vacuum included.  A per per-layoverride
+  (`Layer.magnetic_kappa`) exists for models that want a varying
+  coefficient; where it is used the coefficient is evaluated on
+  plaquettes, which keeps the curl-curl operator self-adjoint.
+- **Applied field needs free boundaries:** the field is written onto
+  the ghost links closing the boundary plaquettes, and a periodic axis
+  has none, so an applied field on a grid with any periodic axis is
+  refused rather than silently returning the wrong field.
 - **CFL condition (Forward Euler):** dt < h² / (4κ²(d−1)), set by the stiff
   κ²∇×∇× term.  In 2D (d=2) this is the familiar h²/(4κ²) — with h=1, κ=2,
   dt < 0.0625.  In 3D each link variable gains a second transverse Laplacian
@@ -468,7 +659,7 @@ tdgl3d/
 ## Test suite
 
 ```bash
-pytest                  # all 261 tests
+pytest                  # all 337 tests
 pytest -k trilayer      # just trilayer tests
 pytest -k verification  # the physics verification suites only
 pytest --cov=tdgl3d     # with coverage
@@ -485,7 +676,7 @@ cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
 ```
 
 The current run is in [`docs/physics_test_report.md`](docs/physics_test_report.md)
-(274/274 checks passing); the conventions the checks depend on — gauge, index
+(294/294 checks passing); the conventions the checks depend on — gauge, index
 ordering, node-versus-plaquette centring, the CFL limit's dimension dependence —
 are written down in
 [`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).

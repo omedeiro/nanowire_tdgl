@@ -17,6 +17,12 @@ import numpy as np
 from tdgl3d import AppliedField, Device, Layer, SimulationParameters, Trilayer, solve
 from tdgl3d.visualization.plotting import plot_current_density
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
@@ -48,7 +54,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     sol = solve(
         device, dt=0.01, t_stop=t_stop, method="euler",
-        save_every=max(1, int(t_stop)), progress=False,
+        save_every=max(1, int(t_stop)), progress=False, noise_seed=NOISE_SEED,
     )
 
     # Build mask for hole interior nodes using full-grid → interior mapping

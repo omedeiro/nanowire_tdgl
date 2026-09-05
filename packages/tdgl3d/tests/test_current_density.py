@@ -205,3 +205,56 @@ def test_current_in_hole():
     # Supercurrent in hole should be much weaker than in SC (where |ψ| → 0, J_s → 0)
     assert J_s_hole_max < J_s_sc_mean * 0.5, \
         f"Expected |J_s| in hole ({J_s_hole_max:.6f}) < 0.5× SC bulk ({J_s_sc_mean:.6f})"
+
+
+def test_supercurrent_of_a_phase_ramp_carries_the_grid_spacing():
+    r"""``J_s`` must be a current *density*, so it has to divide by h.
+
+    Take ``ψ = e^{iq·r}`` with the link variables at zero.  The exact
+    supercurrent is ``J = |ψ|²∇θ = q``, and the discrete covariant
+    derivative gives ``sin(q h)/h`` per component — which tends to ``q``
+    as the grid is refined, and is *independent of the grid* to that
+    order.
+
+    Without the division the answer is ``sin(q h)``, which halves when
+    the grid is halved and, on a non-cubic grid, scales the three
+    components differently — so the current vector points somewhere the
+    physics does not.  On the ``h = 1`` grids the rest of the suite uses
+    the two forms agree exactly, which is why this test uses neither a
+    unit spacing nor a cubic cell.
+    """
+    params = tdgl3d.SimulationParameters(
+        Nx=6, Ny=6, Nz=6, hx=0.5, hy=0.25, hz=0.8, kappa=2.0
+    )
+    device = tdgl3d.Device(params)
+    idx = device.idx
+
+    from tdgl3d.physics.current_density import eval_supercurrent_density
+
+    q = 0.3
+    i = np.arange(params.Nx + 1)
+    j = np.arange(params.Ny + 1)
+    k = np.arange(params.Nz + 1)
+    # Full grid is i-fastest: index = i + mj*j + mk*k.
+    ii, jj, kk = np.meshgrid(i, j, k, indexing="ij")
+    phase = q * (ii * params.hx + jj * params.hy + kk * params.hz)
+    psi = np.exp(1j * phase.transpose(2, 1, 0).ravel())
+    zeros = np.zeros(params.dim_x, dtype=np.complex128)
+
+    Jx, Jy, Jz = eval_supercurrent_density(psi, zeros, zeros, zeros, params, idx)
+
+    for measured, spacing, name in (
+        (Jx, params.hx, "Jx"), (Jy, params.hy, "Jy"), (Jz, params.hz, "Jz")
+    ):
+        expected = np.sin(q * spacing) / spacing
+        assert np.allclose(measured, expected, rtol=1e-12), (
+            f"{name}: got {measured.min():.6f}..{measured.max():.6f}, "
+            f"expected {expected:.6f}"
+        )
+
+    # The three components come from the same q, so a current that had
+    # dropped the spacing would have them in the ratio hx:hy:hz instead of
+    # all equal to q up to the O(h²) truncation.
+    assert abs(Jx.mean() - q) < 0.02 * q
+    assert abs(Jy.mean() - q) < 0.02 * q
+    assert abs(Jz.mean() - q) < 0.05 * q

@@ -20,6 +20,12 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
 from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
@@ -40,6 +46,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     sol = solve(
         device, t_start=0.0, t_stop=t_stop, dt=0.01, method="euler",
         save_every=save_every, progress=False, log_metadata=False,
+        noise_seed=NOISE_SEED,
     )
 
     # --- Pre-compute data for all saved steps ---

@@ -11,6 +11,125 @@ from numpy.typing import NDArray
 from ..core.parameters import SimulationParameters
 from ..core.solution import Solution
 
+# ---------------------------------------------------------------------------
+# Cell geometry for node-sampled data
+# ---------------------------------------------------------------------------
+#
+# Every field this solver produces is sampled *at* nodes, but the two matplotlib
+# calls that draw a filled grid both want the cell *boundaries*, and both fail
+# quietly when handed node coordinates instead:
+#
+# * ``imshow(extent=...)`` takes the extent as the outer edge of the image, so
+#   passing ``[xs[0], xs[-1], ...]`` squeezes n nodes into n-1 cells' worth of
+#   axis and shifts every pixel half a cell.
+# * ``plot_surface(facecolors=...)`` colours the quad *between* nodes i and i+1
+#   with ``facecolors[i, j]``, making an (n-1) x (m-1) mesh out of an n x m
+#   grid: the last row and column are never drawn at all.
+#
+# Both show up as a device that is mirror-symmetric being drawn lopsided --
+# the boundary band full width on the low edge and short on the high one.
+# ``pcolormesh(..., shading="auto")`` already does the right thing when C has
+# the same shape as X and Y (it picks "nearest", which centres cells on nodes),
+# so it needs none of this.
+
+
+def cell_edges(
+    coords: NDArray,
+    limits: Optional[tuple[float, float]] = None,
+) -> NDArray:
+    """The ``n + 1`` cell boundaries around ``n`` evenly spaced node coordinates.
+
+    Each node ends up at the centre of the cell that carries its value.
+
+    Parameters
+    ----------
+    coords : ndarray, shape (n,)
+        Evenly spaced node coordinates.
+    limits : (float, float), optional
+        Clamp the outermost edges to these bounds.  Without it the first and
+        last cells stick out half a cell past the outermost nodes, which is
+        what you want for a single sheet -- but not when several faces of one
+        box are drawn separately and have to meet along its corners.  Pass the
+        box's own extent there and the end cells come out half width instead
+        of overhanging.
+
+    Examples
+    --------
+    >>> cell_edges(np.array([1.0, 2.0, 3.0]))
+    array([0.5, 1.5, 2.5, 3.5])
+    >>> cell_edges(np.array([1.0, 2.0, 3.0]), limits=(1.0, 3.0))
+    array([1. , 1.5, 2.5, 3. ])
+    """
+    coords = np.asarray(coords, dtype=float)
+    if coords.ndim != 1 or coords.size == 0:
+        raise ValueError("coords must be a non-empty 1-D array")
+    if coords.size == 1:
+        edges = np.array([coords[0] - 0.5, coords[0] + 0.5])
+    else:
+        step = coords[1] - coords[0]
+        edges = np.append(coords - 0.5 * step, coords[-1] + 0.5 * step)
+    if limits is not None:
+        lo, hi = float(limits[0]), float(limits[1])
+        if lo > hi:
+            raise ValueError(f"limits must be (low, high), got ({lo}, {hi})")
+        edges = np.clip(edges, lo, hi)
+    return edges
+
+
+def imshow_extent(xs: NDArray, ys: NDArray) -> list[float]:
+    """``extent=`` for :func:`~matplotlib.pyplot.imshow` of data sampled at *xs*, *ys*.
+
+    Centres each pixel on the node whose value it carries, rather than lining
+    the outermost nodes up with the edge of the image.
+    """
+    x_edges, y_edges = cell_edges(xs), cell_edges(ys)
+    return [float(x_edges[0]), float(x_edges[-1]),
+            float(y_edges[0]), float(y_edges[-1])]
+
+
+def pad_facecolors(rgba: NDArray) -> NDArray:
+    """Pad an ``(n, m, 4)`` RGBA array for ``plot_surface(facecolors=...)``.
+
+    Pair this with edge grids from :func:`cell_edges`: quad ``(i, j)`` then
+    spans the cell around node ``(i, j)`` and takes ``rgba[i, j]``.  The extra
+    row and column are padding for an array ``plot_surface`` indexes but never
+    reads.
+
+    Use this directly when the colours come from something richer than a
+    colormap -- a sentinel value painted a fixed grey, say; otherwise
+    :func:`surface_facecolors` is the one-step version.
+
+    Returns
+    -------
+    ndarray, shape (n + 1, m + 1, 4)
+    """
+    rgba = np.asarray(rgba, dtype=float)
+    if rgba.ndim != 3 or rgba.shape[2] != 4:
+        raise ValueError(f"rgba must have shape (n, m, 4), got {rgba.shape}")
+    padded = np.zeros((rgba.shape[0] + 1, rgba.shape[1] + 1, 4))
+    padded[:-1, :-1] = rgba
+    return padded
+
+
+def surface_facecolors(data: NDArray, cmap, norm) -> NDArray:
+    """Colour ``data`` through *cmap* and *norm*, padded by :func:`pad_facecolors`.
+
+    Parameters
+    ----------
+    data : ndarray, shape (n, m)
+        Values at the nodes.
+    cmap, norm
+        A matplotlib colormap and normalisation.
+
+    Returns
+    -------
+    ndarray, shape (n + 1, m + 1, 4)
+    """
+    data = np.asarray(data)
+    if data.ndim != 2:
+        raise ValueError(f"data must be 2-D, got shape {data.shape}")
+    return pad_facecolors(cmap(norm(data)))
+
 
 def _grid_coords_2d(params: SimulationParameters) -> tuple[NDArray, NDArray]:
     """Return meshgrid arrays for the interior nodes in x–y."""

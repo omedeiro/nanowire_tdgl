@@ -56,6 +56,49 @@ class AppliedField:
         return self.Bx * scale, self.By * scale, self.Bz * scale
 
 
+def _reject_periodic_axes(
+    applied_bx: float,
+    applied_by: float,
+    applied_bz: float,
+    params: SimulationParameters,
+) -> None:
+    """Refuse to apply a field on a grid with a periodic axis.
+
+    The two conditions are incompatible as implemented, and the failure
+    is silent: the solver runs and returns a field that is simply not
+    the one asked for.  Measured on an empty box (``ψ = 0`` everywhere,
+    where the exact answer is ``B = B_applied`` at every node), every
+    combination of a periodic axis with an applied component is wrong
+    by 50–100%, and several have no steady state at all.
+
+    Making a periodic axis carry a net applied flux needs quasi-periodic
+    ("twisted") link variables, ``φ → φ + ΔB``, which is a different
+    boundary condition, not a tweak to this one.
+    """
+    applied = {"Bx": applied_bx, "By": applied_by, "Bz": applied_bz}
+    non_zero = [name for name, value in applied.items() if value != 0.0]
+    if not non_zero:
+        return
+
+    periodic = [
+        axis
+        for axis in ("x", "y", "z")
+        if getattr(params, f"periodic_{axis}")
+        and (axis != "z" or params.is_3d)
+    ]
+    if not periodic:
+        return
+
+    raise ValueError(
+        f"An applied field ({', '.join(non_zero)}) cannot be combined with "
+        f"periodic boundary conditions (periodic_{', periodic_'.join(periodic)}"
+        f"). The applied field is imposed on the ghost links closing the "
+        f"boundary plaquettes, and a periodic axis has none, so the field "
+        f"that comes out is not the one requested — by 50-100% in an empty "
+        f"box. Use free boundaries on every axis, or apply no field."
+    )
+
+
 def build_boundary_field_vectors(
     applied_bx: float,
     applied_by: float,
@@ -68,6 +111,8 @@ def build_boundary_field_vectors(
     Mimics the second half of ``eval_u.m``: the applied field magnitude is
     placed at the appropriate boundary-face indices.
     """
+    _reject_periodic_axes(applied_bx, applied_by, applied_bz, params)
+
     N = params.dim_x
 
     Bx_vec = np.zeros(N, dtype=np.float64)

@@ -79,3 +79,53 @@ class TestNewtonGCRTrap:
         x, converged, iters = newton_gcr_trap(f, x0, gamma, dt=1.0, tol_f=1e-6, tol_dx=1e-6)
         assert converged
         np.testing.assert_allclose(x, x0, atol=1e-4)
+
+
+class TestKrylovScaling:
+    """The preconditioning seam in ``tgcr_matrix_free_trap``.
+
+    A right-preconditioned solve has to reach the same answer as an
+    unpreconditioned one — the preconditioner may only change the path taken,
+    never the solution — and a scaling of all ones has to reproduce it exactly.
+    """
+
+    @staticmethod
+    def _problem(n=48, seed=5):
+        rng = np.random.default_rng(seed)
+        A = rng.standard_normal((n, n)) + 1j * rng.standard_normal((n, n))
+        A += np.eye(n) * n
+        b = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+        x_lin = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+        return A, b, x_lin
+
+    def test_unit_scaling_is_the_unpreconditioned_solve(self):
+        from tdgl3d.solvers.tgcr import tgcr_matrix_free_trap
+
+        A, b, x_lin = self._problem()
+        f = lambda v: A @ v  # noqa: E731
+
+        plain = tgcr_matrix_free_trap(f, x_lin, b, 0.1, tol=1e-10)
+        unit = tgcr_matrix_free_trap(
+            f, x_lin, b, 0.1, tol=1e-10, scaling=np.ones(b.size)
+        )
+        assert plain.size == b.size
+        assert np.allclose(unit, plain, rtol=1e-12, atol=1e-12)
+
+    def test_a_nontrivial_scaling_reaches_the_same_solution(self):
+        from tdgl3d.solvers.tgcr import tgcr_matrix_free_trap
+
+        A, b, x_lin = self._problem()
+        f = lambda v: A @ v  # noqa: E731
+        dt = 0.1
+
+        plain = tgcr_matrix_free_trap(f, x_lin, b, dt, tol=1e-11)
+        scaling = 1.0 / np.abs(np.diag(np.eye(b.size) - 0.5 * dt * A))
+        scaled = tgcr_matrix_free_trap(
+            f, x_lin, b, dt, tol=1e-11, scaling=scaling
+        )
+
+        assert scaled.size == b.size
+        # Non-vacuous: the scaling really is non-uniform, so this is not the
+        # previous test in disguise.
+        assert scaling.max() / scaling.min() > 1.05
+        assert np.allclose(scaled, plain, rtol=1e-6, atol=1e-8)

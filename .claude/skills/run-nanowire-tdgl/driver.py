@@ -53,8 +53,8 @@ def build_device(args):
     field = tdgl3d.AppliedField(Bx=args.bx, By=args.by, Bz=args.bz, t_on_fraction=args.t_on)
 
     if args.preset == "trilayer":
-        # S/I/S stack. The insulator gets the SAME kappa as the metal on purpose:
-        # kappa=0 degenerates the phi-equation entirely (see AGENTS.md).
+        # S/I/S stack. kappa on a non-superconducting layer carries no
+        # physics: the Maxwell coefficient takes params.kappa everywhere.
         k = args.kappa
         tri = tdgl3d.Trilayer(
             bottom=tdgl3d.Layer(thickness_z=args.nz, kappa=k, is_superconductor=True),

@@ -50,9 +50,10 @@ PHI0 = 2.0 * np.pi
 # Geometry.  Arms 3 ξ wide either side of the hole; superconducting layers 4 ξ
 # thick, which is the binding constraint: at 1 ξ the oxide's pair-breaking
 # reaches straight through and |ψ| collapses to ~1e-4 everywhere (see
-# test_the_ring_is_superconducting).  The oxide gets the same κ as the metal so
-# the stack is magnetically continuous — see
-# test_insulator_kappa_controls_field_transmission in test_physics_validation.
+# test_the_ring_is_superconducting).  The oxide is written with the metal's κ,
+# but that is cosmetic: κ on a non-superconducting layer does not reach the
+# Maxwell term — see test_declared_oxide_kappa_does_not_change_the_field in
+# test_physics_validation.
 ARM = 3.0
 KAPPA = 2.0
 H = 1.0

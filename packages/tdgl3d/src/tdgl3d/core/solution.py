@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,6 +17,45 @@ if TYPE_CHECKING:
     from .device import Device
 
 
+def write_solution_context(f, params, idx, metadata: Optional[dict]) -> None:
+    """Write everything a saved solution needs besides its frames.
+
+    Shared by :meth:`Solution.save` and the streaming history, so a file
+    written frame-by-frame during a run is the same artifact as one written in
+    one go afterwards, and :meth:`Solution.load` reads either.
+    """
+    grp_params = f.create_group("params")
+    for key in ["Nx", "Ny", "Nz", "hx", "hy", "hz", "kappa"]:
+        grp_params.attrs[key] = getattr(params, key)
+
+    grp_idx = f.create_group("idx")
+    for key in dir(idx):
+        if key.startswith("_"):
+            continue
+        val = getattr(idx, key)
+        if isinstance(val, np.ndarray):
+            grp_idx.create_dataset(key, data=val)
+        elif isinstance(val, (int, float, bool)):
+            grp_idx.attrs[key] = val
+
+    if metadata is None:
+        return
+
+    grp_meta = f.create_group("metadata")
+    for key, val in metadata.items():
+        if isinstance(val, (str, int, float, bool)):
+            grp_meta.attrs[key] = val
+        elif isinstance(val, np.ndarray):
+            grp_meta.create_dataset(key, data=val)
+        elif isinstance(val, dict):
+            sub_grp = grp_meta.create_group(key)
+            for sub_key, sub_val in val.items():
+                if isinstance(sub_val, (str, int, float, bool)):
+                    sub_grp.attrs[sub_key] = sub_val
+                elif isinstance(sub_val, np.ndarray):
+                    sub_grp.create_dataset(sub_key, data=sub_val)
+
+
 @dataclass
 class Solution:
     """Container for the output of a TDGL simulation.
@@ -23,7 +63,9 @@ class Solution:
     Attributes
     ----------
     times : ndarray, shape (n_saved,)
-    states : ndarray, shape (n_state, n_saved)
+    states : ndarray or HDF5 dataset, shape (n_state, n_saved)
+        Frames.  A run given ``stream_path`` leaves these on disk and slices
+        them lazily; see :mod:`tdgl3d.solvers.history`.
     params : SimulationParameters
     idx : GridIndices
     device : Device, optional
@@ -33,11 +75,29 @@ class Solution:
     """
 
     times: NDArray[np.float64]
-    states: NDArray[np.complex128]
+    states: Any  # ndarray, or an HDF5 dataset for a streamed run
     params: SimulationParameters
     idx: GridIndices
     device: Optional['Device'] = None  # Forward reference, will be resolved at runtime
     metadata: Optional[dict] = None
+    #: Set for a streamed run; holds the open file the frames are read from.
+    _history: Optional[object] = field(default=None, repr=False, compare=False)
+
+    def close(self) -> None:
+        """Release the file a streamed run reads its frames from.
+
+        Reading a frame afterwards raises rather than returning wrong data.
+        In-memory solutions have nothing to release and ignore this.
+        """
+        if self._history is not None:
+            self._history.close()
+            self._history = None
+
+    def __enter__(self) -> 'Solution':
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     # -- convenience accessors -----------------------------------------------
 
@@ -433,43 +493,28 @@ class Solution:
         """
         import h5py
 
+        if getattr(self, "_history", None) is not None:
+            if Path(filename).resolve() == Path(self._history.path).resolve():
+                # A streamed run already wrote this file, frame by frame.
+                return
+
         with h5py.File(filename, 'w') as f:
-            # Core data
             f.create_dataset('times', data=self.times)
-            f.create_dataset('states', data=self.states)
+            # Copy frame by frame when the source is a dataset on disk: asking
+            # h5py for the whole thing would pull a history that may not fit in
+            # memory back into it, which is the situation streaming exists to
+            # avoid.
+            if isinstance(self.states, np.ndarray):
+                f.create_dataset('states', data=self.states)
+            else:
+                dest = f.create_dataset(
+                    'states', shape=self.states.shape, dtype=np.complex128,
+                    chunks=self.states.chunks,
+                )
+                for step in range(self.states.shape[1]):
+                    dest[:, step] = self.states[:, step]
 
-            # Parameters (all scalar attributes)
-            grp_params = f.create_group('params')
-            for key in ['Nx', 'Ny', 'Nz', 'hx', 'hy', 'hz', 'kappa']:
-                grp_params.attrs[key] = getattr(self.params, key)
-
-            # GridIndices (store all arrays and scalars)
-            grp_idx = f.create_group('idx')
-            for key in dir(self.idx):
-                if key.startswith('_'):
-                    continue
-                val = getattr(self.idx, key)
-                if isinstance(val, np.ndarray):
-                    grp_idx.create_dataset(key, data=val)
-                elif isinstance(val, (int, float, bool)):
-                    grp_idx.attrs[key] = val
-
-            # Metadata (optional)
-            if self.metadata is not None:
-                grp_meta = f.create_group('metadata')
-                for key, val in self.metadata.items():
-                    if isinstance(val, (str, int, float, bool)):
-                        grp_meta.attrs[key] = val
-                    elif isinstance(val, np.ndarray):
-                        grp_meta.create_dataset(key, data=val)
-                    elif isinstance(val, dict):
-                        # Nested dict - store as subgroup
-                        sub_grp = grp_meta.create_group(key)
-                        for sub_key, sub_val in val.items():
-                            if isinstance(sub_val, (str, int, float, bool)):
-                                sub_grp.attrs[sub_key] = sub_val
-                            elif isinstance(sub_val, np.ndarray):
-                                sub_grp.create_dataset(sub_key, data=sub_val)
+            write_solution_context(f, self.params, self.idx, self.metadata)
 
     @staticmethod
     def load(filename: str) -> 'Solution':

@@ -106,10 +106,11 @@ Two rules for adding checks there:
 - 3 tests in `packages/tdgl3d/tests` are marked `xfail` (hole-BC / flux
   trapping work; see `docs/notes/HOLE_BC_STATUS.md`).
 - Periodic BCs are defined in `SimulationParameters` but not implemented.
-- An insulating layer with `kappa = 0.0` cannot carry a magnetic field: its
-  φ-equation degenerates entirely. Give oxide layers the same κ as the metal
-  unless the field is meant to be blocked — see "Heterostructures" in
-  `docs/notes/PHYSICS_CONVENTIONS.md`.
+- `Layer.kappa` does **not** reach the Maxwell term: the coefficient
+  multiplying `κ²∇×∇×A` is the field energy `B²/2μ₀`, so it is uniform and an
+  oxide declared `kappa=0.0` still transmits the field. `Layer.magnetic_kappa`
+  is the opt-in override for a genuinely varying coefficient — see
+  "Heterostructures" in `docs/notes/PHYSICS_CONVENTIONS.md`.
 - Superconducting layers thinner than ~2 ξ are fully pair-broken by an adjacent
   insulator (|ψ| ~ 1e-4) while still producing plausible-looking output. Check
   `max |ψ|` before trusting anything phase-derived.
