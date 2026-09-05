@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/omedeiro/nanowire_tdgl/compare/tdgl3d-server-v0.2.0...tdgl3d-server-v0.3.0) (2026-09-05)
+
+
+### Added
+
+* **tdgl3d:** vacuum padding around a stack, and refuse periodic+applied field ([56ca63c](https://github.com/omedeiro/nanowire_tdgl/commit/56ca63c6c699d9e23824ea0423f032f9de7df304))
+
+
+### Fixed
+
+* **solver:** correct dφ/dt curl-curl coupling; add physics validation suite ([1c35eb4](https://github.com/omedeiro/nanowire_tdgl/commit/1c35eb42d85f4448487eac741b2d99e63ad88243))
+
 ## [0.2.0](https://github.com/omedeiro/nanowire_tdgl/compare/tdgl3d-server-v0.1.0...tdgl3d-server-v0.2.0) (2026-07-25)
 
 
