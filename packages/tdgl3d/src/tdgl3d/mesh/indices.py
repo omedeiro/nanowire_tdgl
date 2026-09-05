@@ -184,17 +184,16 @@ class GridIndices:
         self._stencil = {}
 
     def workspace(
-        self, params: SimulationParameters, n_vectors: int = 8,
+        self, params: SimulationParameters, n_vectors: int = 4,
         dtype=np.complex128,
     ) -> list:
         """Lend *n_vectors* full-grid complex scratch arrays, or make new ones.
 
-        The right-hand side needs eight arrays of ``dim_x`` complex128 — four
-        to scatter the interior state onto the full grid and four copies the
-        boundary conditions read from.  At 15 M interior nodes that is two
-        gigabytes allocated and touched on every evaluation, and there are tens
-        of thousands of evaluations in a run.  Keeping one set per device and
-        handing it out turns that into a single allocation.
+        The right-hand side needs four arrays of ``dim_x`` complex128 to
+        scatter the interior state onto the full grid.  At 15 M interior nodes
+        that is a gigabyte allocated and touched on every evaluation, and there
+        are tens of thousands of evaluations in a run.  Keeping one set per
+        device and handing it out turns that into a single allocation.
 
         The workspace is lent, not shared: a nested or concurrent caller gets
         freshly allocated arrays rather than the ones already in use, so the

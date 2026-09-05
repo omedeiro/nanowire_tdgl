@@ -585,102 +585,6 @@ def _rows(idx: GridIndices, params: SimulationParameters, rows: slice | None):
     return (m if rows is None else m[rows]), params.mj, params.mk
 
 
-def grid_order(params: SimulationParameters, idx: GridIndices) -> tuple:
-    """Interior nodes renumbered into full-grid order, cached per device.
-
-    The two numberings run opposite ways — the full grid is i-fastest, the
-    interior numbering is i-slowest — so consecutive interior nodes land tens
-    of thousands of elements apart on the full grid.  Walking the stencil in
-    interior order therefore fetches a fresh cache line for almost every one of
-    its twenty-odd gathers: measured 6.7 ms against 2.4 ms for the same gather
-    taken in ascending order, on an 800 k-node grid.
-
-    Sorting ``interior_to_full`` is just reading the interior array in (k, j, i)
-    order instead of (i, j, k), so the permutation is a transpose and needs no
-    sort.  The right-hand side walks the nodes this way and pays the scattered
-    access on its four writes instead of on all its reads.
-
-    Returns
-    -------
-    order : ndarray
-        ``order[p]`` is the interior index of the p-th node in full-grid order.
-    m_sorted : ndarray
-        ``interior_to_full[order]`` — ascending.
-    """
-    st = idx.neighbours(params)
-    cached = st.get("_grid_order")
-    if cached is not None:
-        return cached
-
-    shape = (params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1))
-    order = np.arange(params.n_interior).reshape(shape).transpose(2, 1, 0).ravel()
-    order = np.ascontiguousarray(order)
-    m_sorted = idx.interior_to_full[order]
-    st["_grid_order"] = (order, m_sorted)
-    return st["_grid_order"]
-
-
-def _material_in_grid_order(
-    params: SimulationParameters,
-    idx: GridIndices,
-    material: Optional[MaterialMap],
-    real_dtype=np.float64,
-) -> tuple:
-    """``(κ², superconducting mask)`` permuted into full-grid order, cached.
-
-    Kept in *real_dtype* so a single-precision state is not silently promoted
-    back to double the first time it is multiplied by a coefficient.
-    """
-    st = idx.neighbours(params)
-    real_dtype = np.dtype(real_dtype)
-    cached = st.get("_material_grid_order")
-    if (
-        cached is not None
-        and cached[0] is material
-        and cached[3] == real_dtype
-        and cached[4] == params.kappa
-    ):
-        return cached[1], cached[2]
-
-    order, _ = grid_order(params, idx)
-    kappa_sq = kappa_sq_interior(params, idx, material)[order].astype(
-        real_dtype, copy=False
-    )
-    sc = (
-        None if material is None
-        else material.interior_sc_mask[order].astype(real_dtype, copy=False)
-    )
-    st["_material_grid_order"] = (material, kappa_sq, sc, real_dtype, params.kappa)
-    return kappa_sq, sc
-
-
-def _nu_pairs_in_grid_order(
-    params: SimulationParameters,
-    idx: GridIndices,
-    material: Optional[MaterialMap],
-    real_dtype=np.float64,
-) -> Optional[tuple]:
-    """:func:`nu_pairs_interior` permuted into full-grid order, cached.
-
-    ``None`` when the coefficient is uniform, which is the common case
-    and the one :func:`rhs_rows` has a dedicated path for.
-    """
-    pairs = nu_pairs_interior(params, idx, material)
-    if pairs is None:
-        return None
-
-    st = idx.neighbours(params)
-    real_dtype = np.dtype(real_dtype)
-    cached = st.get("_nu_pairs_grid_order")
-    if cached is not None and cached[0] is material and cached[2] == real_dtype:
-        return cached[1]
-
-    order, _ = grid_order(params, idx)
-    permuted = tuple(a[order].astype(real_dtype, copy=False) for a in pairs)
-    st["_nu_pairs_grid_order"] = (material, permuted, real_dtype)
-    return permuted
-
-
 def apply_LPSI(
     x: NDArray[np.complexfloating],
     y1: NDArray[np.complexfloating],
@@ -817,6 +721,172 @@ def apply_LPHI_z(
     return out
 
 
+# ---------------------------------------------------------------------------
+# The right-hand side kernel
+# ---------------------------------------------------------------------------
+#
+# The interior nodes are a contiguous box inside the full grid, so every
+# stencil neighbour is a *strided view* of the state, not a gather.  Walking
+# the box with fancy indexing — ``x[m]``, ``x[m + 1]``, ``x[m + mj]`` … — costs
+# an index array the width of the data (``intp`` is 8 bytes against 16 for a
+# complex128) on every one of the twenty-odd reads, and materialises a fresh
+# ``m + offset`` array for most of them.  Slicing costs neither.  The two paths
+# compute the same numbers bit for bit; ``test_matrix_free_operators`` holds
+# them together against the assembled matrices.
+
+
+def _grid_view(a: NDArray, params: SimulationParameters) -> NDArray:
+    """View a full-grid vector as ``[k, j, i]``.
+
+    The full grid is ``i + mj*j + mk*k`` with ``mj = Nx+1`` and
+    ``mk = (Nx+1)(Ny+1)``, so i is the fastest axis.  A 2-D grid gets a
+    length-1 k axis, which lets one kernel serve both.
+    """
+    nk = params.Nz + 1 if params.is_3d else 1
+    return a.reshape(nk, params.Ny + 1, params.Nx + 1)
+
+
+def chunk_planes(params: SimulationParameters) -> int:
+    """Number of independent planes the interior can be split into.
+
+    The chunk unit is a plane of the slowest interior axis — k in 3-D, j in
+    2-D — because a chunk has to stay a rectangular box for the stencil to be
+    expressible as slices.
+    """
+    return (params.Nz - 1) if params.is_3d else (params.Ny - 1)
+
+
+def _plane_bounds(params: SimulationParameters, planes: slice) -> tuple:
+    """Grid-index bounds ``(k0, k1, j0, j1)`` of the interior box for *planes*."""
+    start, stop, _ = planes.indices(chunk_planes(params))
+    if params.is_3d:
+        return 1 + start, 1 + stop, 1, params.Ny
+    return 0, 1, 1 + start, 1 + stop
+
+
+def _interior_shape(params: SimulationParameters) -> tuple:
+    """Shape of an interior-numbered array, in its own (i, j, k) order."""
+    return (params.Nx - 1, params.Ny - 1, max(params.Nz - 1, 1))
+
+
+def _to_grid_order(v: NDArray, params: SimulationParameters, real_dtype) -> NDArray:
+    """An interior-numbered array as a contiguous ``[k, j, i]`` one.
+
+    The interior numbering is i-slowest, so the permutation is a transpose and
+    needs no sort.  Made contiguous once, so the kernel multiplies by a
+    contiguous array rather than a strided one, and kept in *real_dtype* so a
+    single-precision state is not silently promoted back to double the first
+    time it is scaled by a coefficient.
+    """
+    return np.ascontiguousarray(
+        v.reshape(_interior_shape(params)).transpose(2, 1, 0).astype(
+            real_dtype, copy=False
+        )
+    )
+
+
+def interior_material(
+    params: SimulationParameters,
+    idx: GridIndices,
+    material: Optional[MaterialMap],
+    real_dtype=np.float64,
+) -> tuple:
+    """``(κ², superconducting mask)`` as ``[k, j, i]`` arrays, cached per device.
+
+    Keyed on the material map, the dtype **and** ``params.kappa``:
+    :meth:`GridIndices.neighbours` does not look at the parameters it is
+    handed, so without the last of those a second solve on the same grid and
+    material at a different κ would silently keep the first one's.
+    """
+    st = idx.neighbours(params)
+    real_dtype = np.dtype(real_dtype)
+    cached = st.get("_interior_material")
+    if (
+        cached is not None
+        and cached[0] is material
+        and cached[3] == real_dtype
+        and cached[4] == params.kappa
+    ):
+        return cached[1], cached[2]
+
+    kappa_sq = _to_grid_order(
+        kappa_sq_interior(params, idx, material), params, real_dtype
+    )
+    sc = (
+        None if material is None
+        else _to_grid_order(material.interior_sc_mask, params, real_dtype)
+    )
+    st["_interior_material"] = (material, kappa_sq, sc, real_dtype, params.kappa)
+    return kappa_sq, sc
+
+
+def interior_nu_pairs(
+    params: SimulationParameters,
+    idx: GridIndices,
+    material: Optional[MaterialMap],
+    real_dtype=np.float64,
+) -> Optional[tuple]:
+    """:func:`nu_pairs_interior` as ``[k, j, i]`` arrays, cached per device.
+
+    ``None`` when the coefficient is uniform, which is the common case and the
+    one :func:`rhs_rows` has a dedicated path for.
+    """
+    pairs = nu_pairs_interior(params, idx, material)
+    if pairs is None:
+        return None
+
+    st = idx.neighbours(params)
+    real_dtype = np.dtype(real_dtype)
+    cached = st.get("_interior_nu_pairs")
+    if cached is not None and cached[0] is material and cached[2] == real_dtype:
+        return cached[1]
+
+    permuted = tuple(_to_grid_order(a, params, real_dtype) for a in pairs)
+    st["_interior_nu_pairs"] = (material, permuted, real_dtype)
+    return permuted
+
+
+def _out_view(block: NDArray, params: SimulationParameters) -> NDArray:
+    """View an output block (interior numbering) as ``[k, j, i]``."""
+    return block.reshape(_interior_shape(params)).transpose(2, 1, 0)
+
+
+def _expi(y: NDArray, sign: int) -> NDArray:
+    """``exp(sign * 1j * y)`` — the on-link Peierls factor.
+
+    The complex exponential is the most expensive thing in the kernel: NumPy
+    evaluates it with a scalar ``cexp`` per element, and — against
+    intuition — its ``complex64`` loop is *slower* than its ``complex128`` one
+    (measured 13.4 ms against 8.9 ms per 300 k elements), which is why running
+    the state narrow used to buy nothing even though every other operation in
+    the kernel halved.
+
+    Splitting it into real transcendentals fixes that, because NumPy's float32
+    ``sin``/``cos`` are SIMD loops where its float64 ones are not::
+
+        exp(s·i·(a + i·b)) = exp(−s·b) · (cos a + i·s·sin a)
+
+    measured 1.6 ms against 13.4 ms at ``complex64``.  At ``complex128`` the
+    real loops are scalar as well, so the split saves nothing (8.5 against 8.7
+    ms, inside the noise) and would move results in the last bit — so double
+    precision keeps the exact complex exponential and only the narrow path
+    takes the split.
+    """
+    if y.dtype != np.complex64:
+        return np.exp((sign * 1j) * y)
+
+    out = np.empty(y.shape, dtype=np.complex64)
+    a = y.real
+    np.cos(a, out=out.real)
+    np.sin(a, out=out.imag)
+    if sign < 0:
+        np.negative(out.imag, out=out.imag)
+    b = y.imag
+    if b.any():
+        out *= np.exp(np.float32(-sign) * b)
+    return out
+
+
 def rhs_rows(
     x: NDArray[np.complexfloating],
     y1: NDArray[np.complexfloating],
@@ -825,60 +895,72 @@ def rhs_rows(
     params: SimulationParameters,
     idx: GridIndices,
     material: Optional[MaterialMap],
-    rows: slice,
+    planes: slice,
     out: tuple[NDArray, NDArray, NDArray, NDArray],
 ) -> None:
-    """Write dψ/dt and dφ/dt for interior rows *rows* into *out*.
+    """Write dψ/dt and dφ/dt for a slab of interior *planes* into *out*.
 
-    *rows* selects a contiguous block of the **grid-ordered** nodes — see
-    :func:`grid_order` — so a thread's gathers walk the full grid in order
-    rather than jumping a plane at a time.  Doing all four output blocks for
-    one block of nodes, rather than one output block for all nodes, keeps that
-    thread reading the same neighbourhood of ``x``, ``y1``, ``y2`` and ``y3``
-    throughout.  The four writes go back through the permutation, which is
-    where the scattered access is paid; there are four of those against twenty
-    reads.
+    *planes* selects a contiguous range along the slowest interior axis — k in
+    3-D, j in 2-D — of the :func:`chunk_planes` available; that is the unit the
+    right-hand side splits across threads.  Each thread therefore owns a slab
+    that is contiguous in memory and writes only its own rows.
+
+    Doing all four output blocks for one slab, rather than one output block for
+    the whole grid, keeps a thread reading the same neighbourhood of ``x``,
+    ``y1``, ``y2`` and ``y3`` throughout.  The four writes go through the
+    transpose into the interior numbering, which is where the strided access is
+    paid; there are four of those against twenty reads.
 
     It is the same arithmetic as :func:`apply_LPSI`, :func:`apply_LPHI_x` and
     the ``construct_F*`` forcings; ``test_matrix_free_operators`` holds the two
     paths together.
     """
-    order, m_sorted = grid_order(params, idx)
+    k0, k1, j0, j1 = _plane_bounds(params, planes)
+    if k1 <= k0 or j1 <= j0:
+        return
+
+    Nx = params.Nx
+    is_3d = params.is_3d
+    x3, y13, y23, y33 = (_grid_view(a, params) for a in (x, y1, y2, y3))
+
+    def S(a3, di=0, dj=0, dk=0):
+        """The chunk's interior box, shifted by one stencil offset."""
+        return a3[k0 + dk:k1 + dk, j0 + dj:j1 + dj, 1 + di:Nx + di]
+
+    # The chunk's slice of the interior-numbered arrays, in [k, j, i] order.
+    chunk = (planes, slice(None), slice(None)) if is_3d else (
+        slice(None), planes, slice(None)
+    )
     real_dtype = out[0].real.dtype
-    kappa_sq_all, sc_all = _material_in_grid_order(
+    kappa_sq_all, sc_all = interior_material(
         params, idx, material, real_dtype=real_dtype
     )
-    nu_all = _nu_pairs_in_grid_order(params, idx, material, real_dtype=real_dtype)
-    m = m_sorted[rows]
-    write = order[rows]
-    mj, mk = params.mj, params.mk
-    kappa2 = kappa_sq_all[rows]
-    out_psi, out_px, out_py, out_pz = out
+    nu_all = interior_nu_pairs(params, idx, material, real_dtype=real_dtype)
+    kappa2 = kappa_sq_all[chunk]
     hx2, hy2, hz2 = params.hx**2, params.hy**2, params.hz**2
-    is_3d = params.is_3d
 
-    x_m = x[m]
-    fx = np.exp(-1j * y1[m])
-    fy = np.exp(-1j * y2[m])
+    x_m = S(x3)
+    fx = _expi(S(y13), -1)
+    fy = _expi(S(y23), -1)
 
     # --- dψ/dt: covariant Laplacian plus the Ginzburg-Landau forcing --------
-    dpsi = (np.exp(1j * y1[m - 1]) * x[m - 1] + fx * x[m + 1] - 2.0 * x_m) / hx2
-    dpsi += (np.exp(1j * y2[m - mj]) * x[m - mj] + fy * x[m + mj] - 2.0 * x_m) / hy2
+    dpsi = (_expi(S(y13, di=-1), 1) * S(x3, di=-1) + fx * S(x3, di=1)
+            - 2.0 * x_m) / hx2
+    dpsi += (_expi(S(y23, dj=-1), 1) * S(x3, dj=-1) + fy * S(x3, dj=1)
+             - 2.0 * x_m) / hy2
+    fz = None
     if is_3d:
-        fz = np.exp(-1j * y3[m])
-        dpsi += (np.exp(1j * y3[m - mk]) * x[m - mk] + fz * x[m + mk] - 2.0 * x_m) / hz2
+        fz = _expi(S(y33), -1)
+        dpsi += (_expi(S(y33, dk=-1), 1) * S(x3, dk=-1) + fz * S(x3, dk=1)
+                 - 2.0 * x_m) / hz2
 
     gl_term = (1.0 - np.conj(x_m) * x_m) * x_m
     if sc_all is not None:
-        sc = sc_all[rows]
+        sc = sc_all[chunk]
         dpsi += sc * gl_term - (1.0 - sc) * x_m / INSULATOR_RELAXATION_TIME
     else:
         dpsi += gl_term
-    out_psi[write] = dpsi
-
-    xp = m + 1
-    yp = m + mj
-    zp = m + mk if is_3d else None
+    _out_view(out[0], params)[chunk] = dpsi
 
     if nu_all is None:
         # Uniform coefficient: one κ² per node factors out of both the
@@ -886,67 +968,73 @@ def rhs_rows(
         kx, ky, kz = kappa2 / hx2, kappa2 / hy2, kappa2 / hz2
 
         # --- dφ_x/dt: transverse Laplacian, curl-curl cross terms, current --
-        dpx = ky * (y1[m + mj] + y1[m - mj] - 2.0 * y1[m])
-        dpx += ky * (-y2[xp] + y2[m] + y2[xp - mj] - y2[m - mj])
+        dpx = ky * (S(y13, dj=1) + S(y13, dj=-1) - 2.0 * S(y13))
+        dpx += ky * (-S(y23, di=1) + S(y23) + S(y23, di=1, dj=-1) - S(y23, dj=-1))
         if is_3d:
-            dpx += kz * (y1[m + mk] + y1[m - mk] - 2.0 * y1[m])
-            dpx += kz * (-y3[xp] + y3[m] + y3[xp - mk] - y3[m - mk])
-        dpx += np.imag(fx * np.conj(x_m) * x[xp])
-        out_px[write] = dpx
+            dpx += kz * (S(y13, dk=1) + S(y13, dk=-1) - 2.0 * S(y13))
+            dpx += kz * (-S(y33, di=1) + S(y33) + S(y33, di=1, dk=-1) - S(y33, dk=-1))
+        dpx += np.imag(fx * np.conj(x_m) * S(x3, di=1))
+        _out_view(out[1], params)[chunk] = dpx
 
         # --- dφ_y/dt --------------------------------------------------------
-        dpy = kx * (y2[xp] + y2[m - 1] - 2.0 * y2[m])
-        dpy += kx * (-y1[yp] + y1[m] + y1[yp - 1] - y1[m - 1])
+        dpy = kx * (S(y23, di=1) + S(y23, di=-1) - 2.0 * S(y23))
+        dpy += kx * (-S(y13, dj=1) + S(y13) + S(y13, dj=1, di=-1) - S(y13, di=-1))
         if is_3d:
-            dpy += kz * (y2[m + mk] + y2[m - mk] - 2.0 * y2[m])
-            dpy += kz * (-y3[yp] + y3[m] + y3[yp - mk] - y3[m - mk])
-        dpy += np.imag(fy * np.conj(x_m) * x[yp])
-        out_py[write] = dpy
+            dpy += kz * (S(y23, dk=1) + S(y23, dk=-1) - 2.0 * S(y23))
+            dpy += kz * (-S(y33, dj=1) + S(y33) + S(y33, dj=1, dk=-1) - S(y33, dk=-1))
+        dpy += np.imag(fy * np.conj(x_m) * S(x3, dj=1))
+        _out_view(out[2], params)[chunk] = dpy
 
         # --- dφ_z/dt --------------------------------------------------------
         if is_3d:
-            dpz = kx * (y3[xp] + y3[m - 1] - 2.0 * y3[m])
-            dpz += ky * (y3[yp] + y3[m - mj] - 2.0 * y3[m])
-            dpz += kx * (-y1[zp] + y1[m] + y1[zp - 1] - y1[m - 1])
-            dpz += ky * (-y2[zp] + y2[m] + y2[zp - mj] - y2[m - mj])
-            dpz += np.imag(fz * np.conj(x_m) * x[zp])
-            out_pz[write] = dpz
+            dpz = kx * (S(y33, di=1) + S(y33, di=-1) - 2.0 * S(y33))
+            dpz += ky * (S(y33, dj=1) + S(y33, dj=-1) - 2.0 * S(y33))
+            dpz += kx * (-S(y13, dk=1) + S(y13) + S(y13, dk=1, di=-1) - S(y13, di=-1))
+            dpz += ky * (-S(y23, dk=1) + S(y23) + S(y23, dk=1, dj=-1) - S(y23, dj=-1))
+            dpz += np.imag(fz * np.conj(x_m) * S(x3, dk=1))
+            _out_view(out[3], params)[chunk] = dpz
         return
 
     # Coefficient varies between plaquettes, so each of the four fluxes
     # a link closes carries its own ν and none of them factors out.  Same
     # assembly as construct_LPHI_* / construct_FPHI_*, which is what
     # test_matrix_free_operators holds this against.
-    zhj, zlj = nu_all[0][rows], nu_all[1][rows]
-    zhi, zli = nu_all[2][rows], nu_all[3][rows]
-    yhk, ylk = nu_all[4][rows], nu_all[5][rows]
-    yhi, yli = nu_all[6][rows], nu_all[7][rows]
-    xhk, xlk = nu_all[8][rows], nu_all[9][rows]
-    xhj, xlj = nu_all[10][rows], nu_all[11][rows]
+    zhj, zlj = nu_all[0][chunk], nu_all[1][chunk]
+    zhi, zli = nu_all[2][chunk], nu_all[3][chunk]
+    yhk, ylk = nu_all[4][chunk], nu_all[5][chunk]
+    yhi, yli = nu_all[6][chunk], nu_all[7][chunk]
+    xhk, xlk = nu_all[8][chunk], nu_all[9][chunk]
+    xhj, xlj = nu_all[10][chunk], nu_all[11][chunk]
 
     # --- dφ_x/dt ------------------------------------------------------------
-    dpx = (zhj * (y1[m + mj] - y1[m]) - zlj * (y1[m] - y1[m - mj])) / hy2
-    dpx += (zhj * (y2[m] - y2[xp]) + zlj * (y2[xp - mj] - y2[m - mj])) / hy2
+    dpx = (zhj * (S(y13, dj=1) - S(y13)) - zlj * (S(y13) - S(y13, dj=-1))) / hy2
+    dpx += (zhj * (S(y23) - S(y23, di=1))
+            + zlj * (S(y23, di=1, dj=-1) - S(y23, dj=-1))) / hy2
     if is_3d:
-        dpx += (yhk * (y1[m + mk] - y1[m]) - ylk * (y1[m] - y1[m - mk])) / hz2
-        dpx += (yhk * (y3[m] - y3[xp]) - ylk * (y3[m - mk] - y3[xp - mk])) / hz2
-    dpx += np.imag(fx * np.conj(x_m) * x[xp])
-    out_px[write] = dpx
+        dpx += (yhk * (S(y13, dk=1) - S(y13)) - ylk * (S(y13) - S(y13, dk=-1))) / hz2
+        dpx += (yhk * (S(y33) - S(y33, di=1))
+                - ylk * (S(y33, dk=-1) - S(y33, di=1, dk=-1))) / hz2
+    dpx += np.imag(fx * np.conj(x_m) * S(x3, di=1))
+    _out_view(out[1], params)[chunk] = dpx
 
     # --- dφ_y/dt ------------------------------------------------------------
-    dpy = (zhi * (y2[xp] - y2[m]) - zli * (y2[m] - y2[m - 1])) / hx2
-    dpy += (zhi * (y1[m] - y1[yp]) - zli * (y1[m - 1] - y1[yp - 1])) / hx2
+    dpy = (zhi * (S(y23, di=1) - S(y23)) - zli * (S(y23) - S(y23, di=-1))) / hx2
+    dpy += (zhi * (S(y13) - S(y13, dj=1))
+            - zli * (S(y13, di=-1) - S(y13, dj=1, di=-1))) / hx2
     if is_3d:
-        dpy += (xhk * (y2[m + mk] - y2[m]) - xlk * (y2[m] - y2[m - mk])) / hz2
-        dpy += (xhk * (y3[m] - y3[yp]) - xlk * (y3[m - mk] - y3[yp - mk])) / hz2
-    dpy += np.imag(fy * np.conj(x_m) * x[yp])
-    out_py[write] = dpy
+        dpy += (xhk * (S(y23, dk=1) - S(y23)) - xlk * (S(y23) - S(y23, dk=-1))) / hz2
+        dpy += (xhk * (S(y33) - S(y33, dj=1))
+                - xlk * (S(y33, dk=-1) - S(y33, dj=1, dk=-1))) / hz2
+    dpy += np.imag(fy * np.conj(x_m) * S(x3, dj=1))
+    _out_view(out[2], params)[chunk] = dpy
 
     # --- dφ_z/dt ------------------------------------------------------------
     if is_3d:
-        dpz = (yhi * (y3[xp] - y3[m]) - yli * (y3[m] - y3[m - 1])) / hx2
-        dpz += (xhj * (y3[yp] - y3[m]) - xlj * (y3[m] - y3[m - mj])) / hy2
-        dpz += (yhi * (y1[m] - y1[zp]) - yli * (y1[m - 1] - y1[zp - 1])) / hx2
-        dpz += (xhj * (y2[m] - y2[zp]) - xlj * (y2[m - mj] - y2[zp - mj])) / hy2
-        dpz += np.imag(fz * np.conj(x_m) * x[zp])
-        out_pz[write] = dpz
+        dpz = (yhi * (S(y33, di=1) - S(y33)) - yli * (S(y33) - S(y33, di=-1))) / hx2
+        dpz += (xhj * (S(y33, dj=1) - S(y33)) - xlj * (S(y33) - S(y33, dj=-1))) / hy2
+        dpz += (yhi * (S(y13) - S(y13, dk=1))
+                - yli * (S(y13, di=-1) - S(y13, dk=1, di=-1))) / hx2
+        dpz += (xhj * (S(y23) - S(y23, dk=1))
+                - xlj * (S(y23, dj=-1) - S(y23, dk=1, dj=-1))) / hy2
+        dpz += np.imag(fz * np.conj(x_m) * S(x3, dk=1))
+        _out_view(out[3], params)[chunk] = dpz

@@ -239,19 +239,37 @@ uniform Cartesian grid, exactly as described in the MATLAB predecessor.
 ## Performance
 
 The device above is 1.8 M nodes at ξ = 100 nm, and it is the size that decides
-whether a study is an afternoon or a month. Measured on 4 cores, per unit of
-Ginzburg-Landau time, with forward Euler at 0.9 of the CFL limit:
+whether a study is an afternoon or a month. Measured per unit of Ginzburg-Landau
+time with forward Euler at 0.9 of the CFL limit, on 4 cores of an Intel
+Sapphire Rapids (AVX-512, 2 MB L2 per core), reproduced by
+[`nb_hole_array.py`](packages/tdgl3d/examples/nb_hole_array.py):
 
-| ξ(T) | grid | interior nodes | per state vector | s per τ_GL | peak RSS |
-|---|---|---|---|---|---|
-| 150 nm | 240 × 240 × 9 | 457 k | 29 MB | 5.5 | 0.5 GB |
-| 100 nm | 360 × 360 × 15 | 1.80 M | 116 MB | 25.2 | 1.6 GB |
-| 70 nm | 514 × 514 × 21 | 5.26 M | 337 MB | 132 | 4.3 GB |
-| 50 nm | 720 × 720 × 30 | 15.0 M | 960 MB | 475 | 12.1 GB |
+| ξ(T) | grid | interior nodes | per state vector | s per τ_GL (double) | s per τ_GL (single) | peak RSS (double / single) |
+|---|---|---|---|---|---|---|
+| 150 nm | 240 × 240 × 9 | 457 k | 29 MB | 3.3 | 2.0 | 0.41 / 0.29 GB |
+| 100 nm | 360 × 360 × 15 | 1.80 M | 116 MB | 16 | 9.5 | 1.35 / 0.90 GB |
+| 70 nm | 514 × 514 × 21 | 5.26 M | 337 MB | 70 | 28 | 3.46 / 2.13 GB |
+| 50 nm | 720 × 720 × 30 | 15.0 M | 960 MB | 187 | 106 | 9.58 / 5.73 GB |
 
-All four were run, not extrapolated. Multiply by the simulated time you need:
-the S/I/S ring figure above resolves flux expulsion at `t_stop = 60`, which at
-ξ = 100 nm is 25 minutes per field value.
+All eight were run, not extrapolated. Two significant figures is as much as
+they carry: this machine drifts by around 15% between runs minutes apart, so
+treat them as planning numbers rather than a benchmark. The memory column does
+not drift — it is set by what the solver allocates. Multiply by the simulated
+time you need: the S/I/S ring figure above resolves flux expulsion at
+`t_stop = 60`, which at ξ = 100 nm is about 16 minutes per field value in
+double precision.
+
+The last performance pass moved these by **1.3× at double precision and 2.2× at
+single**, measured as the median of three interleaved before/after pairs at
+457 k and 1.80 M nodes — interleaved because the drift above is larger than the
+effect at double precision, and a single pair of runs put the same ratio
+anywhere between 1.09× and 1.42×. Double gained from the stencil reading
+strided views of the state instead of gathering it through index arrays, and
+from the boundary conditions no longer copying the whole grid four times per
+evaluation. Single gained more because it had been broken: it was no faster
+than double, and at 5.26 M nodes slower, since NumPy's `complex64` `exp` is
+worse than its `complex128` one. The kernel now builds the Peierls factor out
+of real `sin`/`cos`, which NumPy does vectorise at float32.
 
 **Use forward Euler.** `solve()` defaults to the implicit trapezoidal
 integrator, which on a grid this size costs roughly 8× more per unit simulated
@@ -261,14 +279,27 @@ pays for itself — swept over `dt` from 0.02 to 0.8, its cost bottoms out at
 2.8× Euler's. Every figure in `docs/figures/` uses Euler. A diagonal (Jacobi)
 preconditioner does not fix this and was measured not to: see
 [`docs/notes/PHYSICS_CONVENTIONS.md`](docs/notes/PHYSICS_CONVENTIONS.md).
+Under 3% of a trapezoidal step is spent outside the right-hand side, so the
+implicit path is worth optimising only through `eval_f` or through a
+preconditioner — not through the Krylov vector arithmetic.
 
 Three knobs matter at scale:
 
 | Knob | What it does |
 |---|---|
-| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 3.1× on four. |
+| `TDGL3D_NUM_THREADS` | Pool size for the right-hand side. It is memory-bandwidth-bound, which is the case more cores help: 1.8× on two and 2.7× on four at 316 k nodes. Threads are off below 40 k nodes per thread, where the pool costs more than it saves. |
 | `solve(..., stream_path=...)` | Writes frames to HDF5 as they are produced, so memory holds one frame however long the run is. A frame is 960 MB at 15 M nodes, so sixty of them would otherwise be 58 GB. The file is a complete artifact `Solution.load` reads. |
-| `solve(..., precision="single")` | complex64 state — halves both the memory a mesh needs and the bandwidth the evaluation is limited by (25.9 → 17.5 s per τ_GL at 1.8 M nodes). Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
+| `solve(..., precision="single")` | complex64 state — about 1.7× faster than double and 60% of the memory. Divergence from a double run saturates near 1e-6 relative rather than accumulating, because TDGL is a gradient flow toward a stable attractor; confirm published numbers at double precision. |
+
+The right-hand side is where essentially all the time goes (63–90% of an
+evaluation is the interior stencil, the rest is scattering the state onto the
+full grid and applying the boundary conditions), and in NumPy it is now close
+to done: it is bound by the number of passes it makes over memory, and each
+stencil expression is a separate pass. A fused kernel — one pass, all four
+output blocks, no temporaries — was prototyped in C and measured **5.6× the
+NumPy kernel single-threaded and 4.1× threaded**, agreeing to 8e-17. That is
+the next real step, and it is the one that would cost the solver its
+NumPy/SciPy-only install.
 
 ## Theoretical Background
 

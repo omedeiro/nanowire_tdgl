@@ -151,6 +151,7 @@ def test_chunked_rhs_matches_the_whole_array_operators(geometry):
     to be held against the first one or the two can drift apart silently.
     """
     from tdgl3d.operators.sparse_operators import (
+        chunk_planes,
         construct_FPHI_x,
         construct_FPHI_y,
         construct_FPHI_z,
@@ -181,10 +182,21 @@ def test_chunked_rhs_matches_the_whole_array_operators(geometry):
         + construct_FPHI_z(x, y1, y2, y3, params, idx, material, link_factor=fz),
     ]
 
-    # Split into uneven blocks so a chunk-boundary bug cannot hide.
-    got = [np.zeros(n, dtype=np.complex128) for _ in range(4)]
-    for rows in (slice(0, 1), slice(1, n // 3), slice(n // 3, n)):
-        rhs_rows(x, y1, y2, y3, params, idx, material, rows, tuple(got))
+    # Split into uneven slabs so a chunk-boundary bug cannot hide.  The chunks
+    # must tile the interior exactly: a slice that silently clamped to nothing
+    # would leave rows at their initial value, and starting from a non-zero
+    # fill makes that a failure rather than a coincidence.
+    n_planes = chunk_planes(params)
+    chunks = [slice(0, 1), slice(1, max(n_planes // 3, 1)),
+              slice(max(n_planes // 3, 1), n_planes)]
+    covered = set()
+    for c in chunks:
+        covered |= set(range(*c.indices(n_planes)))
+    assert covered == set(range(n_planes)), "chunks must tile the interior"
+
+    got = [np.full(n, np.nan, dtype=np.complex128) for _ in range(4)]
+    for c in chunks:
+        rhs_rows(x, y1, y2, y3, params, idx, material, c, tuple(got))
 
     for block, (want, have) in enumerate(zip(expected, got)):
         if block == 3 and not params.is_3d:
@@ -478,20 +490,110 @@ def test_hole_carved_between_solves_is_not_ignored():
 @pytest.mark.parametrize(
     "dims", [(7, 9, 1), (6, 5, 4), (9, 8, 15), (5, 6, 1), (11, 4, 3)]
 )
-def test_grid_order_is_an_ascending_permutation(dims):
-    """The traversal order must be a permutation, and must ascend on the grid.
+def test_output_view_matches_the_interior_numbering(dims):
+    """The kernel's ``[k, j, i]`` write view must land on the right rows.
 
-    Both halves matter.  If it were not a permutation the threads' writes would
-    collide or leave rows unwritten; if it did not ascend it would not buy the
-    locality it exists for.
+    ``rhs_rows`` computes in full-grid order and writes through a transpose
+    back into the interior numbering, which runs the opposite way (i-slowest).
+    If that transpose were wrong the two would still have the same shape on a
+    cubic grid and the physics would be silently scrambled, so it is pinned
+    against ``interior_to_full`` rather than against itself.
     """
-    from tdgl3d.operators.sparse_operators import grid_order
+    from tdgl3d.operators.sparse_operators import _grid_view, _out_view
 
     nx, ny, nz = dims
     params = SimulationParameters(Nx=nx, Ny=ny, Nz=nz, kappa=2.0)
     dev = Device(params)
-    order, m_sorted = grid_order(params, dev.idx)
+    n = params.n_interior
 
-    assert np.array_equal(np.sort(order), np.arange(params.n_interior))
-    assert np.all(np.diff(m_sorted) > 0)
-    assert np.array_equal(m_sorted, dev.idx.interior_to_full[order])
+    # Label every interior node by its full-grid index, in interior numbering.
+    block = np.zeros(n, dtype=np.complex128)
+    _out_view(block, params)[...] = _grid_view(
+        np.arange(params.dim_x, dtype=np.complex128), params
+    )[
+        (slice(1, params.Nz) if params.is_3d else slice(0, 1)),
+        1:params.Ny,
+        1:params.Nx,
+    ]
+
+    assert np.array_equal(block.real.astype(np.intp), dev.idx.interior_to_full)
+
+
+#: Index sets each boundary-condition block *reads* through the ``x00`` /
+#: ``y100`` / ``y200`` / ``y300`` references, per array.  Transcribed from
+#: ``_apply_boundary_conditions``; if a block there gains a read, add it here.
+_BC_READS = {
+    0: ["x_first_inner", "x_last_inner", "y_first_inner", "y_last_inner",
+        "z_first_inner", "z_last_inner"],
+    1: ["x_face_lo_inner", "x_last_inner", "y_first_inner", "y_last_inner",
+        "z_first_inner", "z_last_inner"],
+    2: ["x_first_inner", "x_last_inner", "y_face_lo_inner", "y_last_inner",
+        "z_first_inner", "z_last_inner"],
+    3: ["x_first_inner", "x_last_inner", "y_first_inner", "y_last_inner",
+        "z_face_lo_inner", "z_last_inner"],
+}
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [(7, 9, 1, 1.0, 1.0, 1.0), (6, 5, 6, 0.5, 1.25, 0.75),
+     (11, 4, 4, 1.0, 1.0, 1.0), (5, 6, 1, 1.3, 0.7, 1.0)],
+)
+def test_boundary_conditions_read_disjoint_indices(geometry):
+    """No BC block may read a location another block has already written.
+
+    ``_apply_boundary_conditions`` reads the pre-update state through aliases
+    rather than through the four full-grid copies the MATLAB original kept.
+    That is only sound while every index a block reads is one no block writes —
+    reads land on the first/last interior layers, writes on the ghost faces.
+    Checked on the arrays themselves: whatever the blocks wrote, the values at
+    every read index must be exactly what they were on entry.
+
+    If this fails the copies have to come back; the aliasing would be silently
+    reading half-updated boundary data.
+    """
+    from tdgl3d.physics.rhs import _apply_boundary_conditions
+
+    dev = _device(*geometry)
+    params, idx = dev.params, dev.idx
+    rng = np.random.default_rng(4242)
+    arrays = [
+        rng.standard_normal(params.dim_x) + 1j * rng.standard_normal(params.dim_x)
+        for _ in range(4)
+    ]
+    u = BoundaryVectors(*build_boundary_field_vectors(0.3, -0.2, 0.5, params, idx))
+
+    reads = {}
+    for slot, names in _BC_READS.items():
+        where = np.unique(np.concatenate(
+            [np.asarray(getattr(idx, nm), dtype=np.intp) for nm in names]
+            + [np.empty(0, dtype=np.intp)]
+        ))
+        reads[slot] = (where, arrays[slot][where].copy())
+
+    # The normal-component zeroing happens before any block reads, so it is
+    # part of the "on entry" state the reads are allowed to see.
+    arrays[1][idx.x_normal_bc_mask] = 0.0
+    arrays[2][idx.y_normal_bc_mask] = 0.0
+    if params.is_3d:
+        arrays[3][idx.z_normal_bc_mask] = 0.0
+    for slot, (where, _) in reads.items():
+        reads[slot] = (where, arrays[slot][where].copy())
+
+    entry = [a.copy() for a in arrays]
+    out = _apply_boundary_conditions(*arrays, params, idx, u)
+
+    for slot, (where, before) in reads.items():
+        if where.size == 0:
+            continue
+        assert np.array_equal(out[slot][where], before), (
+            f"block {slot} read an index the boundary conditions had written"
+        )
+
+    # Non-vacuous on both sides: the read sets have to be non-empty, and the
+    # boundary conditions have to have written something for the disjointness
+    # to be worth asserting.
+    assert all(w.size > 0 for w, _ in reads.values())
+    changed = [int(np.count_nonzero(o != e)) for o, e in zip(out, entry)]
+    assert sum(changed) > 0, "boundary conditions wrote nothing"
+    assert changed[0] > 0 and changed[1] > 0 and changed[2] > 0

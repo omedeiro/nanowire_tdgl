@@ -60,6 +60,40 @@ def test_single_precision_state_is_complex64(device):
     assert _run(device, 1.0, "double").psi(-1).dtype == np.complex128
 
 
+def test_single_precision_reaches_the_right_hand_side(device):
+    """The narrow dtype has to reach the evaluation, not just the saved frames.
+
+    The saved frames take their width from the history, so they read
+    ``complex64`` even if the integrator promoted the state back to double at
+    its first line — which is exactly what used to happen, leaving the whole
+    point of the option (half the bandwidth in the kernel) unrealised while
+    every dtype assertion still passed.  This watches the dtype the right-hand
+    side is actually handed.
+    """
+    import tdgl3d.solvers.integrators as integrators
+
+    seen: list[np.dtype] = []
+    original = integrators.eval_f
+
+    def spy(X, *args, **kwargs):
+        seen.append(np.dtype(X.dtype))
+        return original(X, *args, **kwargs)
+
+    integrators.eval_f = spy
+    try:
+        seen.clear()
+        _run(device, 0.2, "single")
+        single_seen = set(seen)
+        seen.clear()
+        _run(device, 0.2, "double")
+        double_seen = set(seen)
+    finally:
+        integrators.eval_f = original
+
+    assert single_seen == {np.dtype(np.complex64)}, single_seen
+    assert double_seen == {np.dtype(np.complex128)}, double_seen
+
+
 @pytest.mark.parametrize("t_stop", [5.0, 50.0])
 def test_single_tracks_double_and_does_not_drift(device, t_stop):
     """Divergence stays under 5e-6 relative, and does not grow with run length.

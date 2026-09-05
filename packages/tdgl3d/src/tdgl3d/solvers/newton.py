@@ -47,7 +47,7 @@ def newton_gcr(
     converged : bool
     iterations : int
     """
-    x = np.array(x0, dtype=np.complex128)
+    x = np.array(x0)  # keeps the state's width; see solve(precision=...)
     f = eval_f(x)
     errf = np.linalg.norm(f, np.inf)
     err_dx = 0.0
@@ -97,7 +97,7 @@ def newton_gcr_trap(
 
     *scaling* is passed through to the Krylov solve as its preconditioner.
     """
-    x = np.array(x0, dtype=np.complex128)
+    x = np.array(x0)  # keeps the state's width; see solve(precision=...)
     # f(x) at the current iterate.  Each pass through the loop below ends by
     # evaluating it at the updated x, so the next pass reuses that value
     # instead of recomputing the same thing.
