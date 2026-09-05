@@ -9,9 +9,10 @@ between neighbours), with an 8 µm buffer of unbroken film around the array::
          └ hole   gap  hole  gap  hole ┘
 
 The stack is S(500 nm) / I(500 nm) / S(500 nm) = 1.5 µm thick, and the holes go
-through all three layers.  The oxide is given the same κ as the metal: an
-insulator at κ = 0 cannot carry a magnetic field at all, and would block the
-field between the layers instead of transmitting it.
+through all three layers.  The oxide is written with the metal's κ, but that is
+cosmetic: κ on a non-superconducting layer carries no physics, because the
+coefficient multiplying the Maxwell term is the field energy rather than a
+material property.
 
 Scale is what makes this expensive
 ----------------------------------
@@ -115,6 +116,7 @@ import numpy as np
 import tdgl3d
 from tdgl3d.core.material import Layer, Trilayer
 from tdgl3d.core.units import GLUnits
+from tdgl3d.visualization.plotting import imshow_extent
 
 # ── Device, in nanometres — the fabrication numbers, not the grid ──────────
 HOLE_NM = 4000.0     # hole side
@@ -277,8 +279,9 @@ def build(
     units = spec["units"]
     trilayer = Trilayer(
         bottom=Layer(thickness_z=spec["n_layer"], kappa=KAPPA, is_superconductor=True),
-        # The oxide keeps the metal's κ on purpose.  At κ = 0 its φ-equation
-        # degenerates and it blocks the field rather than transmitting it.
+        # κ on a non-superconducting layer carries no physics: the Maxwell
+        # coefficient is the field energy and takes params.kappa everywhere.
+        # It is written out here only to keep the three layers reading alike.
         insulator=Layer(
             thickness_z=spec["n_layer"], kappa=KAPPA, is_superconductor=False
         ),
@@ -407,7 +410,14 @@ def write_gif(
     units = spec["units"]
     per_xi = units.xi_nm / 1000.0  # µm per ξ
     slice_z = sc_slice(spec)
-    extent = [0, spec["side_um"], 0, spec["side_um"]]
+    # imshow takes the extent as the *outer* edge of the image, and the data
+    # sits on the Nx-1 interior nodes, not on the Nx cells of the box.  Handing
+    # it the full box would stretch the field by one cell and offset it half a
+    # cell against the hole rectangles, which are drawn in exact coordinates.
+    _p = solution.params
+    _per_xi = spec["side_um"] / spec["side_xi"]
+    extent = imshow_extent(np.arange(1, _p.Nx) * _p.hx * _per_xi,
+                           np.arange(1, _p.Ny) * _p.hy * _per_xi)
     if census is None:
         census = [
             vortex_census(solution, device, spec, step)
@@ -469,7 +479,14 @@ def summarise(solution, spec: dict, out_dir: Path) -> dict:
     bz = solution.bfield(-1)[2]
     bz_plane = np.asarray(bz).reshape(-1)
 
-    extent = [0, spec["side_um"], 0, spec["side_um"]]
+    # imshow takes the extent as the *outer* edge of the image, and the data
+    # sits on the Nx-1 interior nodes, not on the Nx cells of the box.  Handing
+    # it the full box would stretch the field by one cell and offset it half a
+    # cell against the hole rectangles, which are drawn in exact coordinates.
+    _p = solution.params
+    _per_xi = spec["side_um"] / spec["side_xi"]
+    extent = imshow_extent(np.arange(1, _p.Nx) * _p.hx * _per_xi,
+                           np.arange(1, _p.Ny) * _p.hy * _per_xi)
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), constrained_layout=True)
     im0 = axes[0].imshow(psi2.T, origin="lower", extent=extent, cmap="inferno",
                          vmin=0.0, vmax=1.0)

@@ -10,7 +10,9 @@ faster one that is supposed to compute exactly the same thing:
 
 Each is checked here against the thing it is meant to reproduce, on geometry
 that exercises the parts the fast version could plausibly get wrong: anisotropic
-grid spacing, a trilayer's non-uniform κ, and 2-D as well as 3-D.
+grid spacing, a trilayer's non-uniform material κ, a non-uniform *magnetic*
+κ — the one the Maxwell term actually reads, and the only one that puts the
+operators on their variable-coefficient path — and 2-D as well as 3-D.
 """
 
 from __future__ import annotations
@@ -49,12 +51,24 @@ from tdgl3d.solvers.tgcr import tgcr_matrix_free, tgcr_matrix_free_trap
 RTOL = 1e-13
 
 
-def _device(Nx, Ny, Nz, hx, hy, hz, trilayer=False):
+def _device(Nx, Ny, Nz, hx, hy, hz, trilayer=False, magnetic=False):
+    """A device for the comparisons.
+
+    *magnetic* additionally gives the layers a contrasting
+    ``magnetic_kappa``.  That is the only thing that makes the Maxwell
+    coefficient vary between nodes — a layer's own ``kappa`` does not,
+    since the coefficient multiplying ``κ²∇×(∇×A)`` is the field energy
+    rather than a material property — so it is what puts the operators
+    on their plaquette-coefficient path.
+    """
     if trilayer:
         tri = Trilayer(
-            bottom=Layer(thickness_z=2, kappa=2.0, is_superconductor=True),
-            insulator=Layer(thickness_z=2, kappa=3.5, is_superconductor=False),
-            top=Layer(thickness_z=2, kappa=2.0, is_superconductor=True),
+            bottom=Layer(thickness_z=2, kappa=2.0, is_superconductor=True,
+                         magnetic_kappa=2.0 if magnetic else None),
+            insulator=Layer(thickness_z=2, kappa=3.5, is_superconductor=False,
+                            magnetic_kappa=3.5 if magnetic else None),
+            top=Layer(thickness_z=2, kappa=2.0, is_superconductor=True,
+                      magnetic_kappa=2.0 if magnetic else None),
         )
         params = SimulationParameters(
             Nx=Nx, Ny=Ny, Nz=tri.Nz, hx=hx, hy=hy, hz=hz, kappa=2.0
@@ -73,7 +87,13 @@ def _random_full(params, rng):
 GEOMETRIES = [
     pytest.param((7, 9, 1, 1.0, 0.7, 1.0, False), id="2d-anisotropic"),
     pytest.param((6, 5, 4, 0.5, 0.8, 1.3, False), id="3d-anisotropic"),
+    # A plain trilayer: material κ varies, the Maxwell coefficient does not,
+    # so the operators take their uniform-coefficient path.
     pytest.param((5, 6, 6, 1.0, 1.0, 1.0, True), id="trilayer"),
+    # An explicit magnetic_kappa contrast, which is what puts them on the
+    # plaquette path.  Without this the fast paths' variable-coefficient
+    # branch would not be exercised at all.
+    pytest.param((5, 6, 6, 1.0, 1.0, 1.0, True, True), id="magnetic-contrast"),
 ]
 
 
@@ -223,19 +243,45 @@ def test_eval_f_is_independent_of_thread_count(geometry):
 
 def test_kappa_cache_follows_the_material():
     """The cached κ² is invalidated when the device's material map changes."""
-    dev = _device(5, 6, 6, 1.0, 1.0, 1.0, trilayer=True)
+    dev = _device(5, 6, 6, 1.0, 1.0, 1.0, trilayer=True, magnetic=True)
     params, idx = dev.params, dev.idx
 
     uniform = kappa_sq_interior(params, idx, None)
     assert np.allclose(uniform, params.kappa**2)
 
     layered = kappa_sq_interior(params, idx, dev.material)
-    assert np.allclose(layered, dev.material.kappa[idx.interior_to_full] ** 2)
-    # The trilayer really is non-uniform, so the two answers must differ.
+    assert np.allclose(
+        layered, dev.material.magnetic_kappa[idx.interior_to_full] ** 2
+    )
+    # This device really is non-uniform, so the two answers must differ.
     assert not np.allclose(layered, uniform)
 
     # Asking again with the original argument must not return the other's value.
     assert np.allclose(kappa_sq_interior(params, idx, None), uniform)
+
+
+def test_a_layers_own_kappa_does_not_reach_the_maxwell_term():
+    """A trilayer alone leaves the Maxwell coefficient uniform.
+
+    The κ² multiplying ``∇×(∇×A)`` is the field energy ``B²/2μ₀``, which
+    belongs to the field rather than to the material, so declaring a
+    different κ on a layer — or the ``kappa=0.0`` an oxide is usually
+    given — must not change it.  Were it to, an insulator declared
+    ``kappa=0.0`` would zero the term, degenerate the φ-equation and
+    freeze **A** in the layer, which is the bug this pins shut.
+    """
+    dev = _device(5, 6, 6, 1.0, 1.0, 1.0, trilayer=True)
+    params, idx = dev.params, dev.idx
+
+    # The material κ genuinely varies across the stack ...
+    assert not np.allclose(
+        dev.material.kappa[idx.interior_to_full], params.kappa
+    )
+    # ... and the Maxwell coefficient does not follow it.
+    assert dev.material.magnetic_kappa is None
+    assert np.allclose(
+        kappa_sq_interior(params, idx, dev.material), params.kappa**2
+    )
 
 
 def _hole_nodes_reference(vertices, z_range, hx, hy, Nx, Ny, Nz, edge_tolerance):

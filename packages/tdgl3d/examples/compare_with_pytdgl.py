@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import tdgl
 from tdgl.geometry import box
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
+from tdgl3d.visualization.plotting import imshow_extent
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -280,8 +281,12 @@ def compare_solutions(pytdgl_data, tdgl3d_data):
 
     # tdgl3d (right) - regular grid
     ax = axes[0, 1]
+    # imshow places the extent at the outer edge of the image, so passing the
+    # node coordinates themselves would offset the map half a cell against the
+    # pyTDGL scatter beside it.
     im = ax.imshow(tdgl3d_data['psi_mag'].T, origin='lower',
-                   extent=[0, FILM_SIZE_UM, 0, FILM_SIZE_UM],
+                   extent=imshow_extent(tdgl3d_data['x_grid'],
+                                        tdgl3d_data['y_grid']),
                    cmap='viridis', vmin=0, vmax=1)
     ax.set_xlabel('x (µm)')
     ax.set_ylabel('y (µm)')

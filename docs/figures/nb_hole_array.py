@@ -45,6 +45,7 @@ from tdgl3d.analysis.vortex_counting import (
 )
 from tdgl3d.core.material import Layer, Trilayer
 from tdgl3d.core.units import GLUnits
+from tdgl3d.visualization.plotting import imshow_extent
 
 KAPPA = 2.0
 HOLE_NM = 4000.0
@@ -87,8 +88,8 @@ def _build(xi_nm, scale, field):
     units, side, n_side, n_layer, rects, array_span = _geometry(xi_nm, scale)
     trilayer = Trilayer(
         bottom=Layer(thickness_z=n_layer, kappa=KAPPA, is_superconductor=True),
-        # A non-superconducting layer still needs κ > 0: at κ = 0 its φ-equation
-        # degenerates and the oxide blocks the field instead of transmitting it.
+        # κ on a non-superconducting layer carries no physics: the Maxwell
+        # coefficient is the field energy and takes params.kappa everywhere.
         insulator=Layer(thickness_z=n_layer, kappa=KAPPA, is_superconductor=False),
         top=Layer(thickness_z=n_layer, kappa=KAPPA, is_superconductor=True),
     )
@@ -156,7 +157,13 @@ def _panels(solution, units, n_layer, rects, side, side_um, title, path):
     """|ψ|² beside B_z, with the holes outlined."""
     slice_z = _sc_slice(n_layer)
     per_xi = side_um / side
-    extent = [0, side_um, 0, side_um]
+    # imshow takes the extent as the *outer* edge of the image, and the data
+    # sits on the Nx-1 interior nodes, not on the Nx cells of the box.  Handing
+    # it the full box would stretch the field by one cell and offset it half a
+    # cell against the hole rectangles, which are drawn in exact coordinates.
+    _p = solution.params
+    extent = imshow_extent(np.arange(1, _p.Nx) * _p.hx * per_xi,
+                           np.arange(1, _p.Ny) * _p.hy * per_xi)
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.6), constrained_layout=True)
     psi2 = solution.psi_squared_2d(-1, slice_z=slice_z)
@@ -198,7 +205,13 @@ def _animate(solution, spec, units, side, side_um, rects, field_of_t, path, fps=
     n_layer = spec[0]
     slice_z = _sc_slice(n_layer)
     per_xi = side_um / side
-    extent = [0, side_um, 0, side_um]
+    # imshow takes the extent as the *outer* edge of the image, and the data
+    # sits on the Nx-1 interior nodes, not on the Nx cells of the box.  Handing
+    # it the full box would stretch the field by one cell and offset it half a
+    # cell against the hole rectangles, which are drawn in exact coordinates.
+    _p = solution.params
+    extent = imshow_extent(np.arange(1, _p.Nx) * _p.hx * per_xi,
+                           np.arange(1, _p.Ny) * _p.hy * per_xi)
     census = [_census(solution, spec, k) for k in range(solution.n_steps)]
 
     fig, ax = plt.subplots(figsize=(6.6, 6.0), constrained_layout=True)

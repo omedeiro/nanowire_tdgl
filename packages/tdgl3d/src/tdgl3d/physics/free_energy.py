@@ -24,8 +24,10 @@ from typing import Optional
 import numpy as np
 from numpy.typing import NDArray
 
+from ..core.material import MaterialMap
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
+from ..operators.sparse_operators import plaquette_kappa2
 from .rhs import (
     BoundaryVectors,
     _apply_boundary_conditions,
@@ -41,6 +43,7 @@ def gl_free_energy_terms(
     idx: GridIndices,
     boundary: Optional[BoundaryVectors] = None,
     kappa: Optional[float] = None,
+    material: Optional[MaterialMap] = None,
 ) -> dict[str, float]:
     """Return the individual terms of the discrete GL free energy.
 
@@ -56,7 +59,13 @@ def gl_free_energy_terms(
         evaluated, exactly as they are inside :func:`tdgl3d.physics.rhs.eval_f`.
     kappa : float, optional
         Ginzburg-Landau parameter for the magnetic term.  Defaults to
-        ``params.kappa``.
+        ``params.kappa``.  Ignored when *material* carries an explicit
+        :attr:`~tdgl3d.core.material.MaterialMap.magnetic_kappa`.
+    material : MaterialMap, optional
+        Per-node material properties.  Pass the device's map to get the
+        energy of a layered device: the condensation term is then taken
+        over superconducting nodes only, and the magnetic term uses the
+        same per-plaquette coefficient as the operators do.
 
     Returns
     -------
@@ -66,10 +75,12 @@ def gl_free_energy_terms(
 
     Notes
     -----
-    Only a spatially uniform ``κ`` is supported.  With a
-    :class:`~tdgl3d.core.material.MaterialMap` the insulator nodes are driven by
-    a relaxation term ``-ψ/τ`` that is not the variational derivative of this
-    functional, so monotonic decrease is not guaranteed there.
+    Insulator nodes are driven by a relaxation term ``-ψ/τ`` that is not
+    the variational derivative of this functional, so the ψ part of the
+    energy is not guaranteed to decrease monotonically there.  The
+    magnetic part is: it uses the plaquette coefficients of
+    :func:`~tdgl3d.operators.sparse_operators.plaquette_kappa2`, which is
+    exactly what the curl-curl operator is the gradient of.
     """
     n = params.n_interior
     m = idx.interior_to_full
@@ -96,7 +107,12 @@ def gl_free_energy_terms(
     volume = hx * hy * (hz if params.is_3d else 1.0)
 
     psi_m = psi[m]
-    condensation = float(np.sum(-np.abs(psi_m) ** 2 + 0.5 * np.abs(psi_m) ** 4))
+    # The condensation energy is only defined where there is a condensate;
+    # insulator nodes are relaxed to psi = 0 by a term outside this functional.
+    sc = 1.0 if material is None else material.interior_sc_mask
+    condensation = float(
+        np.sum(sc * (-np.abs(psi_m) ** 2 + 0.5 * np.abs(psi_m) ** 4))
+    )
 
     kinetic = float(
         np.sum(np.abs(np.exp(-1j * phi_x[m]) * psi[m + 1] - psi_m) ** 2) / hx**2
@@ -107,14 +123,23 @@ def gl_free_energy_terms(
             np.sum(np.abs(np.exp(-1j * phi_z[m]) * psi[m + mk] - psi_m) ** 2) / hz**2
         )
 
-    b_squared = np.abs((phi_x[m] - phi_x[m + mj] - phi_y[m] + phi_y[m + 1]) / (hx * hy)) ** 2
+    # Magnetic term, plaquette by plaquette.  Each plaquette carries its
+    # own coefficient, matching the operators exactly, so that this is the
+    # functional whose gradient the curl-curl term is.
+    nu = plaquette_kappa2(params, material)
+    uniform = kappa**2
+
+    bz2 = np.abs((phi_x[m] - phi_x[m + mj] - phi_y[m] + phi_y[m + 1]) / (hx * hy)) ** 2
+    magnetic = float(np.sum((uniform if nu is None else nu[2][m]) * bz2))
     if params.is_3d:
-        b_squared = b_squared + np.abs(
+        bx2 = np.abs(
             (phi_y[m] - phi_y[m + mk] - phi_z[m] + phi_z[m + mj]) / (hy * hz)
-        ) ** 2 + np.abs(
+        ) ** 2
+        by2 = np.abs(
             (phi_z[m] - phi_z[m + 1] - phi_x[m] + phi_x[m + mk]) / (hz * hx)
         ) ** 2
-    magnetic = float(kappa**2 * np.sum(b_squared))
+        magnetic += float(np.sum((uniform if nu is None else nu[0][m]) * bx2))
+        magnetic += float(np.sum((uniform if nu is None else nu[1][m]) * by2))
 
     terms = {
         "condensation": condensation * volume,
@@ -131,9 +156,12 @@ def gl_free_energy(
     idx: GridIndices,
     boundary: Optional[BoundaryVectors] = None,
     kappa: Optional[float] = None,
+    material: Optional[MaterialMap] = None,
 ) -> float:
     """Total discrete Ginzburg-Landau free energy of *state*.
 
     See :func:`gl_free_energy_terms` for the definition and the parameters.
     """
-    return gl_free_energy_terms(state, params, idx, boundary, kappa)["total"]
+    return gl_free_energy_terms(
+        state, params, idx, boundary, kappa, material
+    )["total"]

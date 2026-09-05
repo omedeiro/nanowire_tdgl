@@ -83,9 +83,8 @@ def build_device(applied_bz: float):
     trilayer = Trilayer(
         bottom=Layer(thickness_z=_cells(LAYER_NM), kappa=UNITS.kappa),
         insulator=Layer(
-            # A non-superconducting layer still needs κ > 0: at κ = 0 its
-            # φ-equation degenerates and the oxide blocks the field instead of
-            # transmitting it.
+            # κ on a non-superconducting layer carries no physics: the Maxwell
+            # coefficient is the field energy and takes params.kappa everywhere.
             thickness_z=_cells(OXIDE_NM), kappa=UNITS.kappa, is_superconductor=False,
         ),
         top=Layer(thickness_z=_cells(LAYER_NM), kappa=UNITS.kappa),

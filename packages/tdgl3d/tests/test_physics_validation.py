@@ -75,10 +75,19 @@ def _interior_position(params, idx) -> dict[int, int]:
 
 
 def test_trilayer_kappa_discontinuity(phys_log):
-    """The φ-Laplacian picks up κ from the material map, node by node.
+    """The φ-Laplacian takes its κ from the *vacuum*, not from the layer.
 
-    In the superconducting layers the diagonal must be ``-2κ²(1/h_y² + 1/h_z²)``;
-    in the insulator, where ``κ = 0``, it must vanish exactly.
+    The ``κ²|∇×A|²`` term of the Ginzburg-Landau functional is the field
+    energy ``B²/2μ₀`` written in the units set by the reference material.
+    It belongs to the field, so it has the same coefficient in the metal,
+    in the oxide and in vacuum — what distinguishes the layers is ψ, and
+    hence the supercurrent.  So the LPHI diagonal must be
+    ``-2κ_ref²(1/h_y² + 1/h_z²)`` in *every* layer, oxide included, even
+    though the oxide is declared with ``kappa=0.0``.
+
+    Reading the declared per-layer κ here instead is what used to freeze
+    **A** in a ``kappa=0.0`` oxide — see
+    ``test_insulator_kappa_is_not_the_maxwell_coefficient``.
     """
     kappa = 2.0
     trilayer = _trilayer(kappa=kappa)
@@ -100,25 +109,89 @@ def test_trilayer_kappa_discontinuity(phys_log):
         ]
         return float(np.mean(values))
 
-    expected_sc = -2.0 * (kappa**2 / params.hy**2 + kappa**2 / params.hz**2)
+    expected = -2.0 * (kappa**2 / params.hy**2 + kappa**2 / params.hz**2)
     ranges = trilayer.z_ranges()
     k_sc = max(ranges["bottom"][0], 1)
     k_ins = ranges["insulator"][0]
 
     with phys_log.test(
         "test_trilayer_kappa_discontinuity",
-        {"Nx": 4, "Ny": 5, "Nz": trilayer.Nz, "kappa": kappa},
-        "a spatially varying κ must appear in the operator coefficients exactly",
+        {"Nx": 4, "Ny": 5, "Nz": trilayer.Nz, "kappa": kappa,
+         "kappa_insulator_declared": 0.0},
+        "the Maxwell coefficient is the vacuum one in every layer",
     ) as log:
         log["k_superconductor"] = int(k_sc)
         log["k_insulator"] = int(k_ins)
         log.check_close(
-            "LPHI_x diagonal in the superconductor", layer_mean(k_sc), expected_sc,
+            "LPHI_x diagonal in the superconductor", layer_mean(k_sc), expected,
             atol=1e-12,
         )
         log.check_close(
-            "LPHI_x diagonal in the insulator", layer_mean(k_ins), 0.0, atol=1e-12,
-            detail="κ = 0 there, so the curl-curl term must switch off entirely",
+            "LPHI_x diagonal in the insulator", layer_mean(k_ins), expected,
+            atol=1e-12,
+            detail="the field energy does not know it is inside an oxide",
+        )
+
+
+def test_magnetic_kappa_override_is_plaquette_centred(phys_log):
+    """An explicit non-uniform coefficient still gives a self-adjoint operator.
+
+    ``Layer.magnetic_kappa`` is the escape hatch for a model that really
+    wants a spatially varying magnetic coefficient.  Each link borders two
+    plaquettes of a given normal, and the term is the gradient of
+    ``Σ_p ν_p B_p²``, so ν has to be read *per plaquette*.  Reading it once
+    at the node the link starts from gives both plaquettes the same
+    coefficient; the result is then the gradient of no energy at all, the
+    operator loses self-adjointness at the interface, and the free energy
+    stops being a Lyapunov functional.
+
+    With ψ = 0 the φ-block is linear, so build it column by column and
+    check it is symmetric.
+    """
+    from tdgl3d.physics.rhs import BoundaryVectors, eval_f
+
+    kappa_ref = 2.0
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=2, kappa=kappa_ref),
+        insulator=Layer(thickness_z=2, kappa=kappa_ref, is_superconductor=False,
+                        magnetic_kappa=8.0),
+        top=Layer(thickness_z=2, kappa=kappa_ref),
+    )
+    params = SimulationParameters(Nx=4, Ny=4, Nz=trilayer.Nz, kappa=kappa_ref)
+    device = Device(params, applied_field=AppliedField(), trilayer=trilayer)
+    idx, material = device.idx, device.material
+
+    n = params.n_interior
+    n_phi = 3 * n
+    zeros = np.zeros(params.dim_x)
+    u = BoundaryVectors(zeros, zeros.copy(), zeros.copy())
+    base = np.zeros(params.n_state, dtype=np.complex128)      # ψ = 0
+    f0 = np.real(eval_f(base, params, idx, u, material)[n:])
+
+    matrix = np.zeros((n_phi, n_phi))
+    for column in range(n_phi):
+        probe = base.copy()
+        probe[n + column] = 1.0
+        matrix[:, column] = np.real(eval_f(probe, params, idx, u, material)[n:]) - f0
+
+    asymmetry = float(np.abs(matrix - matrix.T).max())
+    scale = float(np.abs(matrix).max())
+    largest_eigenvalue = float(np.linalg.eigvalsh(0.5 * (matrix + matrix.T)).max())
+
+    with phys_log.test(
+        "test_magnetic_kappa_override_is_plaquette_centred",
+        {"kappa_ref": kappa_ref, "magnetic_kappa_insulator": 8.0,
+         "operator_norm": scale},
+        "the curl-curl operator is self-adjoint and dissipative for any ν",
+    ) as log:
+        log.check_below(
+            "max |M - Mᵀ| / |M|", asymmetry / scale, 1e-12,
+            detail="ν read per plaquette, so the term is the gradient of Σ ν_p B_p²",
+        )
+        log.check_below(
+            "largest eigenvalue of the symmetric part", largest_eigenvalue,
+            1e-9 * scale,
+            detail="the magnetic term may only remove energy, never add it",
         )
 
 
@@ -187,20 +260,23 @@ def _layer_field_profile(state, params, idx, boundary):
 
 
 @pytest.mark.parametrize("kappa_insulator", [0.0, 2.0])
-def test_insulator_kappa_controls_field_transmission(kappa_insulator, phys_log):
-    """κ in a non-superconducting layer decides whether it can carry a field.
+def test_insulator_kappa_is_not_the_maxwell_coefficient(kappa_insulator, phys_log):
+    """A declared ``Layer.kappa`` must not decide whether an oxide transmits.
 
-    The φ-equation is ``∂A/∂t = J_s − κ²∇×∇×A``.  In a layer with ``ψ = 0`` the
-    supercurrent term vanishes, so the layer relaxes towards the magnetostatic
-    solution ``∇×∇×A = 0`` at a rate set by ``κ²`` — *any* positive κ gives the
-    same steady state, only faster or slower.  Setting ``κ = 0`` removes the
-    only remaining term: the gauge field there is frozen at its initial value
-    and the layer transmits nothing.
+    The φ-equation is ``∂A/∂t = J_s − κ²∇×∇×A``.  In a layer with ψ = 0
+    the supercurrent term vanishes, so the layer relaxes towards the
+    magnetostatic solution ``∇×∇×A = 0`` at a rate set by κ².  The steady
+    state is therefore the same for *any* positive κ — but κ is not free
+    to be zero: at κ = 0 the last remaining term goes too, **A** is frozen
+    at its initial value, and the oxide blocks the field instead of
+    transmitting it.
 
-    ``Layer(kappa=0.0, is_superconductor=False)`` is therefore a modelling
-    choice with real consequences, not a neutral way of saying "not a
-    superconductor". Give an oxide the same κ as the metal unless the field is
-    meant to be blocked.
+    That is not a modelling choice, it is a degenerate equation, and the
+    fix is not to remember to write ``kappa=κ_SC`` on every oxide.  The
+    coefficient is the field energy ``B²/2μ₀``; it is a property of the
+    vacuum, so it takes the reference ``params.kappa`` in every
+    non-superconducting node.  Both parametrisations below must therefore
+    transmit, and must agree with each other.
     """
     kappa_sc, bz = 2.0, 0.1
     trilayer = Trilayer(
@@ -223,24 +299,64 @@ def test_insulator_kappa_controls_field_transmission(kappa_insulator, phys_log):
     start, stop = ranges["insulator"]
     insulator_mean = float(np.mean(profile[max(start, 1) - 1 : stop - 1]))
 
-    name = f"test_insulator_kappa_controls_field_transmission[kappa={kappa_insulator}]"
+    name = f"test_insulator_kappa_is_not_the_maxwell_coefficient[kappa={kappa_insulator}]"
     with phys_log.test(
         name,
-        {"Nz": trilayer.Nz, "kappa_sc": kappa_sc, "kappa_insulator": kappa_insulator, "Bz": bz},
-        "a κ = 0 layer freezes the gauge field; a κ > 0 layer transmits the field",
+        {"Nz": trilayer.Nz, "kappa_sc": kappa_sc,
+         "kappa_insulator_declared": kappa_insulator, "Bz": bz},
+        "a declared oxide κ, zero included, does not change what the oxide transmits",
     ) as log:
         log["bz_profile_over_applied"] = [float(v) for v in profile]
         log["insulator_mean_over_applied"] = insulator_mean
-        if kappa_insulator == 0.0:
-            log.check_below(
-                "Bz in the insulator / applied", abs(insulator_mean), 1e-6,
-                detail="κ = 0 leaves no term able to evolve A there",
-            )
-        else:
-            log.check_above(
-                "Bz in the insulator / applied", insulator_mean, 0.5,
-                detail="a non-superconducting layer with κ > 0 lets the field through",
-            )
+        log.check_above(
+            "Bz in the insulator / applied", insulator_mean, 0.5,
+            detail="ψ = 0 means no screening current, so the oxide lets the field through",
+        )
+
+
+def test_declared_oxide_kappa_does_not_change_the_field(phys_log):
+    """κ = 0 and κ = κ_SC oxides must give the *same* field, node for node.
+
+    The companion to the test above: not just "both transmit", but "both
+    transmit identically".  Any difference between them would mean a
+    declared per-layer κ had reached the Maxwell term.
+    """
+    kappa_sc, bz = 2.0, 0.1
+    profiles = {}
+    for kappa_insulator in (0.0, kappa_sc):
+        trilayer = Trilayer(
+            bottom=Layer(thickness_z=4, kappa=kappa_sc),
+            insulator=Layer(thickness_z=4, kappa=kappa_insulator,
+                            is_superconductor=False),
+            top=Layer(thickness_z=4, kappa=kappa_sc),
+        )
+        params = SimulationParameters(
+            Nx=10, Ny=10, Nz=trilayer.Nz, hx=0.5, hy=0.5, hz=0.5, kappa=kappa_sc
+        )
+        device = Device(
+            params, applied_field=AppliedField(Bz=bz, t_on_fraction=1.0),
+            trilayer=trilayer,
+        )
+        boundary = applied_boundary(params, device.idx, bz=bz)
+        state = _relax_stack(params, device.idx, device.material, boundary,
+                             device=device)
+        profiles[kappa_insulator] = _layer_field_profile(
+            state, params, device.idx, boundary
+        ) / bz
+
+    difference = float(np.abs(profiles[0.0] - profiles[kappa_sc]).max())
+
+    with phys_log.test(
+        "test_declared_oxide_kappa_does_not_change_the_field",
+        {"kappa_sc": kappa_sc, "Bz": bz},
+        "the declared oxide κ is inert; only Layer.magnetic_kappa can change the field",
+    ) as log:
+        log["profile_kappa_zero"] = [float(v) for v in profiles[0.0]]
+        log["profile_kappa_matched"] = [float(v) for v in profiles[kappa_sc]]
+        log.check_below(
+            "max |Bz(κ_ox = 0) − Bz(κ_ox = κ_SC)| / applied", difference, 1e-12,
+            detail="both resolve to the same vacuum Maxwell coefficient",
+        )
 
 
 def test_trilayer_superconducting_layers_screen(phys_log):
@@ -454,3 +570,312 @@ def test_centred_hole_is_centred(length, hole, h, phys_log):
             "material map asymmetry under z → −z",
             float(np.max(np.abs(mask - mask[:, :, ::-1]))), 0.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# A vortex trapped in one layer of the stack
+# ---------------------------------------------------------------------------
+#
+# One square hole is carved straight through the stack, so *both* metal layers
+# carry the same hole and are geometrically identical.  The two layers are
+# coupled only through **A** -- this model carries no Josephson term -- so
+# nothing but the magnetic field crosses the oxide.  That allows a state the
+# layers could not hold if they were one film: the bottom hole holding a
+# fluxoid of 1 while the top hole, the same hole, holds 0.  The checks below
+# are that the state exists, that it is held by the hole rather than by
+# symmetry, and that thickening the oxide moves the *field* without touching
+# the topology.
+
+TRAP_KAPPA = 2.0
+TRAP_METAL_CELLS = 5        # 4 xi of realised metal per layer
+TRAP_WIDTH = 10             # film width in cells
+TRAP_MARGIN = 2             # lateral vacuum, in cells
+TRAP_PAD = 3                # vacuum above and below, in cells
+TRAP_DT = 0.015             # below h^2 / (4 kappa^2 (d-1)) = 1/32 in 3-D
+TRAP_RADIUS = 4.0           # flux disc / fluxoid contour half-width, in xi
+
+
+def _trap_stack(oxide_cells: int, *, hole: bool = True):
+    """S/I/S stack with an optional hole running through *both* metal layers.
+
+    The z-range spans the whole stack, and the oxide nodes between the two
+    metals are already non-superconducting, so this is exactly "the same hole
+    in the bottom film and in the top film".
+
+    It is carved with ``MaterialMap.carve_hole_polygon`` rather than
+    ``Device.add_hole``: it is a non-superconducting *inclusion*, taking the
+    same path through the operators as the oxide, not a geometric void needing
+    the hole boundary condition that ``docs/notes/HOLE_BC_STATUS.md`` records
+    as still open.
+    """
+    trilayer = Trilayer(
+        bottom=Layer(thickness_z=TRAP_METAL_CELLS, kappa=TRAP_KAPPA),
+        insulator=Layer(thickness_z=oxide_cells, kappa=TRAP_KAPPA,
+                        is_superconductor=False),
+        top=Layer(thickness_z=TRAP_METAL_CELLS, kappa=TRAP_KAPPA),
+        vacuum_below=TRAP_PAD, vacuum_above=TRAP_PAD, lateral_margin=TRAP_MARGIN,
+    )
+    n_lateral = TRAP_WIDTH + 2 * TRAP_MARGIN
+    params = SimulationParameters(
+        Nx=n_lateral, Ny=n_lateral, Nz=trilayer.Nz, kappa=TRAP_KAPPA
+    )
+    device = Device(
+        params,
+        # No applied field: the only flux in the box is the trapped quantum.
+        applied_field=AppliedField(Bz=0.0, t_on_fraction=1.0),
+        trilayer=trilayer,
+    )
+    if hole:
+        cx, cy = params.Nx / 2.0, params.Ny / 2.0
+        device.material.carve_hole_polygon(
+            [(cx - 1.0, cy - 1.0), (cx + 1.0, cy - 1.0),
+             (cx + 1.0, cy + 1.0), (cx - 1.0, cy + 1.0)],
+            trilayer.stack_z_range, params, device.idx,
+        )
+    return params, device, trilayer
+
+
+def _seed_one_layer_vortex(params, device, trilayer, *, offset: float = 0.0):
+    """Uniform state carrying one +1 phase winding in the bottom layer only."""
+    state = device.initial_state(noise_amplitude=0.0)
+    nx, ny, nz = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    psi = state.psi.reshape(nx, ny, nz).copy()
+
+    cx, cy = params.Nx * params.hx / 2.0, params.Ny * params.hy / 2.0
+    X, Y = np.meshgrid(np.arange(1, params.Nx) * params.hx,
+                       np.arange(1, params.Ny) * params.hy, indexing="ij")
+    vx = cx + offset
+    winding = np.tanh(np.hypot(X - vx, Y - cy) / 1.5) * np.exp(
+        1j * np.arctan2(Y - cy, X - vx)
+    )
+    for k_full in range(*trilayer.z_ranges()["bottom"]):
+        psi[:, :, k_full - 1] = winding
+    state.psi = psi.ravel()
+    return state
+
+
+def _trap_midplanes(trilayer) -> tuple[int, int]:
+    ranges = trilayer.z_ranges()
+    return sum(ranges["bottom"]) // 2 - 1, sum(ranges["top"]) // 2 - 1
+
+
+def _trap_fluxoid(solution, device, params, slice_z: int) -> float:
+    """Fluxoid on a square contour about the axis -- a topological integer."""
+    from tdgl3d.analysis.vortex_counting import count_vortices_polygon
+
+    cx, cy = params.Nx * params.hx / 2.0, params.Ny * params.hy / 2.0
+    r = TRAP_RADIUS
+    contour = np.array([[cx - r, cy - r], [cx + r, cy - r],
+                        [cx + r, cy + r], [cx - r, cy + r]])
+    return float(count_vortices_polygon(solution, device, contour, slice_z=slice_z))
+
+
+def _trap_flux(solution, params, slice_z: int) -> float:
+    """Magnetic flux through a disc of radius TRAP_RADIUS about the axis, in Phi_0.
+
+    Not quantised -- this is the quantity the oxide thickness moves.
+    """
+    nx, ny, nz = params.Nx - 1, params.Ny - 1, params.Nz - 1
+    Bz = solution.bfield(step=-1, full_interior=True)[2].reshape(nx, ny, nz)
+    cx, cy = params.Nx * params.hx / 2.0, params.Ny * params.hy / 2.0
+    X, Y = np.meshgrid(np.arange(1, params.Nx) * params.hx,
+                       np.arange(1, params.Ny) * params.hy, indexing="ij")
+    disc = np.hypot(X - cx, Y - cy) <= TRAP_RADIUS
+    return float(Bz[:, :, slice_z][disc].sum() * params.hx * params.hy / (2 * np.pi))
+
+
+def _vorticity_centroid(solution, params, slice_z: int):
+    """(x, y) of the winding centroid in a z-plane, in xi, or None if empty.
+
+    Located from the plaquette winding, not from the |psi|^2 minimum: the
+    trapped vortex sits on the hole, whose nodes carry psi = 0 by construction,
+    and the film corners -- suppressed by vacuum on two sides -- would win a
+    bare argmin outright.
+    """
+    from tdgl3d.analysis.vortex_counting import plaquette_vorticity
+
+    vorticity, _ = plaquette_vorticity(solution, slice_z=slice_z, step=-1)
+    weight = np.where(np.abs(vorticity) > 0.5, vorticity, 0.0)
+    total = weight.sum()
+    if abs(total) < 0.5:
+        return None
+    centres = (np.arange(1, params.Nx - 1) + 0.5) * params.hx
+    X, Y = np.meshgrid(centres, centres, indexing="ij")
+    return float((weight * X).sum() / total), float((weight * Y).sum() / total)
+
+
+def _relax_trap(device, x0, t_stop: float):
+    import tdgl3d as _t
+
+    return _t.solve(device, t_start=0.0, t_stop=t_stop, dt=TRAP_DT, method="euler",
+                    x0=x0, save_every=10**9, progress=False, log_metadata=False)
+
+
+def test_vortex_trapped_in_one_layer_only(phys_log):
+    """Two identical holes, one holding a flux quantum and one empty.
+
+    The hole runs through both metal layers, so the layers differ in nothing
+    but their flux state.  The fluxoid is a topological integer, so they must
+    come out at exactly 1 and exactly 0 -- not 0.9 and 0.1.  Both checks are trivially
+    satisfiable by a dead simulation (psi = 0 everywhere gives 0 and 0, and a
+    field-free box gives no flux to transfer at all), so the scale is asserted
+    too: the metal must not be pair-broken, and the trapped quantum must
+    actually put flux through the bottom layer.
+    """
+    params, device, trilayer = _trap_stack(oxide_cells=4)   # 6 xi metal-to-metal
+    solution = _relax_trap(device, _seed_one_layer_vortex(params, device, trilayer),
+                           t_stop=15.0)
+    k_bottom, k_top = _trap_midplanes(trilayer)
+
+    fluxoid_bottom = _trap_fluxoid(solution, device, params, k_bottom)
+    fluxoid_top = _trap_fluxoid(solution, device, params, k_top)
+    flux_bottom = _trap_flux(solution, params, k_bottom)
+    psi_max = float(np.abs(solution.psi(-1)).max())
+
+    with phys_log.test(
+        "test_vortex_trapped_in_one_layer_only",
+        {"Nx": params.Nx, "Nz": params.Nz, "kappa": TRAP_KAPPA,
+         "oxide_gap_xi": 6.0, "Bz_applied": 0.0},
+        "one hole through both layers of an S/I/S stack can hold a fluxoid in "
+        "the bottom film and none in the top",
+    ) as log:
+        log["fluxoid_bottom"] = fluxoid_bottom
+        log["fluxoid_top"] = fluxoid_top
+        log["flux_bottom_phi0"] = flux_bottom
+        log["psi_abs_max"] = psi_max
+        log.check_close(
+            "fluxoid in the bottom layer", fluxoid_bottom, 1.0, atol=1e-6,
+            detail="the seeded winding is topological and cannot leak away",
+        )
+        log.check_close(
+            "fluxoid in the top layer", fluxoid_top, 0.0, atol=1e-6,
+            detail="the top layer never nucleates a vortex of its own",
+        )
+        # Non-vacuous: there is a real condensate, and real flux to transfer.
+        log.check_above(
+            "max |psi|", psi_max, 0.5,
+            detail="a pair-broken stack would report 0 and 0 for free",
+        )
+        log.check_above(
+            f"flux within r <= {TRAP_RADIUS:g} xi at the bottom mid-plane",
+            flux_bottom, 0.15, units="Phi_0",
+            detail="the trapped quantum really does put field through the layer",
+        )
+
+
+def test_vortex_is_pinned_by_the_hole(phys_log):
+    """The hole is what traps the vortex; symmetry alone would not.
+
+    At zero applied field a lone vortex in a finite film is pulled towards its
+    image in the edge and leaves.  Seeded dead centre in a noiseless square it
+    survives only because every escape direction is degenerate -- a fixed point
+    held by symmetry, not a trapped vortex.  So the seed here is deliberately
+    3 xi off axis, and the same run is done with and without the hole: with it
+    the vortex migrates onto the hole and stays, without it the film expels it.
+    The pair is the point -- either half alone proves nothing.
+    """
+    offset = 3.0
+    results = {}
+    for hole in (True, False):
+        params, device, trilayer = _trap_stack(oxide_cells=1, hole=hole)
+        solution = _relax_trap(
+            device,
+            _seed_one_layer_vortex(params, device, trilayer, offset=offset),
+            t_stop=15.0,
+        )
+        k_bottom, _ = _trap_midplanes(trilayer)
+        axis = params.Nx * params.hx / 2.0
+        centroid = _vorticity_centroid(solution, params, k_bottom)
+        results[hole] = {
+            "fluxoid": _trap_fluxoid(solution, device, params, k_bottom),
+            "centroid": centroid,
+            "displacement": (
+                None if centroid is None
+                else float(np.hypot(centroid[0] - axis, centroid[1] - axis))
+            ),
+        }
+
+    with phys_log.test(
+        "test_vortex_is_pinned_by_the_hole",
+        {"Nx": 14, "kappa": TRAP_KAPPA, "seed_offset_xi": offset,
+         "hole_side_xi": 2.0, "Bz_applied": 0.0},
+        "the hole pins the vortex; without it the film expels it",
+    ) as log:
+        log["with_hole"] = results[True]
+        log["without_hole"] = results[False]
+        log.check_close(
+            "fluxoid with the hole", results[True]["fluxoid"], 1.0, atol=1e-6,
+            detail="the vortex is still there after relaxing",
+        )
+        log.check_below(
+            "distance from the hole axis", results[True]["displacement"], 1.5,
+            units="xi",
+            detail=(
+                f"seeded {offset:g} xi off axis, it migrates onto the 2 xi "
+                "hole and stops there"
+            ),
+        )
+        log.check_close(
+            "fluxoid without the hole", results[False]["fluxoid"], 0.0, atol=1e-6,
+            detail="nothing pins it, so the same seed leaves the film",
+        )
+
+
+def test_interlayer_flux_transfer_falls_with_oxide_thickness(phys_log):
+    """Thickening the oxide moves the field, not the topology.
+
+    The trapped quantum's flux is not confined to a tube: on leaving the metal
+    it spreads over lambda = kappa xi, so the share of it still inside a fixed
+    radius by the time it reaches the top layer falls as the gap widens.  The
+    fluxoids stay pinned at 1 and 0 throughout -- they are integers, and no
+    amount of magnetic leakage moves them.
+
+    Measured here: 12.3% of the bottom layer's flux reaches the top one across
+    a 3 xi gap, 4.3% across 6 xi.  The thresholds below are set well outside those,
+    and the transfer is asserted to be non-zero as well as falling, so a run
+    that simply lost its field could not pass.
+    """
+    transfers, fluxoids = {}, {}
+    for gap_xi, oxide_cells in ((3.0, 1), (6.0, 4)):
+        params, device, trilayer = _trap_stack(oxide_cells=oxide_cells)
+        solution = _relax_trap(
+            device, _seed_one_layer_vortex(params, device, trilayer), t_stop=15.0
+        )
+        k_bottom, k_top = _trap_midplanes(trilayer)
+        bottom = _trap_flux(solution, params, k_bottom)
+        transfers[gap_xi] = _trap_flux(solution, params, k_top) / bottom
+        fluxoids[gap_xi] = (
+            _trap_fluxoid(solution, device, params, k_bottom),
+            _trap_fluxoid(solution, device, params, k_top),
+        )
+
+    with phys_log.test(
+        "test_interlayer_flux_transfer_falls_with_oxide_thickness",
+        {"Nx": 14, "kappa": TRAP_KAPPA, "gaps_xi": [3.0, 6.0],
+         "metal_xi": 4.0, "Bz_applied": 0.0},
+        "the oxide thickness sets how much of the trapped flux reaches the "
+        "far layer, and does not touch the fluxoid",
+        ) as log:
+        log["transfer_fraction"] = {str(k): v for k, v in transfers.items()}
+        log["fluxoids"] = {str(k): list(v) for k, v in fluxoids.items()}
+        log.check_within(
+            "flux transfer across a 3 xi gap", transfers[3.0], 0.04, 0.25,
+            detail="measured 0.123 — non-zero, so the layers are coupled",
+        )
+        log.check_within(
+            "flux transfer across a 6 xi gap", transfers[6.0], 0.01, 0.09,
+            detail="measured 0.043",
+        )
+        log.check_above(
+            "transfer(3 xi) / transfer(6 xi)", transfers[3.0] / transfers[6.0], 2.0,
+            detail="measured 2.85 — doubling the gap more than halves the transfer",
+        )
+        for gap_xi, (bottom, top) in fluxoids.items():
+            log.check_close(
+                f"fluxoid in the bottom layer at a {gap_xi:g} xi gap", bottom,
+                1.0, atol=1e-6,
+            )
+            log.check_close(
+                f"fluxoid in the top layer at a {gap_xi:g} xi gap", top,
+                0.0, atol=1e-6,
+            )

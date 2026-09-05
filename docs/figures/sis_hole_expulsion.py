@@ -48,12 +48,8 @@ def build_ring(
 ):
     """S/I/S stack of side *length* with a square hole through both SC layers.
 
-    Two modelling choices matter here and both are easy to get wrong:
+    One modelling choice matters here and is easy to get wrong:
 
-    * The insulator is given the same κ as the superconductors.  Setting it to
-      zero instead — which ``Layer`` permits — degenerates the φ-equation there
-      (``LPHI ∝ κ² = 0``, ``FPHI ∝ J_s ∝ ψ = 0``), freezing the gauge field, so
-      the oxide would block the field rather than transmit it.
     * The superconducting layers are ``sc_cells × hz`` thick and that has to
       exceed the proximity length.  The oxide suppresses ψ over roughly a
       coherence length on each side of the interface, so a 1 ξ layer is
