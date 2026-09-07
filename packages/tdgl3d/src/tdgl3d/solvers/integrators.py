@@ -15,7 +15,18 @@ from ..core.material import MaterialMap
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
 from ..physics.rhs import BoundaryVectors, eval_f
+from .history import make_history
 from .newton import newton_gcr_trap
+
+
+def _state_dtype(x0: NDArray) -> np.dtype:
+    """Complex dtype to integrate *x0* in.
+
+    ``complex64`` and ``complex128`` are carried through; anything else (a real
+    initial state, say) becomes ``complex128``, since the state is complex.
+    """
+    dtype = np.dtype(np.asarray(x0).dtype)
+    return dtype if dtype in (np.complex64, np.complex128) else np.dtype(np.complex128)
 
 
 def _make_eval_f(
@@ -42,6 +53,7 @@ def forward_euler(
     save_every: int = 1,
     progress: bool = True,
     material: Optional[MaterialMap] = None,
+    history=None,
 ) -> tuple[NDArray, NDArray]:
     """Explicit Forward-Euler time integration.
 
@@ -59,6 +71,9 @@ def forward_euler(
         Save every *n*-th step to the history.
     progress : bool
         Show a tqdm progress bar.
+    history : MemoryHistory or HDF5History, optional
+        Where saved frames go.  Defaults to memory; pass an
+        :class:`~tdgl3d.solvers.history.HDF5History` to stream them to disk.
 
     Returns
     -------
@@ -66,10 +81,13 @@ def forward_euler(
     X_history : ndarray, shape (n_state, n_saved)
     """
     n_steps = int(np.ceil((t_stop - t_start) / dt))
-    X = np.array(x0, dtype=np.complex128)
+    # The state keeps the width it arrives with: casting to complex128 here
+    # would undo ``solve(precision="single")`` at the first line of the run,
+    # leaving the narrow dtype visible only in the saved frames.
+    X = np.array(x0, dtype=_state_dtype(x0))
 
-    times_list = [t_start]
-    history_list = [X.copy()]
+    hist = history or make_history(X.size, n_steps // max(save_every, 1) + 2, None)
+    hist.append(t_start, X)
 
     t = t_start
     rng = tqdm(range(n_steps), desc="Forward Euler", disable=not progress)
@@ -77,14 +95,17 @@ def forward_euler(
         dt_actual = min(dt, t_stop - t)
         u = eval_u(t, X)
         f = eval_f(X, params, idx, u, material=material)
-        X = X + dt_actual * f
+        # In place: ``f`` is freshly allocated by eval_f each step, so scaling
+        # it and adding is one full-state allocation fewer per step — 115 MB of
+        # it on the 1.8 M-node grid.
+        f *= dt_actual
+        X += f
         t += dt_actual
 
         if (step + 1) % save_every == 0 or step == n_steps - 1:
-            times_list.append(t)
-            history_list.append(X.copy())
+            hist.append(t, X)
 
-    return np.array(times_list), np.column_stack(history_list)
+    return hist.finish()
 
 
 def trapezoidal(
@@ -107,6 +128,7 @@ def trapezoidal(
     progress: bool = True,
     verbose: bool = False,
     material: Optional[MaterialMap] = None,
+    history=None,
 ) -> tuple[NDArray, NDArray]:
     """Implicit Trapezoidal time integration with Newton-GCR.
 
@@ -135,12 +157,15 @@ def trapezoidal(
     -------
     times, X_history
     """
-    X = np.array(x0, dtype=np.complex128)
+    X = np.array(x0, dtype=_state_dtype(x0))
     t = t_start
     current_dt = dt
 
-    times_list = [t]
-    history_list = [X.copy()]
+    n_steps_est = int(np.ceil((t_stop - t_start) / dt)) if dt > 0 else 1
+    hist = history or make_history(
+        X.size, n_steps_est // max(save_every, 1) + 2, None
+    )
+    hist.append(t, X)
     step = 0
 
     pbar = tqdm(total=t_stop - t_start, desc="Trapezoidal", disable=not progress, unit="t")
@@ -176,8 +201,7 @@ def trapezoidal(
             pbar.update(dt_actual)
 
             if step % save_every == 0:
-                times_list.append(t)
-                history_list.append(X.copy())
+                hist.append(t, X)
 
             # Restore dt if it was reduced
             current_dt = dt
@@ -197,8 +221,7 @@ def trapezoidal(
     pbar.close()
 
     # Always include final state
-    if times_list[-1] < t:
-        times_list.append(t)
-        history_list.append(X.copy())
+    if hist.times[-1] < t:
+        hist.append(t, X)
 
-    return np.array(times_list), np.column_stack(history_list)
+    return hist.finish()

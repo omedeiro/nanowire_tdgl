@@ -26,6 +26,12 @@ from tdgl3d.analysis.vortex_counting import (
 )
 from tdgl3d.visualization.plotting import plot_current_density
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
@@ -59,8 +65,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     ]
     device.add_hole(hole_vertices)
 
-    x0 = device.initial_state()
-    rng = np.random.default_rng(42)
+    x0 = device.initial_state(noise_amplitude=0.0)
+    rng = np.random.default_rng(NOISE_SEED)
     noise = 0.01 * (rng.standard_normal(params.n_interior)
                    + 1j * rng.standard_normal(params.n_interior))
     if device.material is not None:

@@ -17,25 +17,38 @@ import numpy as np
 from scipy.optimize import curve_fit
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
 
+# ``Device.initial_state`` seeds ψ with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
+    kappa = 2.0
+    # The grid must resolve λ = κ and the sample must be several λ across in
+    # *both* in-plane directions.  At h = 1 there are only two cells per
+    # penetration depth and the measured decay length is set by the stencil
+    # rather than by the physics; h = κ/4 and L = 8κ recover λ ≈ κ.
+    h = kappa / 4.0
     if small:
         Nx, Ny, Nz = 12, 12, 1
         t_stop = 2.0
     else:
-        Nx, Ny, Nz = 40, 16, 1
-        t_stop = 20.0
+        Nx = Ny = int(round(8.0 * kappa / h))
+        Nz = 1
+        t_stop = 12.0
 
-    kappa = 2.0
-    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=kappa)
+    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, hx=h, hy=h, kappa=kappa)
     Bz_applied = 0.1
     field = AppliedField(Bz=Bz_applied, t_on_fraction=1.0)
     device = Device(params, applied_field=field)
 
-    save_every = max(1, int(t_stop / 0.5))
+    dt = 0.8 * h**2 / (4.0 * kappa**2)
+    save_every = max(1, int(t_stop / dt / 20))
     sol = solve(
-        device, dt=0.01, t_stop=t_stop, method="euler",
-        save_every=save_every, progress=False,
+        device, dt=dt, t_stop=t_stop, method="euler",
+        save_every=save_every, progress=False, noise_seed=NOISE_SEED,
     )
 
     # Extract Bz profile along x at mid-y
@@ -59,18 +72,15 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     lambda_fit = None
     fit_converged = False
     try:
-        popt, pcov = curve_fit(
+        popt, _ = curve_fit(
             cosh_model, x_coords[:n_fit], bz_profile[:n_fit],
             p0=[bz_profile[n_fit // 2], kappa, x_center],
             maxfev=10000,
         )
         lambda_fit = abs(popt[1])
         fit_converged = True
-        perr = np.sqrt(np.diag(pcov))
-        A_fit, lam_fit, x0_fit = popt
     except (RuntimeError, ValueError):
         popt = np.array([bz_profile[n_fit // 2], kappa, x_center])
-        perr = np.array([0, 0, 0])
 
     # R² for fit quality
     if fit_converged:
@@ -81,27 +91,46 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     else:
         r_squared = 0.0
 
-    # Symmetry: compare left half vs right half about center
-    mid_idx = Nx_int // 2
-    left_half = bz_profile[:mid_idx]
-    right_half = bz_profile[Nx_int - mid_idx:Nx_int][::-1]  # reversed to align
-    min_len = min(len(left_half), len(right_half))
-    if min_len > 0:
-        symmetry_error = float(np.max(np.abs(left_half[:min_len] - right_half[:min_len])))
-        symmetry_relative = symmetry_error / max(float(np.max(bz_profile)), 1e-12)
-    else:
-        symmetry_error = 0.0
-        symmetry_relative = 0.0
+    # Direct measurement of the decay length from the edge: fit ln Bz over the
+    # first two penetration depths.  This is the quantity the London equation
+    # predicts (λ = κ); the cosh fit over the whole width also absorbs the
+    # transverse screening of a square sample and reads a few percent high.
+    edge_window = max(4, int(round(2.0 * kappa / params.hx)))
+    edge_window = min(edge_window, n_fit)
+    lambda_edge = -1.0 / np.polyfit(
+        x_coords[:edge_window] - x_coords[0],
+        np.log(np.abs(bz_profile[:edge_window])),
+        1,
+    )[0]
+    lambda_edge_error = abs(lambda_edge - kappa) / kappa
+
+    # Symmetry about the mid-plane.  Bz lives on plaquettes anchored at the
+    # interior nodes 1…Nx-1, but the plaquette anchored at Nx-1 is the high-side
+    # *boundary* plaquette whose mirror image (anchor 0) sits on the ghost ring
+    # and is not part of the array — so it is dropped before reflecting.
+    bz_mirrorable = bz_profile[:-1]
+    symmetry_error = float(np.max(np.abs(bz_mirrorable - bz_mirrorable[::-1])))
+    symmetry_relative = symmetry_error / max(float(np.max(bz_profile)), 1e-12)
 
     # --- Figure ---
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    # Left: Bz heatmap
     ax = axes[0]
-    xs = np.arange(1, Nx) * params.hx
-    ys = np.arange(1, Ny) * params.hy
+
+    # Left: Bz heatmap, on the same mirrorable plaquette block as the symmetry
+    # check above.  Two things have to be right or a perfectly symmetric field
+    # draws lopsided:
+    #
+    #   * the anchor-(N-1) row and column are the *pinned* boundary ring, and
+    #     their mirror images — the ghost anchors at 0 — are not in the array.
+    #     Drawing them puts the applied-field frame on the high sides only.
+    #   * the plaquette anchored at node i is centred at (i + ½)h, not at i·h.
+    #     Placing it on the node displaces the whole map by half a cell.
+    bz_map = np.real(Bz_2d[:-1, :-1])
+    xs = (np.arange(1, Nx - 1) + 0.5) * params.hx
+    ys = (np.arange(1, Ny - 1) + 0.5) * params.hy
     xx, yy = np.meshgrid(xs, ys, indexing="ij")
-    im = ax.pcolormesh(xx, yy, np.real(Bz_2d), cmap="RdBu_r", shading="auto")
+    im = ax.pcolormesh(xx, yy, bz_map, cmap="RdBu_r", shading="auto")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Bz")
     # Mark center line used for profile
     ax.axhline(ys[mid_y], color="white", ls="--", alpha=0.5, linewidth=1)
@@ -124,21 +153,19 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         )
 
     # Expected symmetric profile (mirror left half to right)
-    x_sym = x_coords[:n_fit]
-    bz_sym = 0.5 * (bz_profile[:n_fit] + bz_profile[:n_fit][::-1])
-    ax.plot(x_sym, bz_sym, ":", color="C2", linewidth=1.5,
-            label="Symmetrized profile")
+    ax.plot(x_coords[:-1], 0.5 * (bz_mirrorable + bz_mirrorable[::-1]),
+            ":", color="C2", linewidth=1.5, label="Symmetrized profile")
 
     # Reference line at Bz_applied
     ax.axhline(Bz_applied, color="gray", ls=":", alpha=0.5, label=f"Bz_applied = {Bz_applied}")
 
     # Annotation box
     text = (
-        f"κ (set)    = {kappa:.2f}\n"
-        f"λ (fit)     = {lambda_fit:.2f}\n"
-        f"R²          = {r_squared:.4f}\n"
-        f"Fit error   = {perr[1]:.3f}\n"
-        f"Sym. error  = {symmetry_relative:.2%}"
+        f"κ (set)      = {kappa:.2f}\n"
+        f"λ (edge fit)  = {lambda_edge:.2f}  ({lambda_edge_error:.1%} vs κ)\n"
+        f"λ (cosh fit)  = {lambda_fit:.2f}\n"
+        f"R² (cosh)     = {r_squared:.4f}\n"
+        f"Sym. error    = {symmetry_relative:.2%}"
     )
     ax.text(
         0.97, 0.97, text, transform=ax.transAxes,
@@ -149,7 +176,7 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     ax.set_xlabel("x (ξ)")
     ax.set_ylabel("Bz")
-    ax.set_title(f"Meissner screening: λ_fit = {lambda_fit:.2f}, κ = {kappa}")
+    ax.set_title(f"Meissner screening: λ = {lambda_edge:.2f} ξ, κ = {kappa}")
     ax.legend(loc="lower center", fontsize=7)
     ax.grid(True, alpha=0.3)
 

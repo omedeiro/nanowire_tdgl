@@ -16,15 +16,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
 from tdgl3d import AppliedField, Device, Layer, SimulationParameters, Trilayer, solve
+from tdgl3d.operators.sparse_operators import INSULATOR_RELAXATION_TIME
 
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
     if small:
         Nx, Ny = 8, 8
-        t_stop = 0.5
+        t_stop = 0.25
     else:
         Nx, Ny = 16, 16
-        t_stop = 2.0
+        t_stop = 1.0
 
     kappa = 2.0
     trilayer = Trilayer(
@@ -37,11 +38,19 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     device = Device(params, applied_field=field, trilayer=trilayer)
 
     # Uniform initial state (including insulator)
-    x0 = device.initial_state()
+    x0 = device.initial_state(noise_amplitude=0.0)
     x0.psi[:] = 1.0  # Force uniform |psi|=1 everywhere
 
-    sol = solve(device, x0=x0, dt=0.01, t_stop=t_stop, method="euler",
-                save_every=max(1, int(t_stop / 0.05)), progress=False)
+    # The decay is over by t ~ 5 tau_relax = 0.5, so the trace has to be sampled
+    # on a scale well below tau_relax to measure anything.  ``save_every`` counts
+    # *steps*, not time: the old ``int(t_stop / 0.05)`` saved every 40th step,
+    # i.e. every 0.4 tau_GL, which put two points on the whole decay and fitted a
+    # straight line through them.  Save every step instead.  dt enters the fitted
+    # tau at first order (2.3% at dt = 0.005, 1.0% at dt = 0.0025), so it is
+    # chosen small enough that the residual is the model's, not Euler's.
+    dt = 0.0025
+    sol = solve(device, x0=x0, dt=dt, t_stop=t_stop, method="euler",
+                save_every=1, progress=False)
 
     # Extract mean |psi| in insulator over time
     z_ranges = trilayer.z_ranges()
@@ -65,10 +74,10 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     def exp_decay(t, tau, A, C):
         return A * np.exp(-t / tau) + C
 
-    tau_fit = 0.1
+    tau_fit = INSULATOR_RELAXATION_TIME / 2.0
     popt = None
     try:
-        popt, _ = curve_fit(exp_decay, times, psi_ins_mean, p0=[0.1, 0.9, 0.0], maxfev=5000)
+        popt, _ = curve_fit(exp_decay, times, psi_ins_mean, p0=[0.05, 0.9, 0.0], maxfev=5000)
         tau_fit = abs(popt[0])
     except RuntimeError:
         pass
@@ -76,8 +85,16 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     # --- Expected values ---
     # Insulator: |ψ|² → 0 (no superconductivity)
     # SC layers: |ψ|² → 1
-    # Decay time: τ_fit should be on order of 1/κ = 0.5 (but solver uses τ_relax)
-    expected_tau = 1.0 / kappa
+    # Decay time: the insulator relaxation constant used by construct_FPSI,
+    # not 1/κ — the insulator has no Ginzburg-Landau dynamics of its own.
+    #
+    # The relaxation term is −ψ/τ_relax, so it is **|ψ|** that decays with
+    # τ_relax.  This panel plots |ψ|², which therefore decays twice as fast.
+    # Comparing the |ψ|² fit against τ_relax itself — as this figure used to —
+    # reports a ~50% "error" in a solver that is doing exactly the right thing.
+    # ``test_insulator_order_parameter_decays_with_the_stated_time_constant``
+    # fits |ψ| and checks that against τ_relax.
+    expected_tau = INSULATOR_RELAXATION_TIME / 2.0
 
     # Symmetry: bottom SC vs top SC in final z-profile
     psi_final = sol.psi(step=-1)
@@ -100,7 +117,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     # Left: |psi_insulator|(t) with fit + expected
     ax = axes[0]
-    ax.plot(times, psi_ins_mean, "o-", color="C0", markersize=3, label="|ψ|²_insulator(t)")
+    ax.plot(times, psi_ins_mean, "-", color="C0", linewidth=1.5,
+            label="|ψ|²_insulator(t)")
 
     # Expected: |ψ|² → 0
     ax.axhline(0.0, color="gray", ls=":", alpha=0.5, label="Expected: |ψ|² → 0")
@@ -113,10 +131,10 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     # Error annotation
     tau_error = abs(tau_fit - expected_tau) / expected_tau
     text = (
-        f"τ (fit):     {tau_fit:.4f}\n"
-        f"τ (expected): ~{expected_tau:.2f} (1/κ)\n"
-        f"τ error:     {tau_error:.1%}\n"
-        f"|ψ|²_final:  {psi_ins_mean[-1]:.6f}"
+        f"τ (fit, |ψ|²): {tau_fit:.4f}\n"
+        f"τ (expected):  {expected_tau:.3f} = τ_relax/2\n"
+        f"τ error:       {tau_error:.1%}\n"
+        f"|ψ|²_final:    {psi_ins_mean[-1]:.6f}"
     )
     ax.text(
         0.97, 0.97, text, transform=ax.transAxes,
@@ -127,7 +145,8 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
 
     ax.set_xlabel("t (ξ/v_F)")
     ax.set_ylabel("mean |ψ|² in insulator")
-    ax.set_title(f"Insulator relaxation — τ_fit = {tau_fit:.3f}")
+    ax.set_title(f"Insulator relaxation — τ_fit = {tau_fit:.4f} vs τ_relax/2 = "
+                 f"{expected_tau:.3f}")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 

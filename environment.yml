@@ -14,5 +14,8 @@ dependencies:
   - pip
   - pip:
       - ruff>=0.1
-      - tdgl  # pyTDGL for validation against reference implementation
+      # Reference implementations the cross-tool benchmarks measure against;
+      # see packages/tdgl3d/benchmarks/README.md.
+      - tdgl        # pyTDGL — 2-D TDGL on a triangular mesh
+      - superscreen # thin-film London magnetostatics
       - -e .

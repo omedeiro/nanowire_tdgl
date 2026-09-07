@@ -49,8 +49,23 @@ jobs:
           printf '{"schemaVersion": 1, "label": "coverage", "message": "%s%%", "color": "%s"}\n' "$PCT" "$COLOR" > /tmp/coverage-badge.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin badges || true
-          git checkout badges 2>/dev/null || git checkout --orphan badges
+          # The test step above wrote coverage.json into the repo root, where it
+          # is untracked, and the badges branch tracks a file of the same name --
+          # so switching branches would clobber it and git refuses.  The value is
+          # already captured in /tmp, so drop the working copy first.
+          rm -f coverage.json
+          # Fetch straight into a local branch.  actions/checkout leaves a
+          # single-branch clone whose refspec only covers the checked-out
+          # branch, so `git checkout badges` cannot resolve the remote-tracking
+          # ref and fails -- silently, into `--orphan`, which builds a rootless
+          # branch that can never fast-forward onto the real one.  The step
+          # therefore worked exactly once, on the run that created `badges`,
+          # and every run since was rejected as non-fast-forward.
+          if git fetch origin badges:badges 2>/dev/null; then
+            git checkout badges
+          else
+            git checkout --orphan badges
+          fi
           git rm -rf --quiet . 2>/dev/null || true
           cp /tmp/coverage-badge.json coverage.json
           git add coverage.json

@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 from ..core.parameters import SimulationParameters
 from ..mesh.indices import GridIndices
+from .rhs import _expand_interior_to_full
 
 
 def eval_bfield_full(
@@ -105,47 +106,28 @@ def eval_bfield(
 
     Notes
     -----
-    The curl stencil B = ∇×A requires accessing neighboring link variables.
-    - When full_interior=False (default), we use idx.bfield_interior, which is
-      one layer inward from the interior boundary to avoid out-of-bounds access.
-    - When full_interior=True, we compute at ALL interior nodes but this requires
-      that state_data comes from a full-grid expansion with boundary conditions applied.
+    The interior link variables are scattered onto the full grid and the curl is
+    evaluated by :func:`eval_bfield_full`, so there is exactly one curl stencil in
+    the code base.  Boundary link variables are left at zero here, which means the
+    applied field is *not* included; ``Solution.bfield`` applies the boundary
+    conditions first when the applied field matters.
 
-    To visualize B-field in holes, use full_interior=True with a state expanded to
-    the full grid (see examples/sis_square_with_hole.py:_compute_bz_full_3d).
+    ``full_interior=False`` restricts the result to ``idx.bfield_interior`` (one
+    layer inward), where every stencil neighbour is itself an interior node and the
+    result is therefore independent of the boundary treatment.
     """
     n = params.n_interior
-    mj_int = params.Nx - 1
-    mk_int = (params.Nx - 1) * (params.Ny - 1)
 
-    phi_x = state_data[n : 2 * n]
-    phi_y = state_data[2 * n : 3 * n]
-
-    # Choose which nodes to evaluate B at
-    if full_interior:
-        # Compute at ALL interior nodes (caller must ensure neighbors exist)
-        m = np.arange(n, dtype=np.intp)
-    else:
-        # Compute only at safe subset (one layer inward)
-        m = idx.bfield_interior
-
+    phi_x = _expand_interior_to_full(state_data[n : 2 * n], params, idx)
+    phi_y = _expand_interior_to_full(state_data[2 * n : 3 * n], params, idx)
     if params.is_3d:
-        phi_z = state_data[3 * n : 4 * n]
-
-        Bx = (1.0 / (params.hy * params.hz)) * (
-            phi_y[m] - phi_y[m + mk_int] - phi_z[m] + phi_z[m + mj_int]
-        )
-        By = (1.0 / (params.hz * params.hx)) * (
-            phi_z[m] - phi_z[m + 1] - phi_x[m] + phi_x[m + mk_int]
-        )
-        Bz = (1.0 / (params.hx * params.hy)) * (
-            phi_x[m] - phi_x[m + mj_int] - phi_y[m] + phi_y[m + 1]
-        )
+        phi_z = _expand_interior_to_full(state_data[3 * n : 4 * n], params, idx)
     else:
-        Bx = np.zeros(len(m), dtype=np.float64)
-        By = np.zeros(len(m), dtype=np.float64)
-        Bz = (1.0 / (params.hx * params.hy)) * (
-            phi_x[m] - phi_x[m + mj_int] - phi_y[m] + phi_y[m + 1]
-        )
+        phi_z = np.zeros(params.dim_x, dtype=np.complex128)
+
+    Bx, By, Bz = eval_bfield_full(phi_x, phi_y, phi_z, params, idx)
+
+    if not full_interior:
+        Bx, By, Bz = Bx[idx.bfield_interior], By[idx.bfield_interior], Bz[idx.bfield_interior]
 
     return np.real(Bx), np.real(By), np.real(Bz)

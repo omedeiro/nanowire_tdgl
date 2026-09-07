@@ -18,6 +18,17 @@ Each axis (x, y, z) has four face-index arrays that come in two flavours:
 ``interior_to_full``
     1-D array of full-grid linear indices for the interior nodes (the map
     from the compact interior numbering to the full grid).
+
+    .. warning::
+       The two numberings use **opposite** orderings.  The *full* grid is
+       ``i + (Nx+1)*j + (Nx+1)*(Ny+1)*k`` — i-fastest.  The *interior*
+       numbering comes from ``meshgrid(..., indexing="ij").ravel()`` and is
+       therefore i-slowest / k-fastest, i.e. C order over the shape
+       ``(Nx-1, Ny-1, max(Nz-1, 1))``.  Interior-array strides are
+       ``stride_i = (Ny-1)*max(Nz-1,1)``, ``stride_j = max(Nz-1,1)``,
+       ``stride_k = 1``.  Applying full-grid strides to an interior array
+       (or vice versa) transposes x and z and is a silent source of wrong
+       physics; on a cubic grid it is invisible in array shapes.
 ``bfield_interior``
     Subset of *interior* indices (in interior numbering) that are one more
     layer inward — used for evaluating *B* = curl(*A*) where neighbours are
@@ -147,6 +158,73 @@ class GridIndices:
     hole_x_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
     hole_y_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
     hole_z_bc_normal_interior: NDArray[np.intp] = field(default_factory=_empty_intp)
+
+    # -- Per-device scratch shared by the operators (built on first use) -----
+    # Holds the cached κ² and the full-grid workspace the right-hand side
+    # writes into.  Deliberately holds *no* shifted copies of
+    # ``interior_to_full``: the operators need six of them, and on a 15 M-node
+    # grid that would be 700 MB of resident index arrays.  They are formed per
+    # chunk instead, where they stay cache-resident.
+    _stencil: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def neighbours(self, params: SimulationParameters) -> dict:
+        """Return the per-device scratch dict, keyed ``m`` for the interior nodes.
+
+        Operators shift ``m`` themselves — ``m + 1`` for the +x neighbour,
+        ``m + params.mj`` for +y, ``m + params.mk`` for +z — over whatever slice
+        of rows they are computing.  Other entries are private caches
+        (``_kappa_sq``, ``_workspace``) keyed by the object they were built for.
+        """
+        if not self._stencil:
+            self._stencil = {"m": self.interior_to_full}
+        return self._stencil
+
+    def clear_stencil(self) -> None:
+        """Drop the cached operator scratch (call after mutating indices)."""
+        self._stencil = {}
+
+    def workspace(
+        self, params: SimulationParameters, n_vectors: int = 4,
+        dtype=np.complex128,
+    ) -> list:
+        """Lend *n_vectors* full-grid complex scratch arrays, or make new ones.
+
+        The right-hand side needs four arrays of ``dim_x`` complex128 to
+        scatter the interior state onto the full grid.  At 15 M interior nodes
+        that is a gigabyte allocated and touched on every evaluation, and there
+        are tens of thousands of evaluations in a run.  Keeping one set per
+        device and handing it out turns that into a single allocation.
+
+        The workspace is lent, not shared: a nested or concurrent caller gets
+        freshly allocated arrays rather than the ones already in use, so the
+        reuse can never alias two live evaluations.  Return it with
+        :meth:`release_workspace`.  *dtype* follows the state being evaluated,
+        so a single-precision run gets single-precision scratch.
+        """
+        st = self.neighbours(params)
+        dtype = np.dtype(dtype)
+        held = st.get("_workspace")
+        if (
+            held is not None
+            and not held["in_use"]
+            and len(held["buf"]) >= n_vectors
+            and held["buf"][0].dtype == dtype
+        ):
+            held["in_use"] = True
+            return held["buf"][:n_vectors]
+
+        buf = [np.empty(params.dim_x, dtype=dtype) for _ in range(n_vectors)]
+        if held is None or held["buf"][0].dtype != dtype:
+            if held is not None and held["in_use"]:
+                return buf  # in use at another precision; do not steal the slot
+            st["_workspace"] = {"buf": buf, "in_use": True}
+        return buf
+
+    def release_workspace(self, params: SimulationParameters, buf: list) -> None:
+        """Give back arrays lent by :meth:`workspace`."""
+        held = self.neighbours(params).get("_workspace")
+        if held is not None and buf and held["buf"][0] is buf[0]:
+            held["in_use"] = False
 
     def define_hole_polygon(
         self,
@@ -392,24 +470,28 @@ def construct_indices(params: SimulationParameters) -> GridIndices:
     # =================================================================
     # bfield_interior  (formerly M2B) — in *interior* numbering
     # =================================================================
-    int_Nx_m1 = Nx - 1  # interior x-extent
-    int_Ny_m1 = Ny - 1
-    # In interior numbering, index = (i-1) + int_Nx_m1*(j-1) + ...
-    # The B-field interior skips the outermost layer of interior nodes,
-    # so (i-1) ranges from 0 to Nx-3, i.e., arange(0, Nx-2).
+    # ``interior_to_full`` is built from ``meshgrid(..., indexing="ij").ravel()``,
+    # so the interior numbering is **i-slowest / k-fastest** (C order over
+    # ``(Nx-1, Ny-1, Nz-1)``).  The strides below must match that layout — using
+    # the full-grid strides (i-fastest) here silently scrambles x and z.
+    int_stride_k = 1
+    int_stride_j = max(Nz - 1, 1)
+    int_stride_i = (Ny - 1) * int_stride_j
+    # The B-field interior skips the outermost layer of interior nodes so that
+    # the forward curl stencil (+1 in each direction) stays in range.
     bi = np.arange(0, Nx - 2, dtype=np.intp)
     bj = np.arange(0, Ny - 2, dtype=np.intp)
     if is_3d:
         bk = np.arange(0, Nz - 2, dtype=np.intp)
         bgi, bgj, bgk = np.meshgrid(bi, bj, bk, indexing="ij")
         bfield_interior = (
-            bgi.ravel()
-            + int_Nx_m1 * bgj.ravel()
-            + int_Nx_m1 * int_Ny_m1 * bgk.ravel()
+            int_stride_i * bgi.ravel()
+            + int_stride_j * bgj.ravel()
+            + int_stride_k * bgk.ravel()
         )
     else:
         bgi, bgj = np.meshgrid(bi, bj, indexing="ij")
-        bfield_interior = bgi.ravel() + int_Nx_m1 * bgj.ravel()
+        bfield_interior = int_stride_i * bgi.ravel() + int_stride_j * bgj.ravel()
 
     # =================================================================
     # Helper: build the 4-tuple of face indices for one axis

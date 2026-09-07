@@ -7,7 +7,7 @@ smoke tests in `docs/figures/test_figures.py`.
 ## Regenerating Figures
 
 ```bash
-# Generate all figures (full resolution, ~1 min total)
+# Generate all figures (full resolution; sis_hole_expulsion.py alone takes ~2 min)
 for f in docs/figures/*.py; do
   [[ "$f" == *test_* ]] && continue
   python "$f"
@@ -20,26 +20,99 @@ python docs/figures/meissner_screening.py
 pytest docs/figures/test_figures.py -v
 ```
 
-## Test Results Summary
+Every script pins the seed of the symmetry-breaking noise (`NOISE_SEED`, or an
+explicit `noise_amplitude=0.0`), so regenerating a figure reproduces the one
+committed here rather than a fresh realisation of the noise.  Without that a
+figure cannot be diffed against its predecessor, and a change in the physics
+is indistinguishable from a change in the random draw.
 
-Latest run from `logs/physics_test_runlog.json`. Regenerate with:
+### Drawing conventions
+
+Two things have to be right for a symmetric device to draw symmetric: the
+quantity has to be plotted on **its own grid** (the next section), and the
+plotting call has to be given **cell boundaries** rather than node coordinates.
+
+Every field here is sampled *at* points, and the matplotlib calls that fill a
+grid want the boundaries between cells.  Two of them fail quietly when handed
+the sample coordinates instead: `imshow(extent=...)` reads the extent as the
+outer edge of the image, squeezing n samples into n-1 cells' worth of axis, and
+`plot_surface(facecolors=...)` colours the quad *between* samples i and i+1, so
+an n x m grid becomes an (n-1) x (m-1) mesh with the last row and column never
+drawn at all.  Neither raises; both draw a mirror-symmetric device lopsided,
+with the boundary band full width on the low edge and short on the high one.
+
+`tdgl3d.visualization.plotting` carries `cell_edges`, `imshow_extent`,
+`pad_facecolors` and `surface_facecolors` for this, and
+`packages/tdgl3d/tests/test_cell_geometry.py` pins the matplotlib behaviour
+they work around.  `pcolormesh(..., shading="auto")` already centres cells on
+its samples when `C` has the same shape as `X` and `Y`, so it needs none of
+them.
+
+Every script pins the seed of the symmetry-breaking noise (`NOISE_SEED`, or an
+explicit `noise_amplitude=0.0`), so regenerating a figure reproduces the one
+committed here rather than a fresh realisation of the noise.  Without that a
+figure cannot be diffed against its predecessor, and a change in the physics
+is indistinguishable from a change in the random draw.
+
+## Two grids, and why maps drawn on the wrong one look asymmetric
+
+ψ is a **node** quantity and B is a **plaquette** quantity, and they are not
+interchangeable:
+
+* ψ lives on the interior nodes `1 … N-1`, a set the reflection `i → N-i` maps
+  onto itself.  It can be drawn at `i·h` and reflected as it stands.
+* B lives on plaquettes.  The plaquette anchored at node `i` spans
+  `[i·h, (i+1)·h]` and is centred at `(i+½)h`, and the array returned by
+  `Solution.bfield` holds anchors `1 … N-1`.  That set is **not** closed under
+  reflection: anchor `N-1` is the pinned boundary ring, and its mirror image is
+  the ghost anchor `0`, which the array does not carry.
+
+So a heat map of the raw B array puts the applied-field frame on the high sides
+only and displaces the whole picture half a cell — a perfectly C4-symmetric
+field draws lopsided.  The figures here drop the last anchor in each direction
+and plot what is left at the plaquette centres; the same trim is what
+`test_verification_symmetry.py` applies before comparing.  See
+`tdgl3d.physics.analytic.plaquette_positions`.
+
+## Verification status
+
+The numeric verification of the physics lives in the test suite, not in this
+gallery. Regenerate the report with:
+
 ```bash
-python docs/generate_test_report.py
+cd packages/tdgl3d
+python3 -m pytest tests/test_verification_*.py tests/test_physics_validation.py -q
+cd ../.. && python3 docs/generate_test_report.py --input packages/tdgl3d/logs
+python3 docs/generate_error_table.py --input packages/tdgl3d/logs
 ```
-Full details: [`physics_test_report.md`](physics_test_report.md)
 
-| Figure | Metric | Details | Status |
-|--------|--------|---------|--------|
-| Meissner screening | λ=12.06 vs κ=2.0 | error = 502.8% — cosh fit gives λ >> κ | FAIL |
-| Insulator \|ψ\| decay | τ=0.0885 (expected 0.1) | error = 11.5% | PASS |
-| Trilayer κ discontinuity | SC=-16.0 (expected -16), Ins=0.0 | matches κ² stencil | PASS |
-| Trilayer B penetration | Bz(ins)=1.88e-6 (0.0% of applied) | insulator not penetrated — field stuck at ~0 | FAIL |
-| Vortex entry & counting | n=4 (expected ≈46) | 9% of expected, winding=[-1,-1,-1,-1] | FAIL |
+Two reports come out of the same run:
 
-> **Known failures:** The 3 failing tests reveal genuine physics issues in the solver:
-> - Meissner: penetration depth λ ≈ 12 (should be κ = 2), field barely screens
-> - Trilayer: field doesn't penetrate the insulator layer at all (Bz ≈ 0 vs applied 0.3)
-> - Vortices: only 4 of ~46 expected vortices nucleate in the simulation time
+* [`physics_test_report.md`](physics_test_report.md) lists **every** check with
+  its measured value, the value physics requires, and the tolerance allowed.
+* [`physics_error_table.md`](physics_error_table.md) lists only the checks
+  anchored to a result known independently of the solver — a closed-form
+  solution, an exact lattice identity, or a second code path — with the error,
+  the budget it used, and a curated list of known solutions that have no row
+  yet.
+
+| Suite | What it pins down |
+|-------|-------------------|
+| `test_verification_gauge.py` | ψ → ψe^{iχ}, A → A + ∇χ leaves dφ/dt, \|ψ\|, B, J_s, F and the vortex count unchanged |
+| `test_verification_conservation.py` | ∇·B = 0 and ∇·(∇×∇×A) = 0 to round-off; F is a Lyapunov functional; ∇·J_s = 0 in steady state; J_n = 0 on every face |
+| `test_verification_symmetry.py` | applied flux on the boundary plaquettes; B → −B; C4 and mirror symmetry; index ordering on non-cubic grids |
+| `test_verification_analytic.py` | λ = κ; lowest Landau level E₀ = B (so H_c2 = 1); second order in h, first order in dt; B against the exact London series and \|ψ\| against the exact pair-breaking wall, both to second order in h |
+| `test_verification_vortex.py` | exact fluxoid quantisation; winding sign follows the field; lattice Stokes; no vortices below H_c1 |
+| `test_verification_vacuum.py` | the applied field is exact in vacuum; a κ contrast in a currentless region changes nothing; a lateral margin unpins the film edge; flux crowds beside it; the far field converges with padding |
+| `test_physics_validation.py` | trilayer κ discontinuity, insulator mask, z-face currents; one hole through both layers of an S/I/S stack holding a fluxoid in the bottom film and none in the top, the pinning that makes it a trapped state rather than a symmetric one, and the fall of interlayer flux transfer with oxide thickness |
+
+> **A note on `kappa` in a non-superconducting layer.** The κ² that
+> multiplies `∇×(∇×A)` is the field energy `B²/2μ₀`, which belongs to the
+> field rather than to the material, so the solver uses the reference
+> `params.kappa` in insulators, holes and vacuum.  A layer declared with
+> `kappa=0.0` therefore still transmits the field; the declared value is
+> recorded but carries no physics.  (`Layer.magnetic_kappa` exists for
+> models that deliberately want a varying coefficient.)
 
 ---
 
@@ -53,14 +126,23 @@ In Ginzburg-Landau units, λ ≈ κ.
 
 **Validates:** `test_physics_validation.py::test_meissner_screening_exponential`
 
-**Parameters:** 30×8×1 grid, κ=2.0, Bz=0.3, t=30 (Forward Euler)
+**Parameters:** 32×32×1 grid, h=0.5ξ, κ=2.0, Bz=0.1, t=12 (Forward Euler)
+
+The grid must resolve λ = κ and the sample must be several λ across in both
+in-plane directions. At h = 1ξ there are only two cells per penetration depth
+and the measured decay length is set by the stencil, not by the physics.
 
 **Key features:**
-- Left: 2D heatmap of Bz showing field penetration from the boundary
+- Left: 2D heatmap of Bz showing field penetration from the boundary, on the
+  mirrorable plaquette block at the plaquette centres (see the note above); the
+  four screening frames are equal, as C4 symmetry requires
 - Right: 1D Bz(x) profile at mid-y with cosh fit; fitted λ should be ≈ κ
 - Annotation box shows κ (set value), λ (fitted), and relative error
 
-**Validation metrics:** λ_fit = 2.00, κ = 2.00, error = 0.00%
+**Validation metrics:** λ (edge fit) = 2.24 ξ vs κ = 2.00, error = 12%; cosh fit R² = 0.998.
+The dedicated check `test_london_penetration_depth_equals_kappa` measures λ within 10% of κ
+for κ = 1.5 and κ = 3.0, and `test_penetration_depth_converges_with_grid_refinement`
+confirms the residual error shrinks with h.
 
 ---
 
@@ -74,13 +156,27 @@ Each vortex carries one flux quantum Φ₀ = h/(2e) and has a ±2π phase windin
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_and_counting`
 
-**Parameters:** 12×12×1 grid, κ=2.0, Bz=0.5, t=20 (Forward Euler)
+**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=40 (Forward Euler), 1% initial
+noise at seed 7
+
+H_c2 = 1 in these units, so the applied field must stay below 1; H_c1(κ=2) ≈ 0.15.
 
 **Key features:**
 - Left: |ψ|² heatmap with vortex cores (dark spots) marked ×
 - Right: Phase arg(ψ) colormap showing ±2π winding; gray where |ψ|² ≈ 0
 
-**Validation metrics:** n_vortices = 4 of ~46 expected, winding numbers ≈ -1.0 (FAIL — count below 20% threshold)
+**Validation metrics:** 64 vortices, every winding +1 (matching the sign of Bz), against an
+upper bound of B·A/Φ₀ = 153. The flux front is still advancing at t = 40, leaving a
+vortex-free Meissner core — the Bean-Livingston surface barrier delays entry well above H_c1.
+
+**No mirror-symmetry residual is quoted for this figure, and that is
+deliberate.** Vortex nucleation is a symmetry-breaking instability: the run
+starts from a uniform state seeded with 1% noise, so which arrangement the flux
+front freezes into is set by the noise realisation. The residual would measure
+the seed, not the discretisation, and printing it beside the vortex count made
+a correct run look broken. The solver's exact symmetries — C4, mirror and
+B → −B to ~1e-16 — are pinned on *noiseless* runs in
+`test_verification_symmetry.py`, which is where a check that can fail belongs.
 
 ---
 
@@ -94,13 +190,35 @@ The order parameter |ψ|² is suppressed to zero inside the hole.
 
 **Validates:** `test_bfield_holes.py::test_applied_field_in_hole`
 
-**Parameters:** 30×30×1 grid, κ=2.0, Bz=0.3, t=15, 10×10 hole (Forward Euler)
+**Parameters:** 60×60×1 grid, κ=2.0, Bz=0.3, t=15, 20×20 ξ hole centred in the
+film (Forward Euler), 1% initial noise at seed 7
 
 **Key features:**
-- Left: Bz heatmap — field is enhanced inside the hole (red dashed outline)
-- Right: |ψ|² heatmap — order parameter is zero inside the hole
+- Left: Bz heatmap, titled "enhanced in hole" — but see the caveat below;
+  plotted on the mirrorable plaquette block (the note at the top), so the
+  applied-field frame appears on all four sides
+- Right: |ψ|² heatmap — order parameter is zero inside the hole (red dashed
+  outline), and the outline now sits on the carved region rather than half a
+  cell off it
 
-**Validation metrics:** Applied field penetrates hole without Meissner screening (test: `test_bfield_holes.py`)
+**Validation metrics:** |ψ|²(hole) = 0.0007, |ψ|²(SC) = 0.9458; Bz(SC) = 0.0400
+against an applied 0.3. The mirror residual of |ψ|² is **0.0000** — it was
+**0.54** before `fix(mesh): carve centred holes and stack layers symmetrically`,
+which is what made this figure visibly lopsided; the field map carried a further
+0.099 (a third of the applied field) purely from being drawn on the raw
+plaquette array. Measured on the corrected grids: Bz mirror residual 7e-06,
+C4 residual 1e-05.
+
+**Caveat — "enhanced in hole" overstates what this geometry shows, and the
+panel title and the annotation box have not been reconciled.** The hole does
+not screen, but it sits 20 ξ = 10 λ behind unbroken film, so almost nothing
+reaches it: the figure reads Bz(hole) = 0.0000 against an applied 0.3, and
+prints that gap as "Hole error: 0.3000" as though it were a failing check. The
+statement the test actually makes is *relative* —
+`test_bfield_holes.py::test_applied_field_in_hole` measures 0.0040 in the hole
+against 0.0002 in the surrounding metal, a factor of 20, both ~1% of the
+applied field — and it is the same screening argument as §13 and §15: what
+limits the field at the hole is the plane in front of it, not the hole.
 
 ---
 
@@ -114,7 +232,8 @@ boundary conditions at the hole edges.
 
 **Validates:** `test_current_density.py::test_current_in_hole`
 
-**Parameters:** 24×24×1 grid, κ=2.0, Bz=0.3, t=10, 6×6 hole (Forward Euler)
+**Parameters:** 48×48×1 grid, κ=2.0, Bz=0.3, t=10, 12×12 ξ hole centred in the
+film (Forward Euler), 1% initial noise at seed 7
 
 **Key features:**
 - Three panels: supercurrent |Js|, normal current |Jn|, total |J|
@@ -123,28 +242,67 @@ boundary conditions at the hole edges.
 
 **Validation metrics:** J_s = 0 inside hole, |Jn| = 0 everywhere (test: `test_current_density.py`)
 
+**Caveat — the annotation box on the left panel is vacuous.** The three panels
+come from `tdgl3d.visualization.plotting.plot_current_density` and are right,
+but the "J(hole) / J(SC) / Ratio" box is computed in the figure script from
+`Im(ψ* (ψ φ_x − ψ))`, using the **link variable** φ_x where the gauge-invariant
+current needs `U = e^{iφ_x}`. With φ real that expression is identically zero,
+so the box reads `0.0000 / 0.0000 / 0.00%` everywhere and would read the same
+whatever the solver did — the "tolerance that can never fail" case AGENTS.md
+rules out. `Solution.supercurrent_density` is the quantity it should be using.
+
 ---
 
-## 5. Trilayer B-field Screening
+## 5. Trilayer B-field Screening — and the Vacuum Around the Stack
 
 ![Trilayer bfield](figures/trilayer_bfield.png)
 
-**Physical mechanism:** In a Superconductor/Insulator/Superconductor (S/I/S) trilayer,
-the SC layers screen the magnetic field via the Meissner effect, while the insulator
-allows field penetration. For a symmetric trilayer, screening is approximately symmetric.
+**Physical mechanism:** In a Superconductor/Insulator/Superconductor (S/I/S)
+trilayer, the metal layers screen the perpendicular field via the Meissner
+effect, while the oxide — which has no condensate, so no screening current —
+transmits it.
 
-**Validates:** `test_physics_validation.py::test_trilayer_bfield_penetration_profile`
+The applied field enters this solver as prescribed flux through the plaquettes
+on the *wall of the box*.  That is the right statement only where the wall is
+far-field vacuum.  With the stack filling the box the same condition lands on
+the metal's own surface, so the film's outermost nodes are handed the applied
+field rather than solving for it, and flux expelled from the film has nowhere
+to go.  Padding the stack with vacuum moves the condition off the metal, and
+then all three things the device does are visible at once: the metal screens,
+the oxide transmits, and the expelled flux crowds into the vacuum beside the
+film, where the field *exceeds* the applied one and relaxes back to it out at
+the wall.
 
-**Parameters:** 8×8×12 grid (S/I/S: 4/4/4), κ=2.0, Bz=0.3, t=5 (Forward Euler)
+**Validates:** `test_verification_vacuum.py`, `test_physics_validation.py::test_trilayer_bfield_penetration_profile`
+
+**Parameters:** metal span 4 ξ, oxide gap 3 ξ, film 16 ξ wide, 6 ξ vacuum
+either side and 6 ξ above and below, κ=2.0, h=1 ξ (28×28×23 grid),
+relaxed 60 τ_GL.  Refinement panel: 8 ξ film, 2 ξ margin, 4 ξ pad, at
+h = 1 and 0.5 ξ.
 
 **Key features:**
-- Left: Bz(z) profile at center with shaded SC (blue) and insulator (red) regions;
-  field is screened in SC layers, penetrates insulator
-- Right: |ψ|²(z) profile showing order parameter in SC vs insulator layers
+- Top-left: Bz(z) through the stack, padded (blue) against the same stack
+  filling the box (red).  Vacuum, metal and oxide regions shaded.
+- Top-right: the same cut at two grid spacings, with the *realised* metal span
+  and oxide gap held fixed as h changes (see below).
+- Bottom-left: Bz(x) across the film — screened inside, crowded just outside.
+- Bottom-right: Bz in the x–z plane; cyan outlines the metal, the dashed
+  contour is the applied value.
 
-**Validation metrics:** Bz(Nb) ≈ 2e-7/6e-6, Bz(insulator) ≈ 1.88e-6, Bz(applied) = 0.3 (FAIL — insulator not penetrated)
+**Validation metrics:** Bz at the film centre 0.396 × applied; peak beside
+the film 1.035 × applied — the crowding is only visible with vacuum in the
+box.  The oxide is declared `kappa=0.0` and transmits anyway: the Maxwell
+coefficient is the vacuum's, so the declared value changes nothing.  What
+screens is the condensate, and the oxide has none.
 
----
+**A meshing trap worhere.** `build_material_map` hands both S/I interface
+nodes to the insulator, so a metal layer declared `n` cells spans only
+`n-1` cells of nodes and the metal-to-metal gap comes out `m+2` cells rather
+than `m`.  Declaring cell counts directly therefore makes the *device* change
+when the mesh is refined, and a refinement study would be comparing three
+different stacks.  The script inverts the offsets so the realised geometry is
+pinned instead; it also puts a floor on the spacing, since a 3 ξ gap needs
+`3/h ≥ 3`.
 
 ## 6. Insulator Order Parameter Decay
 
@@ -154,15 +312,40 @@ allows field penetration. For a symmetric trilayer, screening is approximately s
 |ψ| is driven to zero by the -ψ/τ_relax suppression term, with exponential decay
 time constant τ_relax = 0.1 (built into the TDGL equation).
 
-**Validates:** `test_physics_validation.py::test_insulator_psi_exponential_decay`
+**Validates:** `test_physics_validation.py::test_insulator_psi_exponential_decay`,
+`test_verification_analytic.py::test_insulator_order_parameter_decays_with_the_stated_time_constant`
 
-**Parameters:** 8×8×6 grid (S/I/S: 2/2/2), κ=2.0, Bz=0, t=2 (Forward Euler)
+**Parameters:** 16×16×6 grid (S/I/S: 2/2/2), κ=2.0, Bz=0, t=1, dt=0.0025,
+every step saved (Forward Euler); noiseless initial state, |ψ| = 1 everywhere
+including the oxide
 
 **Key features:**
-- Left: |ψ|²_insulator(t) with exponential fit; fitted τ should be ≈ 0.1
+- Left: |ψ|²_insulator(t) with exponential fit
 - Right: |ψ|²(z) bar chart at final time showing suppression in insulator layer
 
-**Validation metrics:** τ_fit = 0.0885, τ_expected = 0.1000, error = 11.47%
+**Validation metrics:** τ_fit(|ψ|²) = 0.0495 against τ_relax/2 = 0.050, error
+**1.0%**; the two superconducting layers come out at |ψ|² = 0.2004 each, a
+mirror residual of **0.00%**.
+
+**Two things this figure used to get wrong, both now fixed.**
+
+*The stack was not symmetric.* `build_material_map` assigned each node to the
+cell range `[k_start, k_end)` containing it, which handed the lower S/I
+interface to the oxide and the upper one to the top metal — so the top layer
+had one more superconducting node than the bottom, and the bar chart read
+0.13 at the bottom against 0.61 at the top, a **130%** mirror error in a stack
+declared 2/2/2. Both interfaces go to the oxide now
+(`fix(mesh): carve centred holes and stack layers symmetrically`).
+
+*The decay was sampled too coarsely to measure, and compared against the wrong
+constant.* `save_every` counts **steps**, not time, so `int(t_stop / 0.05)`
+saved every 40th step — one sample every 0.4 τ_GL, on a decay that is over by
+t ≈ 0.5. Two points carried the whole fit. And the panel plots |ψ|² while the
+relaxation term −ψ/τ_relax acts on |ψ|, so |ψ|² decays *twice as fast*:
+comparing the fit against τ_relax itself reported a 50% error in a solver doing
+exactly the right thing. Sampling every step and comparing against τ_relax/2
+brings the residual to 1.0%, which is the first-order Euler error at
+dt = 0.0025 (it is 2.3% at dt = 0.005).
 
 ---
 
@@ -176,13 +359,16 @@ This guarantees thermodynamic consistency of the dynamics.
 
 **Validates:** `test_physics_validation.py::test_energy_dissipation_monotonic`
 
-**Parameters:** 12×12×1 grid, κ=2.0, Bz=0.5, 200 Euler steps
+**Parameters:** 24×24×1 grid, κ=2.0, Bz=0.5, 400 Euler steps at dt = 0.01,
+1% initial noise at seed 7
 
 **Key features:**
 - Left: F(t) showing monotonic decrease
 - Right: dF/dt ≤ 0 confirming energy dissipation
 
-**Validation metrics:** max_energy_increase = 0.0083, tolerance = 0.0833 (PASS)
+**Validation metrics:** see `test_free_energy_decreases_monotonically_at_zero_field`, which
+requires *zero* steps of increase in the gauge-invariant free energy
+(`tdgl3d.physics.gl_free_energy`) rather than a tolerance fitted to the observed drift.
 
 ---
 
@@ -196,14 +382,19 @@ sign indicating the direction of the circulating supercurrent.
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_and_counting`
 
-**Parameters:** 20×20×1 grid, κ=2.0, Bz=2.5, t=15 (Forward Euler)
+**Parameters:** 40×40×1 grid, κ=2.0, Bz=0.6, t=15 (Forward Euler), 1% initial
+noise at seed 7
 
 **Key features:**
 - Left: Phase arg(ψ) colormap (twilight) with vortex positions marked;
   gray overlay where |ψ|² ≈ 0
 - Right: |ψ|² heatmap with vortex core positions
 
-**Validation metrics:** Same run as figure 2 — 4 vortices with winding ≈ -1.0
+**Validation metrics:** 47 vortices, all windings +1 (as in §2, the *arrangement*
+is set by the noise seed, so no mirror residual is quoted).
+`test_plaquette_vorticity_is_an_exact_integer` shows the
+winding is integral to 1e-16, and `test_fluxoid_equals_enclosed_vorticity_for_any_contour`
+confirms the lattice Stokes theorem holds for square and non-convex contours alike.
 
 ---
 
@@ -212,19 +403,24 @@ sign indicating the direction of the circulating supercurrent.
 ![CFL instability](figures/cfl_instability.png)
 
 **Physical mechanism:** The Forward Euler method for TDGL is conditionally stable,
-requiring dt < h²/(4κ²) (the CFL condition). Exceeding this limit causes
+requiring dt < h²/(4κ²(d−1)) (the CFL condition; the familiar h²/(4κ²) is the
+2-D case, and the limit halves in 3-D). Exceeding this limit causes
 catastrophic numerical instability — the order parameter collapses.
 
-**Validates:** `test_physics_validation.py::test_cfl_stability_below_limit`
-and `test_cfl_instability_above_limit`
+**Validates:** `test_verification_conservation.py::test_forward_euler_is_stable_below_the_cfl_limit`
+(parametrised over 2-D and 3-D)
 
-**Parameters:** 10×10×1 grid, κ=2.0, Bz=0.5
+**Parameters:** 20×20×1 grid, κ=2.0, Bz=0.5, t=2, 1% initial noise at seed 7
 
 **Key features:**
 - Left: Stable evolution (dt = 0.9 × CFL) — |ψ|² remains near equilibrium
 - Right: Unstable evolution (dt = 3.0 × CFL) — |ψ|² collapses
 
-**Validation metrics:** Stable: max|ψ|² = 1.0; Unstable: mean|ψ| = 1.01e-5 (collapsed)
+**Validation metrics:** stable run holds mean |ψ|² = 0.876 at t = 2 while it
+relaxes towards the field-suppressed equilibrium; the unstable run is at 0.060
+and still falling. The falsifiable form of this check —
+Forward Euler is stable below the limit and diverges above it, in both 2-D and
+3-D — is `test_forward_euler_is_stable_below_the_cfl_limit`.
 
 ---
 
@@ -267,7 +463,8 @@ steady-state lattice configuration.
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_dynamics`
 
-**Parameters:** 100×100×1 grid, κ=2.0, Bz=0.5, t=200 (Forward Euler)
+**Parameters:** 100×100×1 grid, κ=2.0, Bz=0.5, t=200 (Forward Euler), 1%
+initial noise at seed 7
 
 **Key features (animated GIF):**
 - Top-left: |ψ|² heatmap with vortex core markers (cyan ×)
@@ -276,3 +473,360 @@ steady-state lattice configuration.
 
 **Validation metrics:** Count starts at 0, grows, saturates; first vortex before t=100;
 final count ≥ 15% of expected B·A/Φ₀; steady-state fluctuation < 50%
+
+---
+
+## 12. S/I/S Ring — Flux Expulsion and the Expulsion Field
+
+![S/I/S ring flux expulsion](figures/sis_hole_expulsion.png)
+
+![Fluxoid history](figures/sis_hole_fluxoid_history.png)
+
+**Physical mechanism:** A square hole is carved through both superconducting
+layers of an S/I/S stack, leaving the oxide continuous. The ring around the hole
+is multiply connected, so the enclosed *fluxoid* is quantised. The ring
+circulates a screening current that holds it at `n = 0` — flux does thread the
+hole, but the fluxoid does not change — until that current exceeds what the arms
+can carry. A vortex then crosses an arm and `n` steps to a non-zero integer.
+
+**Validates:** `test_verification_expulsion.py`
+
+**Parameters:** 10×10 ξ film, 4×4 ξ hole, 3 ξ arms, S(4 ξ)/I(2 ξ)/S(4 ξ),
+κ=2.0, h=1 ξ, hold time 30 τ_GL (Forward Euler). Refinement points at h=0.5 ξ.
+
+**Key features:**
+- Top-left: fluxoid vs applied field, with the bracketing interval shaded. The
+  dotted line is the flux the hole would gather if nothing screened it.
+- Top-right: time of first entry, which lengthens as the threshold is
+  approached from above — critical slowing down at a stability boundary.
+- Bottom: |ψ|² either side of the threshold, on the refined grid.
+
+**Validation metrics:** B_exp = 0.300 ± 0.020 at h = 1 ξ and 0.270 ± 0.050 at
+h = 0.5 ξ — the brackets overlap, so the threshold is not a coarse-grid
+artefact. B_exp·A_hole/Φ₀ = 0.76: the ring admits its first quantum at roughly
+the field whose flux through the hole is one Φ₀.
+
+**See also:** §13 runs the same device at micron scale, where the plane screens
+so well that the hole stops being the limiting element.
+
+**A modelling trap this figure exists to avoid:** the superconducting
+layers must be **thicker than the proximity length**.  The oxide suppresses ψ
+over roughly a coherence length on each side of the interface, so a 1 ξ-thick
+layer is pair-broken all the way through: |ψ| falls to ~1e-4 and every phase
+measured on it — fluxoid, winding, expulsion field — is read off numerical
+noise. 4 ξ layers recover |ψ| ≈ 0.99 in their middle.
+`test_the_ring_is_superconducting` guards this.
+
+(An earlier version of this note also warned that the oxide needed a
+**non-zero κ**, because a `kappa=0.0` layer froze the gauge field and blocked
+the field instead of transmitting it.  That was a solver bug, not a modelling
+constraint, and it is fixed: the Maxwell coefficient no longer reads the
+layer's κ at all.  See the note at the top of this gallery.)
+
+**Caveat:** the steps come in pairs, not single quanta. The device is
+C4-symmetric and the run starts from a noiseless state, so the possible entry
+points are degenerate and quanta arrive in symmetry-related pairs. That is a
+property of the idealised geometry, not of the quantisation.
+
+---
+
+## 13. Micron-Scale S/I/S Ring — 1 µm Hole in a 4 µm Plane
+
+![Micron-scale S/I/S ring](figures/sis_micron_ring.png)
+
+**Physical mechanism:** The device of §12 at a realistic size, specified in SI
+and converted through `tdgl3d.GLUnits`. At ξ = 100 nm — Nb (ξ₀ ≈ 38 nm) at
+T/T_c ≈ 0.86, inside the Ginzburg-Landau regime — a 4 µm plane is 40 ξ across,
+a 1 µm hole is 10 ξ, 500 nm layers are 5 ξ, and one unit of the solver's field
+is 32.9 mT.
+
+**Parameters:** 4×4 µm plane, 1×1 µm hole, S(500 nm)/I(200 nm)/S(500 nm),
+κ=2.0, h=100 nm, 40×40×12 grid, hold time 60 τ_GL, seeded perturbation 1e-3.
+
+**Validation metrics:** complete expulsion — zero vortices anywhere *and* zero
+fluxoid through the hole — up to **8.89 mT**, first failure at **9.54 mT**, so
+**B_exp = 9.21 ± 0.33 mT**. Repeating the bracketing fields with a perturbation
+a thousand times smaller gives the same bracket, so the threshold is where the
+barrier vanishes rather than where the seed happens to be large enough.
+
+**The result does not scale from the small ring.** Three things separate them:
+
+| | small ring (§12) | this device |
+|---|---|---|
+| plane width in λ | 5 λ | 20 λ |
+| field reaching the hole | most of the applied field | 1.7% of it |
+| flux through the hole at threshold | ~0.8 Φ₀ | 0.07 Φ₀ |
+| what fails first | the hole (fluxoid) | the plane (vortices in the arms) |
+
+The plane screens so effectively that the hole never approaches its fluxoid
+limit; vortices penetrate the 1.5 µm-wide arms first, arranged in a
+C4-symmetric ring around the hole (bottom right), and the hole does not admit a
+fluxoid until 10.86 mT. The device beats the naive single-loop estimate
+Φ₀/A_hole = 2.07 mT by more than a factor of four for exactly that reason.
+
+**Regenerating:** `python3 docs/figures/sis_micron_ring.py` — about 13 minutes
+(twelve field points at ~65 s each). Not part of the regenerate-everything loop
+above.
+
+**A note on seeding.** A C4-symmetric device started from a noiseless state
+relaxes to an *exact* fixed point (residual ~1e-14). That is the right state for
+a symmetry check, but a metastable branch can then only be broken by round-off,
+which delays flux entry by an amount set by floating-point precision rather than
+by the energy barrier. This study seeds a perturbation and checks the answer
+against one a thousand times smaller.
+
+---
+
+## 14. Cross-Sections Against Closed-Form Solutions
+
+![Cross-sections against exact solutions](figures/analytic_cross_sections.png)
+
+**Physical mechanism:** The coupled TDGL equations have no general closed-form
+solution, but two limits do, and between them they exercise each equation on its
+own:
+
+* **London limit.** Force `|ψ| = 1` by using a weak field, and the ψ-equation
+  drops out. What remains is `∇²B = B/λ²`. On a square with the field pinned on
+  the boundary this has an exact Fourier solution — a superposition of the two
+  one-sided problems, each a sine series in the transverse coordinate with cosh
+  decay in the longitudinal one (`tdgl3d.london_square_2d`). This tests the
+  `κ²∇×∇×` operator and the applied-field boundary condition.
+* **Pair-breaking wall.** Set the field to zero and the gauge field drops out.
+  The ψ-equation reduces to `ψ'' = -ψ + ψ³`, which against an insulator has the
+  exact solution `tanh((x - x₀)/√2)` (`tdgl3d.gl_wall_profile`). This tests the
+  covariant Laplacian, the nonlinear term and the material mask.
+
+**Neither comparison has a fitted parameter.** In the wall case the offset `x₀`
+is *derived*: the superconductor's first integral `ψ' = (1 - ψ²)/√2` and the
+insulator's relaxation `ψ = u e^{x/√τ}` must agree in value and slope at the
+interface, which gives `√τ u² + √2 u - √τ = 0` and hence `u = 0.213422`,
+`x₀ = -0.306536 ξ` at the solver's `τ = 0.1`. A disagreement is therefore a real
+disagreement, not a bad fit.
+
+**Validates:** `test_verification_analytic.py`
+
+**Parameters:** London — 16×16 ξ square, κ=2.0, Bz=0.02, relaxed 15 τ_GL.
+Wall — 24 ξ strip with a half-plane hole, zero field, relaxed 40 τ_GL. Both at
+h = 1, 0.5 and 0.25 ξ. Bottom row: the §13 micron ring at 8.2 mT.
+
+**Validation metrics:**
+
+| | h = 1 ξ | h = 0.5 ξ | h = 0.25 ξ | order in h |
+|---|---|---|---|---|
+| London, rms/B₀ | 4.08e-03 | 1.05e-03 | 3.29e-04 | **1.82** |
+| London, rms/B₀, bulk only | 4.29e-03 | 1.09e-03 | 3.34e-04 | **1.84** |
+| wall, rms \|ψ\| | 4.97e-02 | 1.72e-02 | 4.77e-03 | **1.69** |
+| wall, rms \|ψ′ − (1−ψ²)/√2\| | 9.34e-03 | 3.30e-03 | 8.03e-04 | **1.77** |
+
+The residual falling with the grid at close to second order is the point: it
+identifies the disagreement as the solver's own discretisation error rather than
+a modelling difference. A constant residual, or one converging at first order,
+would indicate a bug — and did during development, twice.
+
+**Neither reaches a clean 2, and the reason differs between them.** In the
+London case the ring of pinned boundary plaquettes is where the solver is
+*exact* — it is a Dirichlet condition, and it agrees with the applied field to
+6e-16 — so the residual there is the truncated series' own Gibbs ringing, which
+does not shrink with `h`. At the original 201-term default that floor capped the
+apparent order of the max error at **1.14**; raising the default to 2001 terms
+recovers **1.73**, and the bulk rms order rises to 1.84. The model, not the
+solver, was the limiting factor.
+
+In the wall case the material coefficient jumps *between* nodes, which is a
+first-order feature locally, so an error averaged over a window holding `O(1)`
+such points out of `O(1/h)` cannot do better than `h^1.5`. Excluding the
+interface does not help — the local error there translates the whole profile —
+which is why the offset-free first integral is checked as well.
+
+**The 3-D path is checked against the same solution.** A problem with no
+z-dependence anywhere must be solved identically by the 2-D and 3-D codes: the
+3-D discrete equations reduce term-for-term, since `∂²/∂z²` annihilates a
+z-invariant field and `φ_z` is driven only by `J_{s,z} = 0`. Measured: the field
+varies across z-slices by **2.2e-16** and differs from the 2-D run by
+**1.7e-10** — agreement to solver precision, not merely to discretisation error.
+This is the check that would have caught the interior-array stride bug in
+`eval_bfield` immediately.
+
+**Two half-cell traps.** Both models are posed on a continuum, so the comparison
+depends on where the discrete quantities actually sit, and being off by half a
+cell degrades second order to first without otherwise looking wrong:
+
+- `B` is plaquette-centred, and the boundary condition pins the whole ring of
+  plaquettes *including the ghost anchor* that the interior array does not
+  carry. The pinned-to-pinned span is `(N-1)h`, and interior entry `i-1` sits at
+  `i·h` from its low end — not at the plaquette centre measured from zero. See
+  `tdgl3d.physics.analytic.plaquette_positions`.
+- The material coefficient jumps *between* nodes, so the effective wall is at
+  the midpoint of the last insulator node and the first superconducting one.
+  Anchoring on either node costs a factor of `h`.
+
+**The bottom row is the honest part.** Applied to the real micron device,
+neither model holds exactly, and the residual plot says where each stops
+applying: the screening current suppresses ψ at the outer edge, and the oxide
+suppresses it from below, capping the plateau at 0.971 rather than the 1 the
+semi-infinite zero-field model asymptotes to. Within about 1 ξ of the hole edge,
+where neither effect dominates, the wall model holds.
+
+**Regenerating:** `python3 docs/figures/analytic_cross_sections.py` — about
+3 minutes (six relaxations plus the ring).
+
+---
+
+## 15. A 3×3 Array of 4 µm Holes — Trapping Flux at Device Scale
+
+![Field ramp — the flux front stalls](figures/nb_hole_array_entry.png)
+
+**Physical mechanism:** The coherence length fixes the grid spacing but
+lithography fixes the device, so a real hole array is a large simulation. Nine
+4 µm square holes on an 8 µm pitch with an 8 µm buffer of unbroken film is
+36 µm across — 240 × 240 × 9 at ξ = 150 nm, 1.8 M nodes at ξ = 100 nm, 15 M at
+ξ = 50 nm.
+
+**Parameters:** 36×36 µm plane, 3×3 array of 4×4 µm holes on an 8 µm pitch,
+8 µm buffer, S(500 nm)/I(500 nm)/S(500 nm), κ=2.0, ξ=150 nm, h=150 nm,
+240×240×9 grid, forward Euler at 0.9 CFL.
+
+### Ramping the field up: the flux front stalls
+
+Nothing enters until **3.15 mT** — and just above that, hundreds of vortices
+enter at once. Held at 3.6 mT for 200 τ_GL, 567 of them pack the buffer into a
+triangular lattice while the whole array stays *fully Meissner-screened behind
+them*. The front stops at the array perimeter and never reaches a hole.
+
+There is therefore **no applied field at which this film holds one or two
+vortices in equilibrium**: it holds none, or it holds hundreds. That is the
+same screening argument as §13 taken to a larger device — an 8 µm buffer is
+27 λ, and the array sits far behind it.
+
+### Field-cooling: flux locked into the holes
+
+| | |
+|:--:|:--:|
+| ![Field-cooled remanent state](figures/nb_hole_array_trapped.png) | ![Vortex entry animation](figures/nb_hole_array_trapped.gif) |
+
+ψ grows from near zero (|ψ| ≈ 0.02, random phase) with the field already on —
+the numerical stand-in for cooling through T_c — so flux is trapped where it
+already is rather than having to cross 8 µm of screening metal. The field then
+drops below the entry threshold, where nothing new can enter, and the state
+settles.
+
+**Validation metrics:** cooled at 4.0 mT and held at 2.0 mT, after 400 τ_GL,
+the figure above (noise seed 31) settles at **3 vortices in the metal between
+the holes** and **7 flux quanta trapped across the nine holes**. An independent
+run of the same protocol at seed 11 gives **2 and 6**, with 380 in the buffer
+and the census flat from t = 293 to t = 400 — so the result is a settled state,
+and is not one particular realisation of the noise.
+
+The census over time is what makes that readable, and both the figure script
+and the CLI print it: a hole that fills and then empties again looks identical,
+at the last frame, to one that never filled.
+
+**Per-hole occupancy is set by the screening, not by the field.** Each hole
+holds about one quantum, not the `B·A/Φ₀ ≈ 19` the applied field would suggest,
+and the B_z map says why: 8 µm of buffer at λ = 300 nm leaves the array
+interior nearly field-free. The levers are therefore the buffer width and κ —
+a narrower buffer, or a dirtier film (sputtered Nb runs κ ≈ 5–20 against the
+κ = 2 here), puts the array inside the screening length instead of far behind
+it. κ = 5 costs about 6× more per unit simulated time, since the explicit step
+limit goes as 1/κ².
+
+**Two populations, counted two ways.** A vortex in the film is a *core*: a
+plaquette carrying 2π of gauge-invariant phase winding, found directly. A hole
+has no core to find — what it holds is a *fluxoid*, read from the winding on a
+contour drawn in the metal around the hole, which comes out an exact integer
+however little field actually threads the opening. The animation labels each
+hole with its fluxoid because there is nothing else on screen to say what it is
+holding.
+
+**Regenerating:** `python3 docs/figures/nb_hole_array.py` — about 50 minutes
+(two runs of ~25 min each on four cores). Not part of the regenerate-everything
+loop above. `packages/tdgl3d/examples/nb_hole_array.py` is the same device as a
+CLI, with `--dry-run` for a cost estimate before committing to a run.
+
+---
+
+## 16. One Hole Through Both Layers of an S/I/S Stack, a Vortex in Only One
+
+![Trapped vortex, isometric](figures/sis_vortex_trapping_3d.png)
+
+**Physical mechanism:** One square hole is carved straight through an S/I/S
+stack, so both metal layers carry the same hole and are geometrically
+identical. A single vortex is seeded on the bottom layer's hole; the top layer
+starts, and stays, in the vortex-free state.
+
+The two layers are coupled only through **A** — this model carries no
+Josephson term, so nothing but the magnetic field crosses the oxide. That
+allows a state the two films could not hold if they were one film: **the
+bottom hole holding a fluxoid of 1 while the top hole, the same hole, holds
+0**. Neither number is a matter of degree — the fluxoid is a topological
+integer — so this is not "more flux here than there", it is two identical
+openings in two different quantum states, and it stays that way at every oxide
+thickness below.
+
+What the thickness moves is the *field*. The trapped quantum's flux is not
+confined to a tube: on leaving the metal it spreads over λ = κ ξ, so the share
+of it still inside a fixed radius by the time it reaches the top layer falls as
+the gap widens. That is what the field lines in the figure are doing — they
+leave the core as a tight bundle and flare across the oxide, and the wider the
+oxide the further they have flared by the time they cross the second film.
+
+**Why there is a hole.** At zero applied field a lone vortex in a finite film
+is pulled towards its image in the edge and leaves. Seeded dead centre in a
+noiseless square it survives only because every escape direction is degenerate
+— a fixed point held by symmetry, which is the trap `AGENTS.md` warns about,
+not a trapped vortex. The hole removes the core condensation energy at one
+spot and pins it for real: a vortex seeded 3 ξ off axis migrates onto the hole
+and stays, and the same run with no hole at all expels it. The hole is carved
+with `MaterialMap.carve_hole_polygon` rather than `Device.add_hole`, so it
+takes the same path through the operators as the oxide and does not depend on
+the hole boundary condition that `docs/notes/HOLE_BC_STATUS.md` records as
+still open.
+
+![Trapped vortex, sweep](figures/sis_vortex_trapping_sweep.png)
+
+**Validates:** `test_physics_validation.py::test_vortex_trapped_in_one_layer_only`,
+`::test_vortex_is_pinned_by_the_hole`,
+`::test_interlayer_flux_transfer_falls_with_oxide_thickness`
+
+**Parameters:** metal span 4 ξ per layer, metal-to-metal oxide gap swept over
+3, 4, 6 and 10 ξ, film 20 ξ wide, 4 ξ lateral vacuum, 5 ξ vacuum above and
+below, a 2 ξ square hole through the whole stack, κ = 2.0, h = 1 ξ (28×28×21
+to 28×28×28), **no applied field**, relaxed 60 τ_GL to max |dX/dt| ≤ 9.5e-05.
+
+**Key features:**
+- Isometric figure: |ψ|² on each metal mid-plane — the same hole in both
+  sheets, a vortex on only the lower one — with the hole outlined in cyan and
+  B field lines traced from the trapped core by RK4 on the interpolated field.
+  Height is measured from the bottom metal in both panels, and both share
+  z-limits, so only the top layer moves between them.
+- Sweep (a), (b): B_z on the vortex axis and the flux within r ≤ 6 ξ, against
+  height. The curves for the four gaps very nearly coincide — the field above
+  the bottom layer is the trapped vortex's own, and is barely changed by moving
+  the second film. What the gap decides is which point of that decaying profile
+  the top layer samples, marked ● on each curve.
+- Sweep (c): the flux reaching the top layer, against gap. The bottom layer
+  holds about 0.59 Φ₀ within r ≤ 6 ξ at every gap.
+- Sweep (d): the radial profile at the top-layer mid-plane, normalised. What
+  arrives across a wide gap arrives spread wider.
+
+**Validation metrics:** the fluxoid is 1.00000000 in the bottom layer and
+0.00000000 in the top one at all four gaps. Flux within r ≤ 6 ξ at the
+top-layer mid-plane falls **0.098 → 0.078 → 0.050 → 0.023 Φ₀** across gaps of
+3, 4, 6 and 10 ξ — 16.7% of the bottom layer's flux down to 3.8% — while the
+bottom layer stays at 0.588–0.600 Φ₀ throughout. max |ψ| = 0.941, so the metal
+is nowhere near pair-broken. The state is a genuine steady state, not a
+snapshot: at the 6 ξ gap the diagnostics are unchanged to five decimals between
+60, 150 and 250 τ_GL, and the residual falls from 1.1e-07 to 4.8e-12 over that
+window.
+
+**A note on the top hole.** Adding the hole to the top layer barely moves the
+transfer numbers (0.097 → 0.098 Φ₀ at the 3 ξ gap against a bottom-only
+column), and that is itself the point: by the time the flux reaches the second
+film it is spread over λ = 2 ξ, much wider than the 2 ξ opening, so a hole that
+size has little left to funnel. The hole earns its place by making the two
+layers *identical*, not by changing what crosses the oxide.
+
+**Regenerating:** `python3 docs/figures/sis_vortex_trapping_3d.py` — about
+6 minutes for the four gaps.
+
+---
