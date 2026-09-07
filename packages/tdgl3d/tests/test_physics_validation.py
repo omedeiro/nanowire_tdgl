@@ -879,3 +879,148 @@ def test_interlayer_flux_transfer_falls_with_oxide_thickness(phys_log):
                 f"fluxoid in the top layer at a {gap_xi:g} xi gap", top,
                 0.0, atol=1e-6,
             )
+
+
+def test_vortex_entry_dynamics(phys_log):
+    """Vortex nucleation dynamics: count starts at 0, grows, saturates."""
+    from tdgl3d.analysis.convergence import compute_convergence_metrics
+    from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
+
+    params = SimulationParameters(Nx=60, Ny=60, Nz=1, kappa=1.0)
+    device = Device(params, applied_field=AppliedField(Bz=0.2, t_on_fraction=1.0))
+
+    with phys_log.test("test_vortex_entry_dynamics", {"Nx": 60, "kappa": 1.0, "Bz": 0.2}) as log:
+        sol = solve(
+            device, t_start=0.0, t_stop=1000.0, dt=0.01, method="euler",
+            save_every=10, progress=False, log_metadata=False,
+        )
+
+        n_steps = sol.n_steps
+        times_arr = sol.times
+
+        # Sample vortex count at regular intervals
+        sample_stride = 50
+        sample_steps = list(range(0, n_steps, sample_stride))
+        if sample_steps[-1] != n_steps - 1:
+            sample_steps.append(n_steps - 1)
+
+        times = []
+        counts = []
+        for step in sample_steps:
+            n_v, _, _ = count_vortices_plaquette(sol, device, slice_z=0, step=step)
+            times.append(float(times_arr[step]))
+            counts.append(n_v)
+
+        times = np.array(times)
+        counts = np.array(counts, dtype=int)
+
+        log["times"] = times.tolist()
+        log["vortex_counts"] = counts.tolist()
+        log["n_sampled"] = len(sample_steps)
+
+        # --- Assertions ---
+
+        # 1. Initial count is 0
+        assert counts[0] == 0, f"Initial vortex count should be 0, got {counts[0]}"
+
+        # 2. Final count > 0 (vortices entered)
+        assert counts[-1] > 0, "No vortices entered by end of simulation"
+
+        # 3. Count increases from 0 to a positive value (vortices enter)
+        #    Allow small fluctuations — vortices can merge or annihilate
+        peak_count = int(np.max(counts))
+        log["peak_count"] = peak_count
+        assert peak_count > 0, "Vortex count never increased from 0"
+        assert counts[-1] > 0, "Vortex count dropped to 0 by end"
+
+        # 4. Time to first vortex < halfway
+        t_first = None
+        for i, c in enumerate(counts):
+            if c > 0:
+                t_first = times[i]
+                break
+        assert t_first is not None, "Vortex never appeared"
+        t_stop = 1000.0
+        assert t_first < t_stop * 0.5, (
+            f"First vortex at t={t_first:.2f}, expected before {t_stop * 0.5:.2f}"
+        )
+        log["t_first_vortex"] = t_first
+
+        # 5. Steady state: sustained convergence check
+        psi_threshold = 1e-4
+        current_threshold = 1e-4
+        window_size = 50
+        min_sustained = 20
+
+        psi2_rel_changes = np.full(n_steps, np.nan)
+        current_rel_changes = np.full(n_steps, np.nan)
+
+        for step in range(window_size, n_steps):
+            metrics = compute_convergence_metrics(
+                sol, device=device, step=step, window_size=window_size,
+            )
+            psi2_rel_changes[step] = metrics.get("psi2_rel_change", np.nan)
+            if "current_rel_change" in metrics:
+                current_rel_changes[step] = metrics["current_rel_change"]
+
+        # Log final convergence values
+        log["psi2_rel_change_final"] = float(psi2_rel_changes[-1]) if not np.isnan(psi2_rel_changes[-1]) else None
+        log["current_rel_change_final"] = float(current_rel_changes[-1]) if not np.isnan(current_rel_changes[-1]) else None
+
+        # Sustained convergence: first step where metrics stay below
+        # threshold for min_sustained consecutive steps.
+        # If current_rel_change is unavailable (NaN), fall back to psi-only.
+        is_steady = False
+        steady_step = -1
+        consecutive = 0
+        for step in range(window_size, n_steps):
+            psi_ok = (not np.isnan(psi2_rel_changes[step])
+                      and psi2_rel_changes[step] < psi_threshold)
+            cur_val = current_rel_changes[step]
+            cur_ok = np.isnan(cur_val) or cur_val < current_threshold
+            if psi_ok and cur_ok:
+                consecutive += 1
+                if consecutive >= min_sustained:
+                    steady_step = step - min_sustained + 1
+                    is_steady = True
+                    break
+            else:
+                consecutive = 0
+
+        log["is_steady"] = is_steady
+        log["steady_step"] = steady_step
+        if is_steady:
+            t_steady = float(times_arr[steady_step])
+            log["steady_time"] = t_steady
+        else:
+            log["steady_time"] = None
+
+        # 6. Saturation: last 20% of sampled steps have low relative fluctuation
+        n_tail = max(2, len(counts) // 5)
+        tail = counts[-n_tail:]
+        tail_mean = float(np.mean(tail))
+        tail_std = float(np.std(tail))
+        saturation_ratio = tail_std / max(tail_mean, 1.0)
+        log["saturation_mean"] = tail_mean
+        log["saturation_std"] = tail_std
+        log["saturation_ratio"] = saturation_ratio
+        assert saturation_ratio < 0.5, (
+            f"Count not saturated: last {n_tail} steps have "
+            f"mean={tail_mean:.1f}, std={tail_std:.1f}, ratio={saturation_ratio:.2f}"
+        )
+
+        # 7. Final count vs expected B·A/Φ₀
+        Bz_applied = 0.2
+        expected = float(Bz_applied * (params.Nx * params.hx) * (params.Ny * params.hy) / (2 * np.pi))
+        log["expected_approx"] = expected
+        log["final_count"] = int(counts[-1])
+
+        min_expected = int(0.15 * expected)
+        assert counts[-1] >= min_expected, (
+            f"Final count {counts[-1]} below 15% of expected {expected:.0f} (min {min_expected})"
+        )
+
+        # 8. Entry rate (logged, no hard assert)
+        if t_first < t_stop:
+            rate = float(counts[-1]) / (t_stop - t_first)
+            log["entry_rate"] = rate
