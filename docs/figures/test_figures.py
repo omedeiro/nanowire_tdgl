@@ -58,6 +58,13 @@ SCRIPTS = [
         "sis_vortex_trapping_3d.png",
         "sis_vortex_trapping_sweep.png",
     ]),
+    ("sis_moat_array", [
+        "sis_moat_array_B0.10_layers.png",
+        "sis_moat_array_B0.10_tracks.png",
+        "sis_moat_array_B0.10_section.png",
+        "sis_moat_array_B0.10.gif",
+        "sis_moat_array_sweep.png",
+    ]),
 ]
 
 
