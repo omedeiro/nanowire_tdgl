@@ -98,7 +98,7 @@ HZ = 1.0
 #: |ψ|² ≈ 0.75 on its mid-plane; a 1 ξ layer would be pair-broken through.
 SC_CELLS, INS_CELLS, VAC_CELLS = 4, 2, 3
 #: Applied fields in units of Φ₀/(2πξ²) = H_c2.
-FIELDS = (0.02, 0.05, 0.10, 0.15, 0.20, 0.30)
+FIELDS = (0.02, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
 T_STOP = 150.0
 FRAMES = 75
 #: |ψ| at t = 0 is uniform on [0, PSI0_AMPLITUDE] with a uniformly random phase.
