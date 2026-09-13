@@ -49,7 +49,7 @@ layer, with the per-moat occupancy — the field at which the moats fill up is
 where the film count leaves the 1–10 band.
 
 Full resolution is 92 × 92 × 16 (124 k interior nodes) and takes roughly
-8 minutes per field on four cores.  ``small=True`` runs a 22 × 22 × 16 device
+5 minutes per field on four cores, four of them solving.  ``small=True`` runs a 22 × 22 × 16 device
 for the smoke test.
 """
 
@@ -740,6 +740,7 @@ def plot_sweep(results: dict[float, dict], spec: Spec, path: Path,
     ax.set_ylabel("vortices in the film")
     ax.set_title("settling (solid: bottom, dotted: top)")
     ax.set_yscale("symlog", linthresh=10)
+    ax.set_ylim(bottom=0)
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
 
