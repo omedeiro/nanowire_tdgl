@@ -7,6 +7,7 @@ and verifies that the expected PNG files are created and non-empty.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -24,6 +25,10 @@ FIGURES_DIR = Path(__file__).parent
 def _load_module(name: str):
     spec = importlib.util.spec_from_file_location(name, FIGURES_DIR / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
+    # Registered before execution, as importlib does: a dataclass defined
+    # under ``from __future__ import annotations`` resolves its field types
+    # through ``sys.modules[cls.__module__]``.
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -57,6 +62,13 @@ SCRIPTS = [
     ("sis_vortex_trapping_3d", [
         "sis_vortex_trapping_3d.png",
         "sis_vortex_trapping_sweep.png",
+    ]),
+    ("sis_moat_array", [
+        "sis_moat_array_B0.10_layers.png",
+        "sis_moat_array_B0.10_tracks.png",
+        "sis_moat_array_B0.10_section.png",
+        "sis_moat_array_B0.10.gif",
+        "sis_moat_array_sweep.png",
     ]),
 ]
 
