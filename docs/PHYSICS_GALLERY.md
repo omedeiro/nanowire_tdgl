@@ -463,16 +463,33 @@ steady-state lattice configuration.
 
 **Validates:** `test_physics_validation.py::test_vortex_entry_dynamics`
 
-**Parameters:** 100×100×1 grid, κ=2.0, Bz=0.5, t=200 (Forward Euler), 1%
+**Parameters:** 60×60×1 grid, κ=2.0, Bz=0.5, t=600 (Forward Euler), 1%
 initial noise at seed 7
+
+The run has to be long enough to *end*. The count locks at 153 vortices around
+t ≈ 390 and the fields stop moving by t ≈ 482, leaving a flat stretch that shows
+the steady state has been reached rather than merely run out of time axis. A
+100 ξ film at the same field is still trickling vortices in past t = 900 — the
+edge barrier keeps admitting them as the lattice compresses — so there is no
+steady state to mark, which is why the film is 60 ξ and not larger.
 
 **Key features (animated GIF):**
 - Top-left: |ψ|² heatmap with vortex core markers (cyan ×)
 - Top-right: arg(ψ) phase heatmap showing ±2π winding around each vortex
-- Bottom: Vortex count vs time with red vertical marker tracking the current frame
+- Bottom-left: Vortex count vs time, with a red marker tracking the current
+  frame and a green line at the steady-state time
+- Bottom-right: Convergence diagnostics — relative change in |ψ|² and in |J_s|
+  against their thresholds
 
-**Validation metrics:** Count starts at 0, grows, saturates; first vortex before t=100;
-final count ≥ 15% of expected B·A/Φ₀; steady-state fluctuation < 50%
+The two thresholds differ (1e-4 for |ψ|², 5e-4 for |J_s|) because they settle on
+different timescales: the order parameter is down at 1e-5 while the supercurrent
+still carries a slow few-times-1e-4 wobble, the lattice annealing into place
+after the count has stopped changing.
+
+**Validation metrics:** Count starts at 0, grows, saturates; first vortex before
+half the run; final count ≥ 15% of expected B·A/Φ₀; steady-state fluctuation
+< 50%; and both convergence metrics hold below threshold for ten consecutive
+samples rather than dipping below once
 
 ---
 

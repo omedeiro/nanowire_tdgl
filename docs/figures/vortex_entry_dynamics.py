@@ -19,8 +19,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 from tdgl3d import AppliedField, Device, SimulationParameters, solve
-from tdgl3d.analysis.convergence import compute_convergence_metrics
+from tdgl3d.analysis.convergence import convergence_history, first_sustained_sample
 from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
+
+# ``Device.initial_state`` seeds psi with 1% complex noise drawn from a
+# non-deterministic RNG unless a seed is given, so an unseeded figure is a
+# different realisation every time it is regenerated and cannot be compared
+# against the one committed to the gallery.  Pin it.
+NOISE_SEED = 7
+
+# The order parameter settles hard; the supercurrent keeps a slow few-times-1e-4
+# wobble for a few hundred tau after the count has locked, while the lattice
+# anneals into place.  See ``test_vortex_entry_dynamics``.
+PSI_THRESHOLD = 1e-4
+CURRENT_THRESHOLD = 5e-4
 
 
 def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[Path]:
@@ -30,18 +42,26 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         save_every = 5
         step_stride = 5
     else:
-        Nx, Ny, Nz = 75, 75, 1
-        t_stop = 1000.0
+        # 60 xi is the largest film that actually *finishes*: the count locks at
+        # t ~ 390 and the fields stop moving by t ~ 480, leaving a visible flat
+        # stretch at the end.  At 100 xi the edge barrier is still trickling
+        # vortices in past t = 900, so there is no steady state to mark.
+        Nx, Ny, Nz = 60, 60, 1
+        t_stop = 600.0
         save_every = 50
-        step_stride = 100
+        step_stride = 40
 
-    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=1.0)
-    Bz_applied = 0.2
+    # kappa = 2 and Bz = 0.5 H_c2 sit above the Bean-Livingston entry field, so
+    # flux actually penetrates; below it the film simply stays Meissner and
+    # there is no entry to animate.
+    params = SimulationParameters(Nx=Nx, Ny=Ny, Nz=Nz, kappa=2.0)
+    Bz_applied = 0.5
     device = Device(params, applied_field=AppliedField(Bz=Bz_applied, t_on_fraction=1.0))
 
     sol = solve(
         device, t_start=0.0, t_stop=t_stop, dt=0.01, method="euler",
         save_every=save_every, progress=False, log_metadata=False,
+        noise_seed=NOISE_SEED,
     )
 
     # --- Pre-compute data for all saved steps ---
@@ -54,43 +74,24 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
         n_v, _, _ = count_vortices_plaquette(sol, device, slice_z=0, step=step)
         vortex_counts[step] = n_v
 
-    # --- Convergence metrics at every saved step ---
-    psi_threshold = 1e-4
-    current_threshold = 1e-4
-    window_size = 50
-    min_sustained = 20  # must stay below threshold for this many consecutive steps
+    # --- Convergence metrics, sampled across the run ---
+    # Every sample costs two supercurrent evaluations, so walk the run with a
+    # stride rather than step by step.  ``min_sustained`` counts samples, so
+    # the steady-state mark is where the metrics first stay down for
+    # min_sustained * conv_stride saved steps (10 tau_GL here) rather than
+    # merely dipping once.
+    window_size = 20
+    conv_stride = 2
+    min_sustained = 10
 
-    psi2_rel_changes = np.full(n_steps, np.nan)
-    current_rel_changes = np.full(n_steps, np.nan)
-
-    conv_stride = 5
-    for step in range(window_size, n_steps, conv_stride):
-        metrics = compute_convergence_metrics(
-            sol, device=device, step=step, window_size=window_size,
-        )
-        psi2_rel_changes[step] = metrics.get("psi2_rel_change", np.nan)
-        if "current_rel_change" in metrics:
-            current_rel_changes[step] = metrics["current_rel_change"]
-
-    # Sustained convergence: find first step where metrics stay below
-    # threshold for min_sustained consecutive steps.
-    # If current_rel_change is unavailable (NaN), fall back to psi-only.
-    t_steady = None
-    steady_step = -1
-    consecutive = 0
-    for step in range(window_size, n_steps):
-        psi_ok = (not np.isnan(psi2_rel_changes[step])
-                  and psi2_rel_changes[step] < psi_threshold)
-        cur_val = current_rel_changes[step]
-        cur_ok = np.isnan(cur_val) or cur_val < current_threshold
-        if psi_ok and cur_ok:
-            consecutive += 1
-            if consecutive >= min_sustained:
-                steady_step = step - min_sustained + 1
-                t_steady = float(times[steady_step])
-                break
-        else:
-            consecutive = 0
+    conv_steps, psi2_rel_changes, current_rel_changes = convergence_history(
+        sol, device, window_size=window_size, start_step=window_size, stride=conv_stride,
+    )
+    sample = first_sustained_sample(
+        psi2_rel_changes, current_rel_changes, psi_threshold=PSI_THRESHOLD,
+        current_threshold=CURRENT_THRESHOLD, min_sustained=min_sustained,
+    )
+    t_steady = float(times[conv_steps[sample]]) if sample >= 0 else None
 
     # Animation frame indices
     frame_steps = list(range(0, n_steps, step_stride))
@@ -155,13 +156,15 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     marker_line = ax_count.axvline(times[frame_steps[0]], color="red", linewidth=2, alpha=0.7)
 
     # --- Bottom-right: Convergence diagnostics ---
-    conv_times = times[window_size:]
-    ax_conv.plot(conv_times, psi2_rel_changes[window_size:],
+    conv_times = times[conv_steps]
+    ax_conv.plot(conv_times, psi2_rel_changes,
                  "-", color="C0", linewidth=1.2, label="|ψ|² rel. change")
-    ax_conv.plot(conv_times, current_rel_changes[window_size:],
+    ax_conv.plot(conv_times, current_rel_changes,
                  "-", color="C1", linewidth=1.2, label="|J_s| rel. change")
-    ax_conv.axhline(psi_threshold, color="red", linestyle="--", linewidth=1, alpha=0.7,
-                    label=f"threshold = {psi_threshold:.0e}")
+    ax_conv.axhline(PSI_THRESHOLD, color="C0", linestyle="--", linewidth=1, alpha=0.7,
+                    label=f"|ψ|² threshold = {PSI_THRESHOLD:.0e}")
+    ax_conv.axhline(CURRENT_THRESHOLD, color="C1", linestyle="--", linewidth=1, alpha=0.7,
+                    label=f"|J_s| threshold = {CURRENT_THRESHOLD:.0e}")
     if t_steady is not None:
         ax_conv.axvline(t_steady, color="green", linestyle="--", linewidth=1.5, alpha=0.8,
                         label=f"steady state (t={t_steady:.0f})")
@@ -215,7 +218,10 @@ def main(output_dir: Path = Path(__file__).parent, small: bool = False) -> list[
     anim = FuncAnimation(fig, update, frames=n_frames, blit=False)
 
     out = output_dir / "vortex_entry_dynamics.gif"
-    anim.save(str(out), writer=PillowWriter(fps=10))
+    # 14x10 in at the default 100 dpi lands a 31-frame GIF at ~4 MB, which is
+    # a lot of repository for one figure; 80 dpi halves it and still resolves
+    # the vortex markers and the axis labels.
+    anim.save(str(out), writer=PillowWriter(fps=10), dpi=80)
     plt.close(fig)
     return [out]
 

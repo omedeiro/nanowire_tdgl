@@ -431,6 +431,8 @@ class Solution:
         psi_threshold: float = 1e-4,
         current_threshold: float = 1e-4,
         start_step: int = 20,
+        min_sustained: int = 1,
+        stride: int = 1,
     ):
         """Check if simulation has reached steady state.
 
@@ -446,6 +448,11 @@ class Solution:
             Convergence threshold for supercurrent (if device provided)
         start_step : int, default 20
             Don't check before this step (allow initial transient)
+        min_sustained : int, default 1
+            How many consecutive samples must be below threshold before the
+            run counts as steady (1 accepts the first dip, transient or not)
+        stride : int, default 1
+            Sample every ``stride``-th saved step
 
         Returns
         -------
@@ -463,7 +470,7 @@ class Solution:
         from ..analysis.convergence import check_steady_state
         return check_steady_state(
             self, device, window_size, psi_threshold,
-            current_threshold, start_step
+            current_threshold, start_step, min_sustained, stride
         )
 
     # -- I/O methods ---------------------------------------------------------

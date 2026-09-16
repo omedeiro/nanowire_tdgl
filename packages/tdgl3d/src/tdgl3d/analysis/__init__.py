@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from .convergence import check_steady_state, compute_convergence_metrics
+from .convergence import (
+    check_steady_state,
+    compute_convergence_metrics,
+    convergence_history,
+    first_sustained_sample,
+)
 from .expulsion import (
     ExpulsionResult,
     expulsion_field,
@@ -21,6 +26,8 @@ from .vortex_counting import (
 __all__ = [
     "check_steady_state",
     "compute_convergence_metrics",
+    "convergence_history",
+    "first_sustained_sample",
     "count_vortices_plaquette",
     "count_vortices_polygon",
     "plaquette_vorticity",
