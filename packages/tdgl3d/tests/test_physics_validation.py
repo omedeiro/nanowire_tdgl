@@ -40,7 +40,10 @@ from tdgl3d import (
     Layer,
     SimulationParameters,
     Trilayer,
+    solve,
 )
+from tdgl3d.analysis.convergence import check_steady_state
+from tdgl3d.analysis.vortex_counting import count_vortices_plaquette
 from tdgl3d.core.material import build_material_map
 from tdgl3d.mesh.indices import construct_indices
 from tdgl3d.operators.sparse_operators import construct_LPHI_x
@@ -879,3 +882,119 @@ def test_interlayer_flux_transfer_falls_with_oxide_thickness(phys_log):
                 f"fluxoid in the top layer at a {gap_xi:g} xi gap", top,
                 0.0, atol=1e-6,
             )
+
+
+
+def test_vortex_entry_dynamics(phys_log):
+    """Vortex entry is a transient: the count rises from zero and then settles.
+
+    Above the entry field a bare film does not jump to its final vortex
+    configuration -- flux nucleates at the edge, migrates inward, and the count
+    climbs until the intervortex repulsion balances the drive.  Three things
+    have to hold together for that to be the story:
+
+    the count must *start* at zero (a field-free initial condition, not a
+    simulation that was seeded with the answer), it must *rise* (the barrier is
+    actually crossed), and it must *stop* rising while the run is still going
+    (the plateau is the steady state, not the end of the time axis).
+
+    Any one of them alone is cheap.  A dead simulation stays at zero forever; a
+    pair-broken one fills with spurious cores immediately and never settles.
+    Both the level and the flatness are therefore asserted, along with the
+    solver's own convergence metric, which has to agree that the fields have
+    stopped moving by the time the count does.
+
+    kappa = 2 and B = 0.5 H_c2 put the film above the Bean-Livingston entry
+    field (~H_c = 1/(sqrt(2) kappa) = 0.35) with room to spare; at kappa = 1 the
+    same field sits below it and the film stays in the pure Meissner state.
+    """
+    Bz_applied = 0.5
+    t_stop = 200.0
+    save_every = 20
+    params = SimulationParameters(Nx=40, Ny=40, Nz=1, kappa=2.0)
+    device = Device(params, applied_field=AppliedField(Bz=Bz_applied, t_on_fraction=1.0))
+
+    meta = {"Nx": 40, "Ny": 40, "kappa": 2.0, "Bz": Bz_applied, "t_stop": t_stop}
+    with phys_log.test("test_vortex_entry_dynamics", meta) as log:
+        sol = solve(
+            device, t_start=0.0, t_stop=t_stop, dt=0.01, method="euler",
+            save_every=save_every, progress=False, log_metadata=False,
+            # ``Device.initial_state`` draws its 1% seed noise from a
+            # non-deterministic RNG unless a seed is given, and which vortices
+            # nucleate where depends on that noise.  Pin it.
+            noise_seed=7,
+        )
+
+        sample_stride = 5
+        sample_steps = list(range(0, sol.n_steps, sample_stride))
+        if sample_steps[-1] != sol.n_steps - 1:
+            sample_steps.append(sol.n_steps - 1)
+
+        times = np.array([float(sol.times[s]) for s in sample_steps])
+        counts = np.array(
+            [count_vortices_plaquette(sol, device, slice_z=0, step=s)[0] for s in sample_steps],
+            dtype=int,
+        )
+        log["times"] = times.tolist()
+        log["vortex_counts"] = counts.tolist()
+
+        # The field is on from t = 0, so the only reason step 0 holds no
+        # vortices is that none have had time to enter yet.
+        log.check_close("vortex count at t = 0", counts[0], 0.0, atol=0.0)
+
+        entered = np.flatnonzero(counts > 0)
+        assert entered.size, "no vortex ever entered the film"
+        t_first = float(times[entered[0]])
+        log["t_first_vortex"] = t_first
+        log.check_below(
+            "time of first vortex entry", t_first, 0.5 * t_stop, units="tau_GL",
+            detail="entry must be a transient, not something still starting at the end",
+        )
+
+        # A film at B = 0.5 H_c2 holds far fewer vortices than the naive
+        # B*A/Phi_0 -- the edge barrier and the screening currents both cut it
+        # down -- so this is a floor on the flux that got in, not a prediction.
+        expected = Bz_applied * (params.Nx * params.hx) * (params.Ny * params.hy) / (2 * np.pi)
+        log["expected_flux_quanta"] = expected
+        log.check_above(
+            "final vortex count", counts[-1], 0.15 * expected,
+            detail=f"at least 15% of the {expected:.0f} quanta the applied flux would carry",
+        )
+
+        # Flatness over the last fifth of the run: the plateau is the steady
+        # state, not the time axis running out.
+        tail = counts[max(2, len(counts) // 5) * -1:]
+        spread = float(np.std(tail)) / max(float(np.mean(tail)), 1.0)
+        log["tail_mean"] = float(np.mean(tail))
+        log["tail_std"] = float(np.std(tail))
+        log.check_below(
+            "relative spread of the vortex count over the last fifth of the run",
+            spread, 0.5, detail="the count must stop climbing before the run ends",
+        )
+
+        # ... and the solver's own convergence metric has to agree.  Demand the
+        # run *stays* converged: a single sample below threshold is something a
+        # lull between two entries produces on its own.
+        #
+        # |psi|^2 is down at 1e-5 by the end, but |J_s| holds a slow few-times-
+        # 1e-4 wobble with a period of ~50 tau and does not stay under 1e-4
+        # until t ~ 470: the count is fixed long before the lattice has finished
+        # annealing into place, and the current is what still moves while it
+        # does.  Asking for 1e-4 on the current here would be asking to run
+        # 2.5x longer to measure something this test is not about.
+        is_steady, steady_step, metrics = check_steady_state(
+            sol, device, window_size=20, start_step=50, stride=sample_stride,
+            psi_threshold=1e-4, current_threshold=5e-4, min_sustained=10,
+        )
+        log["psi2_rel_change_final"] = metrics["psi2_rel_change"]
+        log["current_rel_change_final"] = metrics.get("current_rel_change")
+        log["steady_time"] = metrics.get("steady_time")
+        assert is_steady, (
+            "|psi|^2 and |J_s| never held below 1e-4 / 5e-4 for 10 consecutive "
+            f"samples; final relative changes {metrics['psi2_rel_change']:.3g} and "
+            f"{metrics.get('current_rel_change', float('nan')):.3g}"
+        )
+        log.check_below(
+            "time at which the fields stop moving", float(sol.times[steady_step]),
+            t_stop, units="tau_GL",
+        )
