@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tdgl3d"
-version = "1.0.0"
+version = "2.0.0"
 description = "3D Time-Dependent Ginzburg-Landau superconductor vortex simulator"
 readme = "README.md"
 license = {text = "MIT"}

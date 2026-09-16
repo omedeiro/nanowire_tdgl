@@ -1,5 +1,5 @@
 {
-  "packages/tdgl3d": "1.0.0",
-  "packages/schema": "0.2.0",
-  "packages/tdgl3d-server": "0.2.0"
+  "packages/tdgl3d": "2.0.0",
+  "packages/schema": "0.3.0",
+  "packages/tdgl3d-server": "0.3.0"
 }
