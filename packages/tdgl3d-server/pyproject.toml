@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tdgl3d-server"
-version = "0.2.0"
+version = "0.3.0"
 description = "FastAPI job service for the tdgl3d solver"
 readme = "README.md"
 license = {text = "MIT"}
