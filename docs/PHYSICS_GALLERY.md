@@ -830,3 +830,106 @@ layers *identical*, not by changing what crosses the oxide.
 6 minutes for the four gaps.
 
 ---
+
+## 17. A Moat Grid in a Field-Cooled S/I/S Film — When the Moats Fill Up
+
+![Moat grid at B = 0.10, both layers](figures/sis_moat_array_B0.10_layers.png)
+
+**Physical mechanism:** A ground plane in an SFQ process is a superconducting
+film with a grid of moats — cut-outs whose job is to take the flux that would
+otherwise be pinned in the film next to a circuit. Here that is an S/I/S stack
+(two 4 ξ metal layers, a 2 ξ oxide, 3 ξ of vacuum above and below) with a
+4 × 4 grid of 6 ξ square moats on a 15 ξ pitch etched through the whole stack,
+in a 69 ξ film.
+
+Each run starts from a **random order parameter**: random amplitude on
+[0, 0.1] and random phase at every superconducting node, with the applied
+field already uniform through the box (the links are seeded in the symmetric
+gauge). That is the numerical stand-in for cooling through T_c in a field: the
+condensate forms with the flux already in it, at a density set by the field,
+and only then do the vortices sort themselves — into a moat, into the film
+between the moats, or out through the edge. Started from φ = 0 instead, the
+field would have to diffuse in from the box walls, which on this film takes
+longer than the condensate takes to form, and the film would screen it out.
+
+The two metal layers are coupled only through the field — there is no
+Josephson term — so each layer nucleates its own configuration from its own
+random start. At B = 0.10 the bottom layer ends with 7 vortices pinned in the
+film and the top layer with 6, and only **one** of them has a partner on the
+other layer within 2.5 ξ; 6 are on the bottom layer alone and 5 on the top
+alone. The section below cuts through one of the bottom-only vortices: its
+core is a hole in |ψ|² through the bottom metal and nothing at all in the top
+metal, and its flux, a tight bundle in the bottom layer, has flared to a broad
+bump by the time it reaches the top one.
+
+![Section through a vortex pinned in one layer only](figures/sis_moat_array_B0.10_section.png)
+
+**Where every vortex goes.** From t = 10 τ_GL, once the condensate has formed,
+every core is tracked frame to frame and its path drawn, coloured by its fate.
+At B = 0.10 on the bottom layer, 19 walked into a moat, 7 stayed pinned in the
+film, 2 annihilated with an antivortex and 5 left through the edge. The
+captured ones travel a few ξ at most: a vortex is only taken by a moat it
+formed next to.
+
+![Vortex paths at B = 0.10](figures/sis_moat_array_B0.10_tracks.png)
+
+**The sweep.** Seven applied fields, same geometry, same seed:
+
+| B (H_c2) | flux through film, BA/Φ₀ | in the film (bottom / top) | in the moats (bottom / top) | per moat, mean |
+|---|---|---|---|---|
+| 0.02 | 15 | 0 / 0 | 11 / 13 | 0.7 – 0.8 |
+| 0.05 | 38 | 0 / 0 | 30 / 33 | 1.9 – 2.1 |
+| **0.10** | 76 | **7 / 6** | 54 / 54 | 3.4 |
+| 0.15 | 114 | 26 / 26 | 72 / 72 | 4.5 |
+| 0.20 | 152 | 48 / 49 | 83 / 85 | 5.2 – 5.3 |
+| 0.25 | 189 | 67 / 67 | 99 / 99 | 6.2 |
+| 0.30 | 227 | 93 / 90 | 108 / 112 | 6.8 – 7.0 |
+
+![Sweep over applied field](figures/sis_moat_array_sweep.png)
+
+Below 0.05 the film is clean: everything the film keeps, the moats hold, at
+one to three quanta each. The moats never stop taking flux — the fullest one
+holds 8 quanta at B = 0.30 — but from B ≈ 0.10 they take a shrinking share of
+it: the film count goes 0 → 7 → 26 → 48 → 67 → 93 while the moat total rises
+only 54 → 108. **The 1–10 window the moats are designed for is B ≈ 0.10 on
+this geometry**, and past 0.15 the film between the moats is a vortex lattice
+with the moats sitting in it.
+
+![Moat grid at B = 0.30, both layers](figures/sis_moat_array_B0.30_layers.png)
+
+The gap between BA/Φ₀ and what the film plus the moats hold is the flux that
+left through the edge while the condensate formed — 15 quanta of 76 at
+B = 0.10 — and the film-vs-moat split is read from a settled state at the low fields
+— the census is unchanged from t = 24, 50 and 118 τ_GL at B = 0.02, 0.05 and
+0.10 — while at 0.15 and above one vortex still walks into a moat as late as
+t ≈ 140, so those totals are settled to within a quantum or two, not exactly.
+The two layers agree on the totals to a
+few quanta at every field while disagreeing on *which* moats and *which*
+sites hold them, which is what independent nucleation on each layer should
+give.
+
+**Parameters:** 69 ξ square film, 4 × 4 moats of 6 ξ on a 15 ξ pitch with a
+9 ξ buffer, S(4 ξ)/I(2 ξ)/S(4 ξ) with 3 ξ of vacuum above and below, κ = 2.0,
+h = 0.75 ξ in plane and 1 ξ out of plane (92 × 92 × 16, 124 k interior nodes),
+forward Euler at 0.9 CFL (dt = 0.0158), 150 τ_GL, 75 saved frames, noise
+seed 7. max |ψ|² = 0.69–0.75 on the metal mid-planes, set by the oxide and
+vacuum interfaces on a 4 ξ layer.
+
+**Key features:**
+- Layer figure: |ψ|², arg ψ and |J_s| with streamlines on both metal
+  mid-planes; every moat carries the fluxoid it holds (an exact integer from
+  the winding on a contour 1.5 ξ outside it), ○/△ mark ±1 vortices pinned in
+  the film.
+- Tracks figure: every vortex path from t = 10 τ_GL, cyan into a moat, orange
+  pinned in the film, grey annihilated, purple out through the edge.
+- Section figure: |ψ|² and B_z on the x–z plane through a vortex pinned on one
+  layer only, with both layers' film vortices on one map — red squares bottom
+  only, blue diamonds top only, white circles both.
+- `sis_moat_array_B{B}.gif` (not committed): both layers through the run.
+
+**Regenerating:** `python3 docs/figures/sis_moat_array.py` — about 35 minutes
+for the seven fields (four minutes solving each, one plotting). `--reuse`
+replots from the saved `.h5` files; `--fields 0.10` runs one. Not part of the
+regenerate-everything loop above.
+
+---
